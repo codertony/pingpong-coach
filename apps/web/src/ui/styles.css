@@ -5,6 +5,15 @@
   --panel: #171c23;
   --panel-2: #1e2530;
   --border: #2a3340;
+  /*
+   * 交互控件（input / select / button / tab）的边框色，比 --border 亮。
+   *
+   * 为什么要分开：WCAG 1.4.11 要求**交互组件**的边界可辨认（≥ 3:1），
+   * 而装饰性分隔线（面板外框、表格行线）不在此列。原先把两者共用一个
+   * 颜色，导致表单控件边框对自身背景只有 1.21:1 —— 深色主题下低视力用户
+   * 很难看出输入框的边界在哪。全部调亮会让整个界面发灰，所以只提控件这一层。
+   */
+  --border-control: #64728c;
   --text: #e6edf3;
   --muted: #93a1b1;
   --accent: #4ea1ff;
@@ -59,7 +68,7 @@ body {
   padding: 6px 14px;
   border-radius: var(--radius);
   cursor: pointer;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   background: var(--panel);
   color: var(--muted);
   font-size: 13px;
@@ -162,7 +171,7 @@ select,
 input[type="text"],
 input[type="number"] {
   background: var(--panel-2);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   color: var(--text);
   padding: 7px 10px;
   border-radius: 8px;
@@ -173,7 +182,7 @@ input[type="number"] {
 button {
   padding: 8px 16px;
   border-radius: 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-control);
   background: var(--panel-2);
   color: var(--text);
   cursor: pointer;

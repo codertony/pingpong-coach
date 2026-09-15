@@ -84,7 +84,7 @@ web (Playwright/真 Chrome) 38
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 118.7 KiB | 小 |
 | A7 | Docker 镜像构建验证 | Dockerfile 已存在但未在沙箱内真正 `docker build` 过 | 小 |
 | A8 | changesets 发布流程 | 已装但未配置，多包版本发布流程未打通 | 小 |
-| A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度未做** | 小 |
+| A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度另查出并修掉一个真实缺陷**：交互控件与装饰线原先共用一个边框色，表单控件边框对自身背景只有 **1.21:1**，深色主题下很难看出输入框边界 —— 拆出 `--border-control` 提到 3.18:1，并用 `contrast.test.ts` 6 项钉住 | 小 |
 
 **建议**：A2 价值最高 —— 它是 A 类里唯一完全没动的，且"整页链路"正是 F-007/008/011 三个缺陷藏身的地方。
 其次是补 A1 / A4 / A5 各自标注的剩余部分。
