@@ -1,0 +1,62 @@
+{
+  "$comment": "模型资产清单。实现 models:fetch 脚本时以本文件为准，记录模型 ID、来源、URL、SHA-256、文件大小、SDK 版本、关键点集合及许可来源。校验失败必须明确报错，不静默换用另一版模型。重新选择模型后需重新评测并记录 modelId。",
+
+  "assets": [
+    {
+      "modelId": "pose_landmarker_full",
+      "role": "primary",
+      "purpose": "P0 首版姿态识别。作为质量候选，后续用同一素材与 Lite 比较速度。",
+      "source": "mediapipe",
+      "keypointSet": "blaze_33",
+      "keypointCount": 33,
+      "license": "Apache-2.0",
+      "licenseSource": "https://github.com/google-ai-edge/mediapipe",
+      "sdkPackage": "@mediapipe/tasks-vision",
+      "sdkVersionRange": "^0.10.18",
+      "files": [
+        {
+          "path": "apps/web/public/models/pose_landmarker_full.task",
+          "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
+          "sha256": null,
+          "bytes": null
+        }
+      ],
+      "notes": [
+        "sha256 与 bytes 需在首次 models:fetch 时实际下载后填入，不预先编造。",
+        "WASM 资源来自 @mediapipe/tasks-vision 包内的 wasm 目录，构建时复制到 apps/web/public/wasm/。",
+        "本项目不依赖外部 CDN 提供模型文件，避免每次训练受网络影响。"
+      ]
+    },
+    {
+      "modelId": "pose_landmarker_lite",
+      "role": "speed-comparison",
+      "purpose": "仅在 Full 版本速度不达标时，用同一素材比较是否改善。",
+      "source": "mediapipe",
+      "keypointSet": "blaze_33",
+      "keypointCount": 33,
+      "license": "Apache-2.0",
+      "licenseSource": "https://github.com/google-ai-edge/mediapipe",
+      "sdkPackage": "@mediapipe/tasks-vision",
+      "sdkVersionRange": "^0.10.18",
+      "files": [
+        {
+          "path": "apps/web/public/models/pose_landmarker_lite.task",
+          "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
+          "sha256": null,
+          "bytes": null
+        }
+      ],
+      "notes": ["未启用。启用前必须在同一素材上比较质量与速度。"]
+    }
+  ],
+
+  "conditionalAlternatives": [
+    {
+      "engine": "rtmlib (RTMPose)",
+      "trigger": "MediaPipe 在经过两轮有记录的机位/曝光调整后仍无法通过可观测性门槛",
+      "license": "Apache-2.0",
+      "decision": "pending",
+      "recordIn": "docs/decisions.md"
+    }
+  ]
+}

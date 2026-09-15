@@ -1,0 +1,29 @@
+{
+  "name": "@pingpong/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "React/Vite 前端：摄像头采集、Worker 姿态推理、证据构建、练习与复查界面",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "^0.10.18",
+    "@pingpong/contracts": "workspace:*",
+    "@pingpong/motion-core": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7",
+    "vitest": "^2.1.8"
+  }
+}

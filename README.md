@@ -1,0 +1,261 @@
+# pingpong-coach
+
+实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
+
+当前状态：**P0 + P1 代码骨架已完成**，全部单元测试通过。
+模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
+
+> ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
+> 所有阈值都是**暂定值**，所有评分规则都是 `observation_only`（未审核），
+> 真实精度和真实延迟**尚未验证**。详见 `docs/known-failures.md` 与 `docs/evaluation-log.md`。
+
+---
+
+## 0. 安装位置（重要）
+
+本仓库应放在 **D 盘**：
+
+```
+D:\Workspace\pingpong-coach\
+```
+
+### 为什么必须先把缓存挪到 D 盘
+
+pnpm 和 npm 默认把全局内容寻址存储和缓存放在 `C:\Users\<你>\AppData\Local\` 下。
+本项目依赖体积不小（MediaPipe + Vite + React + Vitest），
+如果你 C 盘紧张，**先执行下面两条命令再安装**：
+
+```powershell
+pnpm config set store-dir D:\pnpm-store
+npm  config set cache     D:\npm-cache
+```
+
+验证是否生效：
+
+```powershell
+pnpm config get store-dir   # 应输出 D:\pnpm-store
+npm  config get cache       # 应输出 D:\npm-cache
+```
+
+如果 `D:\pnpm-store` 和 `D:\npm-cache` 目录不存在，手动建一下即可（pnpm 也会自动创建）。
+
+> 补充：`node_modules` 本身会落在仓库目录里，也就是 `D:\Workspace\pingpong-coach\...`，
+> 因此它天然不占 C 盘。真正会偷偷占 C 盘的是上面那两个**全局缓存目录**。
+
+---
+
+## 1. 环境要求
+
+| 项目 | 版本 | 说明 |
+| --- | --- | --- |
+| Node.js | **≥ 22.12.0** | 仓库内用到较新的 ESM / Worker 特性 |
+| pnpm | **10.28.2** | 已写入 `packageManager` 字段 |
+| 浏览器 | **Chrome / Edge 最新版** | 需要 `requestVideoFrameCallback`、Web Worker、WebAssembly SIMD |
+| 摄像头 | 任意 USB / 内置摄像头 | 训练模式需要；复盘模式可只看历史数据 |
+
+安装 pnpm（若还没装）：
+
+```powershell
+npm install -g pnpm@10.28.2
+```
+
+---
+
+## 2. 首次启动（Windows PowerShell）
+
+```powershell
+# 1) 进入仓库
+cd D:\Workspace\pingpong-coach
+
+# 2) 把缓存挪到 D 盘（只需做一次，见第 0 节）
+pnpm config set store-dir D:\pnpm-store
+npm  config set cache     D:\npm-cache
+
+# 3) 安装依赖
+pnpm install
+
+# 4) 下载姿态模型（约 10~30 MB）
+pnpm models:fetch
+
+# 5) 同时起 API 和 Web
+pnpm dev:all
+```
+
+启动后：
+
+- Web 界面：<http://127.0.0.1:5173>
+- API 健康检查：<http://127.0.0.1:8787/api/health>
+
+Vite 已配置代理，前端 `/api/*` 会转发到 `127.0.0.1:8787`，**不需要手动处理跨域**。
+
+只想跑其中一个：
+
+```powershell
+pnpm dev:api    # 只起后端
+pnpm dev        # 只起前端
+```
+
+> 浏览器会要求摄像头权限。如果 `127.0.0.1` 上无法访问摄像头，
+> 请确认用的是 `127.0.0.1` 或 `localhost`（这两个被浏览器视为安全上下文），
+> 用局域网 IP（如 `192.168.x.x`）访问摄像头会被拦截。
+
+---
+
+## 3. 模型接口配置
+
+默认走 **mock**，无需任何配置即可跑通全链路。
+要接真实模型，在仓库根目录建 `.env`（该文件已被 `.gitignore` 忽略）：
+
+```env
+# 三者必须同时提供，缺一个就会启动失败（这是故意的，避免“配了一半”的静默降级）
+PPC_MODEL_API_KEY=sk-xxxxxxxx
+PPC_MODEL_BASE_URL=https://your-openai-compatible-endpoint/v1
+PPC_MODEL_ID=your-multimodal-model-id
+
+# 可选
+PPC_PORT=8787
+PPC_MODEL_MODE=live        # mock | live
+PPC_REQUEST_TIMEOUT_MS=20000
+```
+
+**设计约束**：`live` 模式要求 `API_KEY` / `BASE_URL` / `MODEL_ID` **三者齐全**，
+否则直接启动报错。不允许出现“以为在跑真模型、其实在跑 mock”的情况。
+
+切换后可用健康检查确认当前模式：
+
+```powershell
+curl http://127.0.0.1:8787/api/health
+# → {"status":"ok","modelMode":"mock", ...}
+```
+
+`modelMode` 会如实反映当前模式。UI 上也会显式标注，**mock 的结果绝不能被当成真实延迟/精度证据**。
+
+---
+
+## 4. 常用命令
+
+```powershell
+pnpm install        # 安装依赖
+pnpm dev:all        # 同时启动 API + Web
+pnpm dev            # 只启动 Web
+pnpm dev:api        # 只启动 API
+pnpm build          # 全量构建
+pnpm typecheck      # 全量类型检查（strict + noUncheckedIndexedAccess）
+pnpm test           # 全量单元测试
+pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
+pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
+pnpm clean          # 清理构建产物
+```
+
+---
+
+## 5. 目录结构
+
+```
+pingpong-coach/
+├─ apps/
+│  ├─ api/                  # Fastify 5 后端：知识检索 → 组 prompt → 调模型 → 校验输出
+│  └─ web/                  # React 18 + Vite 6 前端：采集 → Worker 推理 → 分组 → 反馈
+├─ packages/
+│  ├─ contracts/            # Zod schema 单一事实来源（PoseFrame/StrokeEvent/FeatureSet/…）
+│  └─ motion-core/          # 纯 TS 动作计算：几何、滤波、质量、切分、特征、规则
+├─ knowledge/               # 知识条目（当前 status 均为 observation_only）
+├─ configs/thresholds.json  # 全部阈值（当前均为暂定值）
+├─ models/manifest.json     # 模型清单 + SHA-256（sha256 需实际下载后回填）
+├─ evaluation/samples.json  # 三层标注样本（当前为空）
+├─ scripts/                 # fetch-models、eval-replay
+└─ docs/                    # spec / acceptance / data-contracts / decisions / 评测日志 / 已知失败
+```
+
+---
+
+## 6. 数据流
+
+```
+摄像头
+  → PoseFrame（33 关键点 + 质量标记）
+  → StrokeEvent（切分状态机：ready → backswing → forward → returning）
+  → FeatureSet（肩髋归一化后的几何量 + 一致性）
+  → EvidencePacket（代表帧 + 数值 + 缺失原因）
+  → 一次多模态模型调用
+  → CoachFeedback（观察 / 依据 / 建议 / 置信度 / 被拒回的结论）
+```
+
+契约定义全部在 `packages/contracts/`，是**唯一的事实来源**。
+`packages/motion-core/` 是纯函数库，**不依赖 DOM / React / MediaPipe / 数据库 / 网络**。
+
+---
+
+## 7. 测试与验证
+
+```powershell
+pnpm typecheck
+pnpm test
+```
+
+当前共 **172 个测试**分布在 4 个包：
+
+| 包 | 测试数 |
+| --- | --- |
+| `@pingpong/contracts` | 12 |
+| `@pingpong/motion-core` | 95 |
+| `@pingpong/api` | 28 |
+| `@pingpong/web` | 37 |
+
+**这些测试证明的是什么**：几何计算、滤波、切分状态机、输出校验逻辑在**构造数据**上是正确的。
+
+**这些测试不能证明什么**：
+
+- 真实摄像头下的姿态稳定性
+- 真实选手动作的切分准确率
+- 真实模型的延迟与建议质量
+
+上述三项都需要真实设备 + 真实标注数据，**必须在本地实测**。详见 `docs/acceptance.md`。
+
+---
+
+## 8. 排障
+
+**`pnpm install` 报 `Unsupported engine`**
+→ Node 版本低于 22.12.0，升级 Node。
+
+**`pnpm models:fetch` 失败 / 校验不通过**
+→ 脚本**不会静默回退**。检查网络；若哈希与 `models/manifest.json` 不符，
+说明上游模型更新了，需人工确认后再更新 manifest 里的 `sha256`。不要绕过校验。
+
+**Web 起来后画面黑屏、无骨架**
+→ 打开 DevTools Console，看 Worker 是否加载失败。
+若提示 GPU delegate 不可用，代码会自动降级到 CPU 并在 UI 上**如实标注降级**（不会假装没问题）。
+
+**`/api/health` 正常但反馈报错**
+→ 看 API 终端日志。一次会话只允许**一个在途模型请求**，且**不自动重试**（避免重复计费）。
+
+**C 盘还是在变小**
+→ 回到第 0 节，确认 `store-dir` 和 `cache` 都指向 D 盘；
+另外检查 `C:\Users\<你>\AppData\Local\pnpm` 是否有历史遗留缓存，可手动删除。
+
+---
+
+## 9. 下一步该做什么
+
+骨架已经能编译、能测试、能跑通 mock 全链路。**接下来不是继续加功能，而是去验证假设**：
+
+1. `pnpm models:fetch` 拉模型，真机跑起来看骨架抖动程度
+2. 录 3~5 段真实正手攻球，按 `evaluation/samples.json` 的三层结构标注
+3. 跑 `pnpm eval:replay`，看切分是否命中、特征是否稳定
+4. 依据实测结果**修正** `configs/thresholds.json` 里的暂定阈值
+5. 阈值稳定后，才考虑把知识条目的 `observation_only` 升级为可给出「合格」判定
+
+**不要在没跑过真实数据之前调阈值。** 那样只是把猜测写进配置。
+
+---
+
+## 10. 工程纪律
+
+见 `AGENTS.md`（12 条硬红线）。最核心的几条：
+
+- 缺失值用 `null` + `reasonIfMissing`，**禁止用 0 填充**
+- 只做**因果（在线）**滤波，**禁止**偷看未来帧的离线平滑
+- 未审核的规则**只能**输出 `observation_only`，禁止说「合格」
+- 模型输出**必须在服务端校验**，不能只靠 prompt 约束
+- 命名要诚实：是 `return_after_wrist_peak_ms`，就**不要**叫 `recovery_after_impact_ms`

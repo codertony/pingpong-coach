@@ -1,0 +1,81 @@
+{
+  "$comment": "训练预设、阈值与功能开关。修改阈值必须同步更新 docs/acceptance.md 的变更记录。",
+
+  "strokeTypes": {
+    "forehand_drive": {
+      "label": "定点正手攻球",
+      "enabled": true
+    }
+  },
+
+  "focuses": {
+    "return_to_ready_zone": {
+      "label": "回到本组准备区域",
+      "enabled": true,
+      "ruleId": "return_to_ready_zone_v1"
+    },
+    "elbow_extension_pattern": {
+      "label": "肘角伸展模式",
+      "enabled": true,
+      "ruleId": "elbow_extension_pattern_v1"
+    },
+    "elbow_relative_torso_drift": {
+      "label": "肘相对躯干移动",
+      "enabled": true,
+      "ruleId": "elbow_relative_torso_drift_v1"
+    }
+  },
+
+  "thresholds": {
+    "$comment": "这些是拟定门槛，不是实测结果。修改需记录理由与版本。",
+    "quality": {
+      "minScore": 0.5,
+      "edgeMarginPx": 4,
+      "maxBoneLengthRatio": 0.35,
+      "maxJumpBodyScale": 0.35,
+      "maxGapMs": 200,
+      "minUsableFrameRatio": 0.8
+    },
+    "segmentation": {
+      "readyZoneRadiusBodyScale": 0.3,
+      "readyStableMinMs": 120,
+      "backswingMinDisplacementBodyScale": 0.2,
+      "forwardMinSpeedBodyScalePerSec": 0.5,
+      "returnStableMinMs": 120,
+      "maxStrokeDurationMs": 3000
+    },
+    "rules": {
+      "returnAfterWristPeakMaxMs": 700,
+      "minValidStrokes": 3
+    },
+    "evidenceBudget": {
+      "$comment": "方案 9.2 的初始工程预算。超限需记录降采样。",
+      "maxKeyframes": 6,
+      "maxImageLongEdgePx": 960,
+      "maxRequestBytes": 2097152,
+      "maxModelOutputTokens": 400,
+      "maxSpeechChars": 30
+    },
+    "latency": {
+      "$comment": "初始目标，需真实设备测量验证。",
+      "poseProcessingP95Ms": 150,
+      "localFeedbackP95Ms": 1000,
+      "modelFeedbackP95Ms": 5000,
+      "modelTimeoutMs": 4000
+    }
+  },
+
+  "featureFlags": {
+    "enableLocalRealtimeCues": true,
+    "enableSpeech": true,
+    "enableVideoReplay": false,
+    "enableFullVideoRecording": false,
+    "enableAutoStrokeClassification": false,
+    "enableServerPersistence": false
+  },
+
+  "budgets": {
+    "sessionModelCallsPer20Min": 60,
+    "mediaCacheBytes": 33554432
+  }
+}

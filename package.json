@@ -1,0 +1,27 @@
+{
+  "name": "pingpong-coach",
+  "version": "0.1.0",
+  "private": true,
+  "description": "实时乒乓球训练反馈 MVP：摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "dev": "pnpm --filter @pingpong/web dev",
+    "dev:api": "pnpm --filter @pingpong/api dev",
+    "dev:all": "pnpm -r --parallel --filter @pingpong/api --filter @pingpong/web dev",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "models:fetch": "node scripts/fetch-models.mjs",
+    "eval:replay": "node scripts/eval-replay.mjs",
+    "clean": "pnpm -r exec rm -rf dist node_modules/.vite"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

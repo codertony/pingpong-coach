@@ -1,0 +1,30 @@
+{
+  "id": "forehand_drive_elbow_pattern_observation",
+  "version": "1.0.0",
+  "strokeType": "forehand_drive",
+  "focusId": "elbow_extension_pattern",
+  "cameraViews": [
+    "front",
+    "front_left_diagonal",
+    "front_right_diagonal",
+    "right_side"
+  ],
+  "context": "肘角由肩—肘—腕三个二维点构成，180 度表示完全伸直。该测量可用于观察引拍到向前挥拍期间的伸展模式。",
+  "observable": [
+    "肘角在本组区间内的变化范围（度）",
+    "向前挥拍峰值附近的肘角中位数（度）"
+  ],
+  "notApplicable": [
+    "小臂发力大小不能由肘角推断",
+    "二维角度受拍摄方向与运动平面影响，斜侧机位不得直接当作解剖角度",
+    "持拍侧肩肘腕任一不可见时该测量无效"
+  ],
+  "reviewedCues": [],
+  "allowedDrillIds": [],
+  "sources": [
+    "Sports2D 官方说明明确提示其二维角度依赖拍摄方向和运动平面。",
+    "本条目尚无教练认可的参考区间，因此不提供任何训练提示。"
+  ],
+  "status": "observation_only",
+  "referenceId": null
+}

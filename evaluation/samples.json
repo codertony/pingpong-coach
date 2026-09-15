@@ -1,0 +1,34 @@
+{
+  "$comment": "真实样本清单。真实视频与含个人信息的派生数据保存在 Git 之外，这里只记录说明、脱敏清单与哈希。禁止把视频文件本身提交进仓库。",
+
+  "dataPolicy": {
+    "videoLocation": "仓库外（例如 D:/Workspace/_pingpong-samples/）",
+    "inRepo": ["数据说明", "脱敏清单", "标注 schema", "文件哈希", "取得方式"],
+    "notInRepo": ["原始视频", "含人脸的截图", "任何可识别个人身份的信息"]
+  },
+
+  "annotationSchema": {
+    "$comment": "人工标注分三层。第三层不能代替第二层。",
+    "layer1_visibleFacts": {
+      "description": "可见事实：肩肘腕位置、可见性、挥拍边界、是否进入准备区",
+      "fields": ["strokeStartMs", "strokeEndMs", "racketSideVisibility", "returnedToReadyZone"]
+    },
+    "layer2_coachJudgement": {
+      "description": "教练判断：当前目标是否确有问题、建议是否适用。分歧保留，不强行转成一致真值。",
+      "fields": ["targetIssuePresent", "suggestionApplicable", "annotatorId"]
+    },
+    "layer3_userExperience": {
+      "description": "用户体验：是否有帮助、是否看懂、是否愿意继续使用",
+      "fields": ["helpful", "understood", "willingToContinue"]
+    }
+  },
+
+  "samples": [],
+
+  "notes": [
+    "按方案 11.1：先准备 6–10 段约 10–20 秒的练习片段用于 P0/P1。",
+    "样本需覆盖：同一目标下的正常执行、目标问题、遮挡/模糊、捡球或走动。",
+    "不要为了『有错误样本』而要求用户做夸张或不舒服的动作。",
+    "到 P2 积累约 100–200 次挥拍，至少来自三个练习批次或日期。"
+  ]
+}

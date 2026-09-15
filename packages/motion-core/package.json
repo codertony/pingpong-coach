@@ -1,0 +1,24 @@
+{
+  "name": "@pingpong/motion-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "纯 TypeScript 动作计算核心：几何、坐标变换、因果滤波、质量检查、挥拍分段、特征与规则",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@pingpong/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,9 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# pnpm 10 默认阻止依赖运行 postinstall 脚本（安全默认值，值得保留）。
+# 这里显式放行 esbuild —— Vite / Vitest 依赖它下载并校验平台二进制，
+# 不放行会导致构建和测试直接失败。
+onlyBuiltDependencies:
+  - esbuild
