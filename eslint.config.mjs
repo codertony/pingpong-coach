@@ -30,6 +30,10 @@ export default tseslint.config(
       "evaluation/**",
       "knowledge/**",
       "configs/**",
+      // 模型与 WASM 运行时资产：由 pnpm models:fetch 与手动复制产生，
+      // 是 vendored 二进制/压缩 JS，不属于本仓库源码，不参与 lint。
+      "apps/web/public/models/**",
+      "apps/web/public/wasm/**",
     ],
   },
 

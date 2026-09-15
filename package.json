@@ -19,8 +19,9 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
+    "verify": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm test && pnpm build && pnpm check:bundle",
     "models:fetch": "node scripts/fetch-models.mjs",
+    "check:bundle": "node scripts/check-bundle.mjs",
     "eval:replay": "node scripts/eval-replay.mjs",
     "clean": "pnpm -r exec rm -rf dist node_modules/.vite",
     "prepare": "husky"

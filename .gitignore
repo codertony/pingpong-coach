@@ -19,6 +19,10 @@ models/*.wasm
 models/*.binarypb
 models/downloads/
 
+# 模型与 WASM 运行时资产（真实落盘位置）：由 pnpm models:fetch 与手动复制产生，不入库
+apps/web/public/models/
+apps/web/public/wasm/
+
 # 真实视频与派生数据：含个人信息，见 docs/data-contracts.md
 samples/
 *.mp4

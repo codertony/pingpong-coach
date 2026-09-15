@@ -1,3 +1,4 @@
+/// <reference types="node" />
 /**
  * Playwright 配置：真实浏览器测试。
  *
@@ -68,7 +69,13 @@ export default defineConfig({
     trace: "retain-on-failure",
     launchOptions: {
       // 容器内跑 Chromium 必须关沙箱，否则会因权限被拒。
-      args: ["--no-sandbox", "--disable-dev-shm-usage"],
+      // 假摄像头：让采集链路在无摄像头的机器与 CI 上也能确定性跑通（app.e2e.ts）。
+      args: [
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+        "--use-fake-ui-for-media-stream",
+        "--use-fake-device-for-media-stream",
+      ],
       executablePath,
     },
   },

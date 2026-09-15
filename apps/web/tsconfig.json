@@ -6,13 +6,14 @@
     "jsx": "react-jsx",
     "moduleResolution": "Bundler",
     "noEmit": true,
-    "types": ["vite/client", "node"],
+    "types": ["vite/client"],
     "allowImportingTsExtensions": true
   },
   "include": [
     "src/**/*.ts",
     "src/**/*.tsx",
     "test/**/*.ts",
+    "test/**/*.tsx",
     "e2e/**/*.ts",
     "vite.config.ts",
     "playwright.config.ts"
