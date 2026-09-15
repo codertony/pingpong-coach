@@ -453,3 +453,88 @@ test.describe("PoseEngine — dispose", () => {
     expect(result.status.delegate).toBeNull();
   });
 });
+
+/**
+ * 手部模型协议（F-xxx 回归）。
+ *
+ * 手部模型是**可选增强**：它失败时姿态链路必须照常可用。
+ * 这条极易被"顺手"改成致命错误，所以用假 Worker 钉住。
+ */
+test.describe("PoseEngine — 手部模型可选性", () => {
+  test("init 带上手部模型路径，ready 如实回报可用", async ({ page }) => {
+    await injectFakeWorker(page);
+    await loadEngine(page);
+
+    const out = await page.evaluate(async () => {
+      const { PoseEngine } = window.__fixture;
+      const engine = new PoseEngine({
+        modelId: "m",
+        modelAssetPath: "/m.task",
+        handModelAssetPath: "/hand.task",
+        wasmBasePath: "/wasm",
+        preferredDelegate: "GPU",
+      });
+      const p = engine.init();
+      const Fake = (window as unknown as { __FakeWorker: { last: () => unknown } }).__FakeWorker;
+      const w = Fake.last() as {
+        lastInit: () => Record<string, unknown>;
+        emit: (m: unknown) => void;
+      };
+      const initMsg = w.lastInit();
+      w.emit({
+        type: "ready",
+        delegate: "GPU",
+        downgraded: false,
+        modelId: "m",
+        keypointSet: "blaze_33+hand_21",
+        handModelAvailable: true,
+        initMs: 100,
+      });
+      const status = await p;
+      return { initMsg, status };
+    });
+
+    expect(out.initMsg.handModelAssetPath).toBe("/hand.task");
+    expect(out.status.keypointSet).toBe("blaze_33+hand_21");
+    expect(out.status.handModelAvailable).toBe(true);
+  });
+
+  test("手部模型初始化失败不致命：姿态链路照常 ready 且如实标注不可用", async ({ page }) => {
+    await injectFakeWorker(page);
+    await loadEngine(page);
+
+    const out = await page.evaluate(async () => {
+      const { PoseEngine } = window.__fixture;
+      const engine = new PoseEngine({
+        modelId: "m",
+        modelAssetPath: "/m.task",
+        handModelAssetPath: "/missing.task",
+        wasmBasePath: "/wasm",
+        preferredDelegate: "GPU",
+      });
+      const p = engine.init();
+      const Fake = (window as unknown as { __FakeWorker: { last: () => unknown } }).__FakeWorker;
+      const w = Fake.last() as { emit: (m: unknown) => void };
+      // 手部模型挂了 → 只报错，不 reject
+      w.emit({ type: "error", code: "hand_model_unavailable", message: "404" });
+      w.emit({
+        type: "ready",
+        delegate: "GPU",
+        downgraded: false,
+        modelId: "m",
+        keypointSet: "blaze_33",
+        handModelAvailable: false,
+        initMs: 90,
+      });
+      const status = await p;
+      return { status, threw: false };
+    });
+
+    // 关键：手部失败绝不能把整条链路带下去
+    expect(out.status.ready).toBe(true);
+    expect(out.status.handModelAvailable).toBe(false);
+    expect(out.status.keypointSet).toBe("blaze_33");
+    // 也不该被记成致命错误
+    expect(out.status.error).toBeNull();
+  });
+});

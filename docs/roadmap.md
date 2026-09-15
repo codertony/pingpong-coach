@@ -32,7 +32,7 @@
 | --- | --- | --- |
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
-| 纯计算核心 | `[x]` | motion-core 145 项测试 |
+| 纯计算核心 | `[x]` | motion-core 169 项测试（含准备区标定与手部几何） |
 | 后端 + Mock 适配器 | `[x]` | api 130 项测试 |
 | 前端采集链路 | `[x]` | web 51 项 vitest + 38 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
@@ -84,10 +84,20 @@ web (Playwright/真 Chrome) 38
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 118.7 KiB | 小 |
 | A7 | Docker 镜像构建验证 | Dockerfile 已存在但未在沙箱内真正 `docker build` 过 | 小 |
 | A8 | changesets 发布流程 | 已装但未配置，多包版本发布流程未打通 | 小 |
-| A9 | 无障碍（a11y）检查 | 采集页的键盘可达性与对比度 | 小 |
+| A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度未做** | 小 |
 
-**建议**：A2 价值最高 —— 它是 A 类里唯一完全没动的，且"整页链路"正是本批 F-007/F-008 两个缺陷藏身的地方。
+**建议**：A2 价值最高 —— 它是 A 类里唯一完全没动的，且"整页链路"正是 F-007/008/011 三个缺陷藏身的地方。
 其次是补 A1 / A4 / A5 各自标注的剩余部分。
+
+### 本批次新增的已完成项（不在原 A 列表内）
+
+| 项 | 说明 |
+| --- | --- |
+| ✅ 导入视频循环播放修复（F-011） | 媒体时间回绕导致 `detectForVideo` 的 `Packet timestamp mismatch`，推理静默全死。Worker 内做时间戳单调化。实测同一视频 20 秒内识别数 1 → 8 |
+| ✅ 准备区自动标定（F-012） | 准备区原写死在画面坐标，手不在那里时状态机**完全静默不触发**。新增 `motion-core/readiness.ts` 按**局部速度加权**从实际腕部位置标定；估计器经真实素材对照选出（落点法 1 次 vs 速度加权 8 次） |
+| ✅ 分段失败可视化 | 练习页显示分段阶段、`腕部距准备区 X 倍半径`、体尺度/持腕是否测到，并在画面上标注准备区。**这类失败以前完全静默**，是本次最值钱的改动 |
+| ✅ 手部 21 点接入 | 新增 `hand_landmarker.task` + `motion-core/hand.ts` + `hand-assignment.ts`。**代码链路已验证（模型加载、GPU 委托、界面如实标注），真实素材可用性未验证** —— 现有测试视频里手只占画面宽 5% 且被运动模糊糊掉，模型不响应。详见 known-failures.md |
+| ✅ 门禁稳定性 | `motion-core` / `contracts` / `api` 的 test 补 `--fileParallelism=false`，消除 Windows 上 vitest ssr 缓存 EBUSY 造成的**偶发假红** |
 
 ---
 

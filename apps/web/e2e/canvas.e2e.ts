@@ -264,3 +264,111 @@ test.describe("drawReadyZone", () => {
     );
   });
 });
+
+/**
+ * 手部 21 点的绘制回归。
+ *
+ * 为什么要守：手部点是**可选**的（手部模型可能不可用），所以绘制层必须
+ * 在"手部点缺失"时干净跳过，而不是画出一堆散落在 (0,0) 的点 ——
+ * 后者会在真机上表现为画面角落出现一簇莫名的小圆点，且很难定位到原因。
+ */
+test.describe("drawSkeleton — 手部 21 点", () => {
+  /** 造一只摊开的右手：腕在左下，四指朝右上，另加拇指。 */
+  function rightHandPoints() {
+    const pts = [
+      { name: "right_hand_wrist", xPx: 300, yPx: 300, score: 0.9, visible: true },
+      { name: "right_hand_thumb_mcp", xPx: 290, yPx: 280, score: 0.9, visible: true },
+      { name: "right_hand_thumb_ip", xPx: 282, yPx: 268, score: 0.9, visible: true },
+      { name: "right_hand_thumb_tip", xPx: 276, yPx: 258, score: 0.9, visible: true },
+    ];
+    const bases = ["index", "middle", "ring", "pinky"];
+    bases.forEach((f, i) => {
+      const x = 320 + i * 18;
+      pts.push(
+        { name: `right_hand_${f}_mcp`, xPx: x, yPx: 300, score: 0.9, visible: true },
+        { name: `right_hand_${f}_pip`, xPx: x, yPx: 280, score: 0.9, visible: true },
+        { name: `right_hand_${f}_dip`, xPx: x, yPx: 268, score: 0.9, visible: true },
+        { name: `right_hand_${f}_tip`, xPx: x, yPx: 256, score: 0.9, visible: true },
+      );
+    });
+    return pts;
+  }
+
+  test("有手部点时确实画出手部像素", async ({ page }) => {
+    const drawn = await page.evaluate((handPoints) => {
+      const canvas = document.getElementById("skeleton") as HTMLCanvasElement;
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      window.__fixture.drawSkeleton(canvas, handPoints as never, "right", {
+        mirrored: false,
+        minScore: 0.5,
+      });
+
+      const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i]! > 0) n++;
+      return n;
+    }, rightHandPoints());
+
+    expect(drawn).toBeGreaterThan(0);
+  });
+
+  test("手部锚点不全时不画手，尤其不把缺失点当成 (0,0) 画到左上角", async ({ page }) => {
+    const result = await page.evaluate(() => {
+      const canvas = document.getElementById("skeleton") as HTMLCanvasElement;
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      // 只有掌心三个锚点中的腕，缺 index_mcp / pinky_mcp。
+      // 这个腕点本身会被骨架的通用循环正常画成圆点（在 100,100），
+      // 那是对的；这里要验的是**手部绘制路径**没有把缺失的指节点画到 (0,0)。
+      window.__fixture.drawSkeleton(
+        canvas,
+        [{ name: "right_hand_wrist", xPx: 100, yPx: 100, score: 0.9, visible: true }] as never,
+        "right",
+        { mirrored: false, minScore: 0.5 },
+      );
+
+      const count = (x0: number, y0: number, w: number, h: number) => {
+        const d = ctx.getImageData(x0, y0, w, h).data;
+        let n = 0;
+        for (let i = 3; i < d.length; i += 4) if (d[i]! > 0) n++;
+        return n;
+      };
+
+      return {
+        // 左上角 80×80：缺失点若被当成 (0,0) 就会落在这里
+        topLeft: count(0, 0, 80, 80),
+        // 腕点附近：证明绘制确实发生了，不是整块画布都是空的
+        nearWrist: count(80, 80, 40, 40),
+      };
+    });
+
+    // 关键：不能把缺失关键点当成 (0,0) 画出一簇点
+    expect(result.topLeft).toBe(0);
+    // 同时确认这一帧确实画了东西（否则上面的 0 没有说服力）
+    expect(result.nearWrist).toBeGreaterThan(0);
+  });
+
+  test("手部点不可见（visible=false）时不参与绘制", async ({ page }) => {
+    const result = await page.evaluate((handPoints) => {
+      const canvas = document.getElementById("skeleton") as HTMLCanvasElement;
+      const ctx = canvas.getContext("2d")!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const invisible = handPoints.map((p) => ({ ...p, visible: false }));
+      window.__fixture.drawSkeleton(canvas, invisible as never, "right", {
+        mirrored: false,
+        minScore: 0.5,
+      });
+
+      const d = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let n = 0;
+      for (let i = 3; i < d.length; i += 4) if (d[i]! > 0) n++;
+      return n;
+    }, rightHandPoints());
+
+    expect(result).toBe(0);
+  });
+});
