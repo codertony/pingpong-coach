@@ -63,23 +63,24 @@ pnpm install
 pnpm verify
 ```
 
-这一条命令串起了 typecheck → lint → format:check → 全部单测 → 构建。
+这一条命令串起了 typecheck → lint → format:check → 全部单测 → 构建 → 依赖体积预算。
 
 **预期输出**（关键行，数字必须一致）：
 
 ```
-packages/contracts  Tests  27 passed (27)
-packages/motion-core Tests 141 passed (141)
-apps/api            Tests 127 passed (127)
-apps/web            Tests  37 passed (37)
+packages/contracts  Tests  30 passed (30)
+packages/motion-core Tests 145 passed (145)
+apps/api            Tests 130 passed (130)
+apps/web            Tests  51 passed (51)
 ...
 ✓ built in ~2s
+✓ 依赖体积在预算内。
 ```
 
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 332）
+- [ ] 四组测试数字与上面完全一致（总共 356）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -93,7 +94,7 @@ apps/web            Tests  37 passed (37)
 pnpm test:e2e
 ```
 
-**预期**：`36 passed`，耗时至多 1 分钟。
+**预期**：`38 passed`，耗时至多 1 分钟。
 
 **首次运行可能会提示需要下载浏览器**。配置里已经写了自动探测逻辑：
 
@@ -109,7 +110,7 @@ pnpm test:e2e
 CHROMIUM_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" pnpm test:e2e
 ```
 
-- [ ] 36 项全部通过
+- [ ] 38 项全部通过
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________

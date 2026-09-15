@@ -3,12 +3,13 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**368 项测试全部通过**（含 36 项真实 Chromium 端到端测试）。
+**356 项单元测试 + 38 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
 > 所有阈值都是**暂定值**，所有评分规则都是 `observation_only`（未审核），
-> 真实精度和真实延迟**尚未验证** —— **沙箱内没有跑过一次真实的姿态推理**（见 F-006）。
+> 真实精度和真实延迟**尚未验证** —— 姿态链路只在本机验证到"能跑通、委托是 GPU"，
+> **骨架是否贴合关节从未看过**（假摄像头下画面无人），见 F-006（仍 OPEN）。
 >
 > 详见 `docs/known-failures.md`、`docs/evaluation-log.md`、`docs/roadmap.md`。
 
@@ -146,7 +147,7 @@ pnpm build          # 全量构建
 pnpm typecheck      # 全量类型检查（strict + noUncheckedIndexedAccess）
 pnpm test           # 全量单元测试
 pnpm test:e2e       # 真实浏览器端到端测试
-pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 测试 + 构建）
+pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 测试 + 构建 + 体积预算）
 pnpm lint           # ESLint（含架构边界约束）
 pnpm lint:fix       # ESLint 自动修复
 pnpm format         # Prettier 格式化
@@ -201,22 +202,22 @@ pingpong-coach/
 ## 7. 测试与验证
 
 ```powershell
-pnpm verify         # 一把梭：typecheck → lint → format:check → test → build
+pnpm verify         # 一把梭：typecheck → lint → format:check → test → build → check:bundle
 pnpm test           # 只跑单元测试
 pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome）
 ```
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **368 项测试**：
+当前共 **394 项测试**（356 单元 + 38 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
-| `@pingpong/contracts` | 27 | — |
-| `@pingpong/motion-core` | 141 | — |
-| `@pingpong/api` | 127 | — |
-| `@pingpong/web` | 37 | 36 |
-| **合计** | **332** | **36** |
+| `@pingpong/contracts` | 30 | — |
+| `@pingpong/motion-core` | 145 | — |
+| `@pingpong/api` | 130 | — |
+| `@pingpong/web` | 51 | 38 |
+| **合计** | **356** | **38** |
 
 **这些测试证明的是什么**：
 
@@ -229,8 +230,8 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 **这些测试不能证明什么**：
 
-- **真实姿态推理**（沙箱内 `storage.googleapis.com` 被墙，模型下不来 → 见 F-006）；
-- 真实摄像头下的姿态稳定性；
+- **骨架是否贴合关节**（假摄像头下画面无人，叠加层一次都没画过 → 见 F-006，仍 OPEN）；
+- 真实摄像头下的姿态稳定性（本机浏览器枚举不到摄像头 → F-009）；
 - 真实选手动作的切分准确率；
 - 真实模型的延迟与建议质量。
 

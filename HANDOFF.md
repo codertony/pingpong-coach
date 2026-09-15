@@ -6,8 +6,8 @@
 > 人类读者请优先看 [`docs/local-verification.md`](./local-verification.md)（本机验证清单）
 > 和 [`docs/roadmap.md`](./roadmap.md)（功能分工）。
 
-**文档版本**：2026-09-15 · 对应提交：`git log -1` 查看最新提交
-**最近一次全量验证**：`pnpm verify` 退出码 0（332 项单元测试），`pnpm test:e2e` 36 passed
+**文档版本**：2026-09-16 · 对应提交：`git log -1` 查看最新提交
+**最近一次全量验证**：`pnpm verify` 退出码 0（356 项单元测试 + 依赖体积预算），`pnpm test:e2e` 38 passed
 
 > 📌 **文档会过时。** 如果本文描述与代码不符，**以代码和测试为准**，
 > 并顺手把本文改对 —— 这是接手者的第一份贡献。
@@ -72,14 +72,14 @@ pingpong-coach/
 │     dedupe     去重与并发锁
 │     analyze    主编排
 │
-├─ apps/web/               3124 行 · React 18 + Vite 6
+├─ apps/web/               3341 行 · React 18 + Vite 6
 │   capture/   摄像头采集 + 帧调度（位图释放最容易漏）
 │   vision/    pose.worker.ts（在 Worker 里跑 MediaPipe）+ pose-engine.ts（协议层）
 │   training/  训练会话状态机 + 骨架叠加绘制
 │   evidence/  关键帧选择 + 证据打包
 │   review/    后端 API 客户端
 │   audio/     语音播报（Web Speech API）
-│   ui/        App.tsx (919 行) + ReviewPanel.tsx
+│   ui/        App.tsx (1031 行) + ReviewPanel.tsx
 │
 ├─ knowledge/          训练知识条目（当前 status 均为 observation_only）
 ├─ configs/thresholds.json   全部阈值（均为暂定值）
@@ -89,7 +89,7 @@ pingpong-coach/
 └─ docs/               见第 2 节
 ```
 
-**源码 6475 行，测试 5733 行。** 测试与源码接近 1:1，这不是巧合 —— 见第 6 节。
+**源码 6692 行，测试 6585 行。** 测试与源码接近 1:1，这不是巧合 —— 见第 6 节。
 
 ---
 
@@ -101,12 +101,14 @@ pingpong-coach/
 
 | 项 | 证据 |
 | --- | --- |
-| 数据契约正确性与内部一致性 | contracts 27 项测试 |
-| 几何/滤波/切分/特征/规则 | motion-core 141 项测试 |
-| 后端全链路（含 mock） | api 127 项测试 |
-| 前端采集/证据/播报逻辑 | web 37 项 vitest |
-| **浏览器真实行为** | **web 36 项 Playwright（真实 Chromium 144）** |
+| 数据契约正确性与内部一致性 | contracts 30 项测试 |
+| 几何/滤波/切分/特征/规则 | motion-core 145 项测试 |
+| 后端全链路（含 mock） | api 130 项测试 |
+| 前端采集/证据/播报/组件渲染 | web 51 项 vitest（含 jsdom + Testing Library 渲染测试） |
+| **浏览器真实行为** | **web 38 项 Playwright（真实 Chromium）** |
 | 架构依赖方向 | ESLint boundaries + no-restricted-imports，**四条违规路径逐一验证会报错** |
+| 畸形输入不 500、不 throw | api fuzz 3 项 + contracts fuzz 3 项 |
+| 依赖体积不超预算 | `pnpm check:bundle`：主包 gzip 118.7 KiB / 预算 160 KiB |
 | 12 条红线中的可测部分 | 分散在上面各处，见第 5 节 |
 
 浏览器测试覆盖的是 jsdom **做不到**的部分：真实 Canvas 像素、真实 Worker 跨线程、
@@ -116,18 +118,19 @@ pingpong-coach/
 
 | 项 | 为什么未验证 |
 | --- | --- |
-| **真实姿态推理** | 🔴 沙箱内 `storage.googleapis.com` 被墙，模型下不来 → **F-006** |
-| GPU 委托在真实硬件上能否成功 | 沙箱是软件环境；协议层已测，硬件层没有 |
-| 真实摄像头下的姿态稳定性 | 沙箱无摄像头 |
+| **骨架是否贴合关节** | 🔴 假摄像头驱动下画面无人，`detected` 恒为 `false`，叠加层一次都没画过 → **F-006 仍 OPEN** |
+| GPU 委托**失败**时的降级是否平滑 | 本机 GPU 直接成功（初始化 174 ms）；降级路径只验证过"能连续实例化"，没经历过真实失败 |
+| 真实摄像头下的姿态稳定性 | 本机浏览器枚举不到任何摄像头 → **F-009 OPEN**，从未在真实画面上跑过 |
 | 真实挥拍的分段准确率 | `evaluation/` 为空 |
 | 二维肘角在真实动作上的 MAE | 只验证过构造数据 |
-| 端到端延迟 | 同上 |
+| 端到端延迟 | 同上；只有单帧热路径的性能哨兵（每帧 < 10 ms 上限），不是延迟测量 |
 | 真实多模态模型的质量/延迟/费用 | 一直跑 mock |
 | 20 分钟连续运行稳定性 | 没跑过 |
-| Windows / Chrome 实际行为 | 沙箱是 Linux + Chromium 144 |
+| 跨平台行为 | 沙箱（Linux + Chromium）与本机（Windows 11 + Chrome）都跑过；其余平台没有 |
+| 前后端真实串联 | 后端在浏览器测试里始终是替身，没有一个真实的 API 进程参与过 |
 
 > 🔴 **最重要的一句话**：
-> 测试从 172 涨到 368，但**增量几乎全部落在"代码正确性"上**。
+> 测试从 172 涨到 394（356 单元 + 38 e2e），但**增量几乎全部落在"代码正确性"上**。
 > 关于"这个产品准不准"的证据，**一项目前都没有**。
 > 任何声称"识别准确率 X%"的说法，在当前状态下都是无根据的。
 
@@ -163,13 +166,12 @@ pingpong-coach/
 ### 提交前门禁
 
 ```bash
-pnpm verify      # typecheck → lint → format:check → test → build
+pnpm verify      # typecheck → lint → format:check → test → build → check:bundle
 ```
 
 CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
-**注意**：`pnpm verify` 目前**不含** `format:check` 和 `test:e2e`，
-而 CI 含 `format:check`。这意味着你可能本地过、CI 挂。
-→ 修复建议见第 8 节 T-1。
+`verify` 现在含 `format:check` 与 `check:bundle`，与 CI 的 verify job 一致（T-1 已完成）。
+唯一刻意的差别：`test:e2e` **不在** `verify` 里 —— 它要装浏览器，不适合每次门禁都跑。
 
 ### 架构约束是真的会报错的
 
@@ -211,7 +213,8 @@ CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
 | `github.com` / `huggingface.co` / `registry.npmjs.org` | ❌ 不可达 |
 
 **如果你换了环境**（比如本地 Windows），这些限制可能不存在，`pnpm models:fetch` 就能成功。
-**不要**因为沙箱下不到模型就说"模型不存在"。
+本机（Windows 11）已确认如此：模型权重与 `/wasm` 运行时都已下载并校验，`models/manifest.json`
+的 `sha256` 与字节数已回填。**不要**因为沙箱下不到模型就说"模型不存在"。
 
 ### 其他陷阱
 
@@ -229,38 +232,41 @@ CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
 
 ## 8. 下一步该做什么
 
-### T-1 · 让本地门禁与 CI 一致（小，建议先做）
+### ✅ T-1 · 让本地门禁与 CI 一致 —— 已完成（2026-09-16）
 
-**问题**：`package.json` 的 `verify` 脚本是
-`pnpm typecheck && pnpm lint && pnpm test && pnpm build`，
-缺 `format:check`，而 CI 有。本地绿、CI 红是真实存在的落差。
+`verify` 现在是 `typecheck → lint → format:check → test → build → check:bundle`，
+CI 的 verify job 跑同一套；`test:e2e` 仍独立（需要浏览器）。
+新增 `scripts/check-bundle.mjs`：主包 gzip 预算 160 KiB，当前 118.7 KiB。
 
-**改法**：把 `format:check` 加进 `verify`，并考虑把 `test:e2e` 拆成独立脚本
-（因为它需要浏览器，不适合每次门禁都跑）。
+### 🟡 T-2 · 组件级测试 —— 部分完成（2026-09-16）
 
-**验收**：故意写一个格式错的文件，`pnpm verify` 必须在 `format:check` 阶段失败。
+已引入 `@testing-library/react` + `jsdom`，新增 8 项渲染测试：
+`App.test.tsx`（mock 标记必须显著可见 / 健康检查失败时如实显示"后端未知"）、
+`ReviewPanel.test.tsx`（空态、反馈渲染、模型失败态、缺失值渲染为"缺失"绝不填 0、回调）。
 
-### T-2 · 组件级测试（中）
+**仍未覆盖**：采集状态流转、摄像头错误态在界面上的实际呈现。
 
-`App.tsx` 919 行、`ReviewPanel.tsx` 312 行，目前只有逻辑层测试，**没有组件渲染测试**。
-需要引入 `@testing-library/react` + `jsdom` 环境。
+### T-3 · 前后端串联测试（中）—— 仍未做
 
-**重点测**：采集状态流转、错误态展示、mock 标记是否可见。
+前后端仍是**分段测的**：`api-client.e2e.ts` 在浏览器里测了客户端的成功与降级路径
+（网络不可达、HTTP 500、非 JSON 响应），但后端是替身，没有真实的 API 进程参与。
+`app.e2e.ts` 走的是整页链路，但止于"引擎就绪 + 画面接上"，没走到报告渲染。
 
-### T-3 · 前后端串联测试（中）
+**验收**：起一个真实的 API 进程，前端在浏览器里从 `POST /api/coach/analyze` 走到报告渲染。
 
-现在前端和后端是**分段测的**，没有一条从 `POST /api/coach/analyze` 走到报告渲染的测试。
+### 🟡 T-4 · 错误路径补测（中）—— 部分完成
 
-**验收**：起一个真实的 API 进程，前端在浏览器里走完整链路。
+已覆盖：畸形请求体（api 与 contracts 各 3 项模糊测试，断言绝不 500 / 绝不 throw）、
+后端不可达与 HTTP 500（`api-client.e2e.ts`）。
+**仍未覆盖**：网络中途断开、摄像头中途被拔 —— 后者需要真实设备。
 
-### T-4 · 错误路径补测（中）
+### 🟡 T-5 · 性能基线（中）—— 部分完成
 
-网络中途断开、后端返回 502、摄像头中途被拔 —— 这些降级表现目前没测。
-
-### T-5 · 性能基线（中）
-
-给 `FrameScheduler` 在 60fps 下的丢帧率、`motion-core` 各特征函数耗时定出上限，
-写成回归阈值。超过就失败。
+已给 `motion-core` 每帧热路径的四个函数定出 **< 10 ms** 的哨兵上限（`perf.test.ts`），
+并给主包 gzip 体积定了 160 KiB 预算。
+**仍未覆盖**：`FrameScheduler` 在 60fps 下的丢帧率。
+注意这些是**宽松哨兵**，用来拦"数量级退化"，不是性能指标本身 ——
+真实设备上的延迟仍属未验证项（见第 4 节）。
 
 ### 🔴 T-6 · 真实姿态验证（**只有人类能做**）
 
@@ -297,14 +303,14 @@ pnpm dev:all
 ```
 1. 读 AGENTS.md 的红线 + 本文档第 4、5 节          （30 分钟）
 2. 跑 pnpm verify 和 pnpm test:e2e，确认基线        （5 分钟）
-3. 做 T-1（门禁一致性）—— 小而明确，快速建立信心     （30 分钟）
-4. 做 T-2 / T-3 / T-4 —— 补测试覆盖                 （视情况）
-5. 请人类完成 T-6 —— 解锁真实姿态链路               ← 关键分水岭
+3. 做 T-3（前后端串联）—— 当前最大的测试缺口         （中等）
+4. 补齐 T-2 / T-4 / T-5 各自标注的剩余部分
+5. 请人类完成 T-6 —— 骨架是否贴合关节               ← 关键分水岭
 6. 请人类完成 T-7 —— 真实素材评估
 7. 根据 T-6/T-7 的结果，决定是修 bug 还是加功能
 ```
 
-**为什么这样排**：T-1 到 T-4 都是"在已知领域内加固"。
+**为什么这样排**：T-1 到 T-5 都是"在已知领域内加固"。
 T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论都是空谈**，
 所以不要在这之前花力气调 prompt 或优化阈值。
 
@@ -315,7 +321,7 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 | 别做 | 为什么 |
 | --- | --- |
 | ❌ 因为沙箱下不到模型，就删掉 F-006 或改成"已解决" | 那是掩盖问题，不是解决问题 |
-| ❌ 声称"测试全绿所以识别准确" | 368 项测试里没有一项验证识别准确率 |
+| ❌ 声称"测试全绿所以识别准确" | 394 项测试（356 单元 + 38 e2e）里没有一项验证识别准确率 |
 | ❌ 把合成数据的测试结果当真实动作的质量证据 | `AGENTS.md` 明确禁止 |
 | ❌ 给模型调用加自动重试 | 违反红线 12，有测试守着 |
 | ❌ 在未审核规则上输出"达标"结论 | 违反红线 4，这是安全约束不是功能 |
@@ -331,9 +337,10 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 | 命令 | 作用 |
 | --- | --- |
 | `pnpm preflight` | 环境自检（退出码 0=通过 / 1=阻塞 / 2=警告） |
-| `pnpm verify` | 全量门禁 |
-| `pnpm test` | 只跑单元测试（332 项） |
-| `pnpm test:e2e` | 只跑浏览器测试（36 项，真实 Chromium） |
+| `pnpm verify` | 全量门禁（type → lint → format → test → build → bundle） |
+| `pnpm test` | 只跑单元测试（356 项） |
+| `pnpm test:e2e` | 只跑浏览器测试（38 项，真实 Chromium） |
+| `pnpm check:bundle` | 依赖体积预算（主包 gzip 160 KiB） |
 | `pnpm lint` / `pnpm lint:fix` | ESLint（含架构边界） |
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm dev:all` | 同时启动 API + Web |
@@ -347,8 +354,9 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 
 如果让人类评价这个项目的现状，请如实转达：
 
-> 代码骨架完整，工程护栏齐备，**368 项测试全部通过**。
-> 但**没有一项目前验证了"识别准不准"** —— 因为沙箱里从没跑过一次真实姿态推理，
+> 代码骨架完整，工程护栏齐备，**356 项单元测试 + 38 项浏览器测试全部通过**。
+> 但**没有一项目前验证了"识别准不准"** —— 真实姿态推理只在本机验证到"链路能跑通、
+> 委托是 GPU"，骨架是否贴合关节从未看过（假摄像头下画面无人，F-006 仍 OPEN），
 > `evaluation/` 里也没有真实素材。
 >
 > 下一步的关键动作不是写更多代码，而是**由人在真实设备上完成 T-6 和 T-7**。

@@ -31,14 +31,14 @@
 | 项 | 状态 | 证据 |
 | --- | --- | --- |
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
-| 数据契约（zod） | `[x]` | contracts 27 项测试 |
-| 纯计算核心 | `[x]` | motion-core 141 项测试 |
-| 后端 + Mock 适配器 | `[x]` | api 127 项测试 |
-| 前端采集链路 | `[x]` | web 37 项 vitest + 36 项浏览器测试 |
+| 数据契约（zod） | `[x]` | contracts 30 项测试 |
+| 纯计算核心 | `[x]` | motion-core 145 项测试 |
+| 后端 + Mock 适配器 | `[x]` | api 130 项测试 |
+| 前端采集链路 | `[x]` | web 51 项 vitest + 38 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：verify + e2e 两个 job |
-| 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → test → build |
+| 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → test → build → check:bundle |
 
 ### 已修复的真实缺陷（不是测试写错）
 
@@ -49,6 +49,9 @@
 | F-003 | 单帧异常中断整个采集循环 |
 | F-004 | 长宽比导致二维夹角失真 12°（远超 10° 门槛） |
 | F-005 | 中文引号导致构建失败 |
+| F-007 | 模块 Worker 里加载不了 WASM 运行时，真实推理在本机完全起不来 |
+| F-008 | 采集流从未接到界面上的 `<video>`，练习页只有黑屏 |
+| F-010 | 镜像只做了一半，骨架与人物左右相反（直接违反红线 5 要保护的行为） |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -56,13 +59,13 @@
 ### 测试总量
 
 ```
-contracts      27
-motion-core   141
-api           127
-web (vitest)   37
-web (Playwright/真 Chrome) 36
+contracts      30
+motion-core   145
+api           130
+web (vitest)   51
+web (Playwright/真 Chrome) 38
 ─────────────────────────────
-合计          368
+合计          394
 ```
 
 ---
@@ -73,17 +76,18 @@ web (Playwright/真 Chrome) 36
 
 | # | 项 | 说明 | 预估 |
 | --- | --- | --- | --- |
-| A1 | 前端组件级测试 | `App.tsx` / 采集面板目前只有逻辑层测试，缺组件渲染与状态流转测试（需 `@testing-library/react`） | 中 |
-| A2 | 端到端串联测试 | 从 `POST /api/train/analyze` 走到完整报告渲染，目前前端与后端是分段测的 | 中 |
-| A3 | 边界与模糊测试 | 对 zod 契约做随机数据模糊测试，确认任何畸形输入都不会 500 | 小 |
-| A4 | 性能基线 | 记录 `FrameScheduler` 在 60fps 下的丢帧率、`motion-core` 各特征函数的耗时上限，写成回归阈值 | 中 |
-| A5 | 错误路径补测 | 网络中途断开、后端返回 502、摄像头中途被拔掉的降级表现 | 中 |
-| A6 | 依赖体积预算 | 给 web 产物设 gzip 体积上限，超过则 CI 失败（当前 79.45 kB） | 小 |
+| A1 | ✅ 前端组件级测试（部分完成） | 已引入 `@testing-library/react` + jsdom，新增 App / ReviewPanel 共 8 项渲染测试；**采集状态流转与摄像头错误态仍未覆盖** | 中 |
+| A2 | 端到端串联测试 | 从 `POST /api/coach/analyze` 走到完整报告渲染，目前前端与后端是分段测的 —— 仍**未做** | 中 |
+| A3 | ✅ 边界与模糊测试 | 已对 api 与 contracts 各加 3 项模糊测试，断言畸形输入绝不 500 / 绝不 throw | 小 |
+| A4 | 🟡 性能基线 | 已给 `motion-core` 每帧热路径的四个函数定出 < 10 ms 哨兵；**`FrameScheduler` 在 60fps 下的丢帧率仍未覆盖** | 中 |
+| A5 | 🟡 错误路径补测 | 已覆盖畸形请求体、后端不可达、HTTP 500；**网络中途断开与摄像头中途被拔仍未覆盖** | 中 |
+| A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 118.7 KiB | 小 |
 | A7 | Docker 镜像构建验证 | Dockerfile 已存在但未在沙箱内真正 `docker build` 过 | 小 |
 | A8 | changesets 发布流程 | 已装但未配置，多包版本发布流程未打通 | 小 |
 | A9 | 无障碍（a11y）检查 | 采集页的键盘可达性与对比度 | 小 |
 
-**建议**：A1、A2、A5 价值最高 —— 它们覆盖的是"用户真的会遇到、但当前测试打不到"的路径。
+**建议**：A2 价值最高 —— 它是 A 类里唯一完全没动的，且"整页链路"正是本批 F-007/F-008 两个缺陷藏身的地方。
+其次是补 A1 / A4 / A5 各自标注的剩余部分。
 
 ---
 
