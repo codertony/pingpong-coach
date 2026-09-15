@@ -15,7 +15,7 @@ import {
   verdictToSpeech,
   type TrainingTelemetry,
 } from "../training/training-session.js";
-import { drawSkeleton } from "../training/skeleton-overlay.js";
+import { drawSkeleton, drawReadyZone } from "../training/skeleton-overlay.js";
 import { SpeechChannel, type SpeechStatus } from "../audio/speech-channel.js";
 import { analyzeGroup, fetchHealth } from "../review/api-client.js";
 import { ReviewPanel, type ReviewItem } from "./ReviewPanel.js";
@@ -59,6 +59,8 @@ export function App() {
   const speechRef = useRef<SpeechChannel | null>(null);
   const epochRef = useRef(new SourceEpochTracker());
   const sessionIdRef = useRef(`s_${Date.now()}`);
+  /** 本次会话是否已自动标定过准备区（只做一次，之后交给用户控制） */
+  const autoCalibratedRef = useRef(false);
 
   // 健康检查：让用户一开始就知道后端的模型模式
   useEffect(() => {
@@ -125,6 +127,31 @@ export function App() {
     }
   }, []);
 
+  /** 把当前持拍手腕位置设为准备区中心（手动覆盖自动标定）。 */
+  const setReadyZoneToWrist = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session || !session.setReadyZoneToCurrentWrist()) {
+      setStatusText("尚未检测到持拍手腕，请确认持拍手臂完整入镜后再试");
+      return;
+    }
+    setStatusText("已把当前腕部位置设为准备区（手动设定），请保持该位置，随后正常挥拍");
+  }, []);
+
+  /**
+   * 自动标定准备区：取腕部**停留最久**的位置。
+   * 比"按一下"更稳，因为一次训练里停在准备姿势的时间远多于挥拍中。
+   */
+  const calibrateReadyZone = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    const used = session.calibrateReadyZoneFromDwell();
+    setStatusText(
+      used === 0
+        ? "腕部样本不足（不到 20 帧），请先让持拍手在画面里停留一两秒"
+        : `已按腕部停留位置标定准备区（用了 ${used} 帧），请正常挥拍`,
+    );
+  }, []);
+
   /** 停止训练：关闭摄像头、终止 Worker、取消语音。 */
   const stop = useCallback(() => {
     captureRef.current?.stop();
@@ -149,6 +176,7 @@ export function App() {
     setFeedback(null);
     setLocalVerdict(null);
     setStrokeCount(0);
+    autoCalibratedRef.current = false;
 
     if (!engineRef.current) {
       await initEngine();
@@ -213,15 +241,37 @@ export function App() {
     const offResult = engine.onResult((result) => {
       sessionRef.current?.pushPoseResult(result);
       const canvas = canvasRef.current;
-      if (canvas && result.detected) {
+      if (canvas) {
         canvas.width = result.imageWidth;
         canvas.height = result.imageHeight;
-        drawSkeleton(canvas, result.keypoints2D, handedness, {
-          mirrored: sourceKind === "camera",
-          minScore: 0.5,
-        });
+        if (result.detected) {
+          drawSkeleton(canvas, result.keypoints2D, handedness, {
+            mirrored: sourceKind === "camera",
+            minScore: 0.5,
+          });
+        } else {
+          canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+        }
+        // 准备区始终可见，让用户确认本组约束位置（也方便排查"等待有效挥拍"）
+        drawReadyZone(
+          canvas,
+          sessionRef.current?.readyZoneDisplay ?? null,
+          sourceKind === "camera",
+        );
       }
-      setTelemetry(sessionRef.current?.telemetry ?? null);
+      const session = sessionRef.current;
+      setTelemetry(session?.telemetry ?? null);
+
+      // 自动标定准备区：默认位置是写死的，几乎不可能刚好落在你的准备姿势上，
+      // 而准备区不对的表现就是"一直等待有效挥拍"。攒够腕部样本后自动标定一次，
+      // 用户随时可以用「以当前腕部为准备区」手动覆盖。界面会如实标注是哪种。
+      if (session && !autoCalibratedRef.current && session.telemetry.wristVisible) {
+        const used = session.calibrateReadyZoneFromDwell();
+        if (used > 0) {
+          autoCalibratedRef.current = true;
+          setStatusText(`已按腕部停留位置自动标定准备区（${used} 帧），请正常挥拍`);
+        }
+      }
     });
 
     const scheduler = new FrameScheduler(async (frame) => {
@@ -488,6 +538,8 @@ export function App() {
             onStop: stop,
             handedness,
             mirrored: sourceKind === "camera",
+            onSetReadyZoneToWrist: setReadyZoneToWrist,
+            onCalibrateReadyZone: calibrateReadyZone,
           }}
         />
       )}
@@ -812,10 +864,21 @@ interface PracticeProps {
   speechStatus: SpeechStatus;
   onStart: () => void;
   onStop: () => void;
+  onSetReadyZoneToWrist: () => void;
+  onCalibrateReadyZone: () => void;
   handedness: "left" | "right";
   /** 预览是否镜像。必须与 drawSkeleton 的 mirrored 取同一个值 */
   mirrored: boolean;
 }
+
+const PHASE_LABELS: Record<string, string> = {
+  idle: "空闲（等待进入准备区）",
+  ready: "准备区驻留",
+  backswing: "引拍",
+  forward: "向前挥拍",
+  returning: "还原",
+  aborted: "异常结束",
+};
 
 function PracticeView(props: PracticeProps) {
   const speechLabel = useMemo(() => {
@@ -902,6 +965,46 @@ function PracticeView(props: PracticeProps) {
           {props.telemetry != null && props.telemetry.framesDropped > 0 && (
             <div className="small muted" style={{ marginTop: 8 }}>
               已有 {props.telemetry.framesDropped} 帧因处理繁忙被丢弃（已计入质量指标）。
+            </div>
+          )}
+          <div className="small muted" style={{ marginTop: 8 }}>
+            {props.telemetry?.segmentationPhase
+              ? `分段：${PHASE_LABELS[props.telemetry.segmentationPhase] ?? props.telemetry.segmentationPhase}`
+              : "分段：—"}
+            {props.telemetry && !props.telemetry.hasBodyScale && " · 测不到体尺度（肩或髋未入镜）"}
+            {props.telemetry && !props.telemetry.wristVisible && " · 未检测到持拍手腕"}
+            {props.telemetry?.segmentationLastAbortReason
+              ? ` · 上次中断：${props.telemetry.segmentationLastAbortReason}`
+              : ""}
+          </div>
+          {props.telemetry?.wristToZoneRatio != null && (
+            <div
+              className="small"
+              style={{
+                marginTop: 6,
+                color: props.telemetry.wristToZoneRatio <= 1 ? "#3fb950" : "#d29922",
+              }}
+            >
+              腕部距准备区 {props.telemetry.wristToZoneRatio.toFixed(2)} 倍半径
+              {props.telemetry.wristToZoneRatio <= 1
+                ? "（已在区内，可开始挥拍）"
+                : "（在区外——状态机不会开始一次挥拍）"}
+              {props.telemetry.readyZoneRadiusPx != null &&
+                ` · 准备区半径 ${Math.round(props.telemetry.readyZoneRadiusPx)}px`}
+              {props.telemetry.bodyScalePx != null &&
+                ` · 体尺度 ${Math.round(props.telemetry.bodyScalePx)}px`}
+            </div>
+          )}
+          {props.running && (
+            <div className="row" style={{ marginTop: 8 }}>
+              <button onClick={props.onCalibrateReadyZone}>重标定准备区</button>
+              <button onClick={props.onSetReadyZoneToWrist}>以当前腕部为准备区</button>
+            </div>
+          )}
+          {props.telemetry?.readyZoneAutoCalibrated && (
+            <div className="small muted" style={{ marginTop: 6 }}>
+              准备区由程序按腕部停留位置自动标定，不是既定参考 ——
+              若与你的准备姿势不符，点「以当前腕部为准备区」手动覆盖。
             </div>
           )}
         </div>

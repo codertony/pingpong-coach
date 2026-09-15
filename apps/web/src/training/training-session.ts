@@ -17,6 +17,7 @@ import type {
   PoseFrame,
   SegmentationConfig,
   StrokeEvent,
+  StrokePhase,
 } from "@pingpong/contracts";
 import { FEATURE_IDS, RULE_VERSION, SCHEMA_VERSION } from "@pingpong/contracts";
 import {
@@ -36,6 +37,7 @@ import {
   PointFilter,
   oneEuroConfig,
   summarizeGroupQuality,
+  estimateReadyZoneFromDwell,
   type FrameGeometry,
   type LocalVerdict,
 } from "@pingpong/motion-core";
@@ -78,6 +80,31 @@ export interface TrainingTelemetry {
   actualFps: number | null;
   /** 有效帧比例 */
   usableRatio: number;
+  /** 当前分段阶段（idle/ready/backswing/forward/returning/aborted） */
+  segmentationPhase: StrokePhase | null;
+  /** 分段期间因质量/缺失被跳过的帧数 */
+  segmentationSkippedFrames: number;
+  /** 最近一次异常结束原因 */
+  segmentationLastAbortReason: string | null;
+  /** 最近一帧是否测到了体尺度（肩+髋都在画面内） */
+  hasBodyScale: boolean;
+  /** 最近一帧是否检测到持拍手腕 */
+  wristVisible: boolean;
+  /** 当前体尺度（肩中点—髋中点，像素）；null 表示未测到 */
+  bodyScalePx: number | null;
+  /** 当前准备区半径（像素）；null 表示尚未设定准备区 */
+  readyZoneRadiusPx: number | null;
+  /**
+   * 腕部到准备区中心的距离 ÷ 准备区半径。
+   * ≤ 1 表示在区内（状态机可以开始一次挥拍）；> 1 表示在区外。
+   * 这是"为什么一直等待有效挥拍"的最直接判据：它长期 > 1 就是准备区设错了。
+   */
+  wristToZoneRatio: number | null;
+  /**
+   * 准备区是否由自动标定得出（腕部驻留位置）。
+   * 界面必须如实标注：用户要知道这个约束是程序猜的，还是自己设的。
+   */
+  readyZoneAutoCalibrated: boolean;
 }
 
 /** 把姿态结果转成 PoseFrame，并做质量评估。 */
@@ -130,6 +157,14 @@ export class TrainingSession {
   private validStrokes: StrokeEvent[] = [];
   private currentGroupIndex = 0;
   private readyZoneCenter: { x: number; y: number } | null = null;
+  /** 最近一次滤波后的持拍手腕位置，用于"以此处为准备区"与诊断 */
+  private lastWristPx: { x: number; y: number } | null = null;
+  /** 最近一次测到的体尺度（肩中点—髋中点距离），null 表示肩或髋未入镜 */
+  private lastBodyScalePx: number | null = null;
+  /** 最近若干帧的腕部位置与媒体时间，用于自动标定准备区（速度加权） */
+  private wristSamples: Array<{ x: number; y: number; tMs: number }> = [];
+  /** 当前准备区是否由自动标定得出（用于界面如实标注） */
+  private autoCalibrated = false;
   private poseLatencies: number[] = [];
   private groupFirstStrokeAtMs: number | null = null;
   private framesProcessed = 0;
@@ -147,14 +182,89 @@ export class TrainingSession {
     return `${this.config.sessionId}_g${this.currentGroupIndex}`;
   }
 
-  /** 用户在拍摄检查页选定准备区中心。 */
+  /** 用户在拍摄检查页选定准备区中心，或手动覆盖自动标定结果。 */
   setReadyZone(center: { x: number; y: number }): void {
     this.readyZoneCenter = center;
     this.segmenter.setReadyZone(center);
   }
 
+  /**
+   * 把准备区中心设为"当前腕部位置"（用户手动）。
+   * 手动设定后清除自动标定标记，避免界面继续显示"由自动标定得出"。
+   */
+  setReadyZoneToCurrentWrist(): boolean {
+    if (!this.lastWristPx) return false;
+    this.autoCalibrated = false;
+    this.setReadyZone({ ...this.lastWristPx });
+    return true;
+  }
+
+  /**
+   * 自动标定准备区：找**腕部停留最久**的位置。
+   *
+   * 为什么不是简单取中位数：一次挥拍中腕部会扫过一大片区域，中位数会被
+   * 挥拍轨迹拉偏。真正要的是"手停在哪里等球"——因此把画面切成格子统计
+   * 落点，取样本最多的那一格（驻留格），再在该格内取中位数细分。
+   * 停在准备姿势的时间天然远多于挥拍中，所以驻留格就是准备位置。
+   *
+   * @returns 用到的样本数；样本不足（< 20）时返回 0 且不改变准备区。
+   */
+  calibrateReadyZoneFromDwell(): number {
+    const n = this.wristSamples.length;
+    const center = estimateReadyZoneFromDwell(
+      this.wristSamples.map((s) => ({ x: s.x, y: s.y })),
+      this.wristSamples.map((s) => s.tMs),
+    );
+    if (!center) return 0;
+    this.autoCalibrated = true;
+    this.setReadyZone(center);
+    return n;
+  }
+
+  /**
+   * 对照实验用：按腕部样本中位数标定准备区。
+   *
+   * 保留它是为了能在**真实素材**上比较两种估计器（见 docs/known-failures.md）。
+   * 不要在未比较过的情况下删掉其中一个。
+   */
+  calibrateReadyZoneFromMedian(): number {
+    const n = this.wristSamples.length;
+    if (n === 0) return 0;
+    const xs = this.wristSamples.map((p) => p.x).sort((a, b) => a - b);
+    const ys = this.wristSamples.map((p) => p.y).sort((a, b) => a - b);
+    const mid = Math.floor(n / 2);
+    this.autoCalibrated = true;
+    this.setReadyZone({ x: xs[mid]!, y: ys[mid]! });
+    return n;
+  }
+
   get hasReadyZone(): boolean {
     return this.readyZoneCenter != null;
+  }
+
+  /** 最近一次滤波后的持拍手腕位置（原始画面像素），用于"以此处为准备区"。 */
+  get currentWristPx(): { x: number; y: number } | null {
+    return this.lastWristPx;
+  }
+
+  /** 腕部位置样本（诊断用）。返回副本，调用方不能改到内部状态。 */
+  get wristSamplesSnapshot(): Array<{ x: number; y: number }> {
+    return this.wristSamples.map((s) => ({ x: s.x, y: s.y }));
+  }
+
+  /**
+   * 准备区显示信息（用于在画面上画出准备区）。
+   * 半径按 `readyZoneRadiusBodyScale * 体尺度` 计算，与分段状态机一致。
+   * 体尺度尚未测到（肩或髋未入镜）时用固定占位值，仅用于显示，不影响判定。
+   */
+  get readyZoneDisplay(): { xPx: number; yPx: number; radiusPx: number } | null {
+    if (!this.readyZoneCenter) return null;
+    const bodyScale = this.lastBodyScalePx ?? 200;
+    return {
+      xPx: this.readyZoneCenter.x,
+      yPx: this.readyZoneCenter.y,
+      radiusPx: this.config.segmentation.readyZoneRadiusBodyScale * bodyScale,
+    };
   }
 
   /** 源切换（seek/重播/切摄像头）时重置分段，避免跨片段污染。 */
@@ -162,6 +272,8 @@ export class TrainingSession {
     this.segmenter.reset();
     this.wristFilter.reset();
     this.previousFrame = null;
+    this.wristSamples.length = 0;
+    this.autoCalibrated = false;
   }
 
   markDropped(): void {
@@ -218,6 +330,14 @@ export class TrainingSession {
       const hMid = { x: (lHip.x + rHip.x) / 2, y: (lHip.y + rHip.y) / 2 };
       const d = Math.hypot(sMid.x - hMid.x, sMid.y - hMid.y);
       bodyScalePx = d > 0 ? d : null;
+    }
+
+    // 记录最近一帧的手腕与体尺度，供"以此处为准备区"与诊断展示
+    this.lastWristPx = filteredWrist;
+    this.lastBodyScalePx = bodyScalePx;
+    if (filteredWrist) {
+      this.wristSamples.push({ ...filteredWrist, tMs: result.sourceTimeMs });
+      if (this.wristSamples.length > 180) this.wristSamples.shift();
     }
 
     const stroke = this.segmenter.push({
@@ -427,6 +547,20 @@ export class TrainingSession {
     const sampling = computeSamplingStats(this.frameTimes, DEFAULT_QUALITY_CONFIG);
     const poses = [...this.posesByFrameId.values()];
     const quality = summarizeGroupQuality(poses, DEFAULT_QUALITY_CONFIG);
+    const diag = this.segmenter.diagnostics;
+    const bodyScale = this.lastBodyScalePx;
+    const zoneRadius =
+      bodyScale != null ? this.config.segmentation.readyZoneRadiusBodyScale * bodyScale : null;
+    const wristToZoneRatio =
+      this.lastWristPx != null &&
+      this.readyZoneCenter != null &&
+      zoneRadius != null &&
+      zoneRadius > 0
+        ? Math.hypot(
+            this.lastWristPx.x - this.readyZoneCenter.x,
+            this.lastWristPx.y - this.readyZoneCenter.y,
+          ) / zoneRadius
+        : null;
 
     return {
       poseProcessingP95Ms: p95,
@@ -435,6 +569,15 @@ export class TrainingSession {
       framesDropped: this.framesDropped,
       actualFps: sampling.processedFps,
       usableRatio: quality.usableRatio,
+      segmentationPhase: diag.phase,
+      segmentationSkippedFrames: diag.skippedFrames,
+      segmentationLastAbortReason: diag.lastAbortReason,
+      hasBodyScale: bodyScale != null,
+      wristVisible: this.lastWristPx != null,
+      bodyScalePx: bodyScale,
+      readyZoneRadiusPx: zoneRadius,
+      wristToZoneRatio,
+      readyZoneAutoCalibrated: this.autoCalibrated,
     };
   }
 
@@ -448,6 +591,7 @@ export class TrainingSession {
     this.posesByFrameId.clear();
     this.geometries.length = 0;
     this.frameTimes.length = 0;
+    this.wristSamples.length = 0;
     this.wristFilter.reset();
     this.segmenter.reset();
   }

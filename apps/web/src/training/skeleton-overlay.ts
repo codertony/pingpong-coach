@@ -132,4 +132,11 @@ export function drawReadyZone(
   ctx.arc(x, zone.yPx, zone.radiusPx, 0, Math.PI * 2);
   ctx.stroke();
   ctx.setLineDash([]);
+
+  // 标注中心：没有标注时，用户无法判断这个圆到底是"准备区"还是别的什么东西
+  ctx.fillStyle = "rgba(63,185,80,0.9)";
+  ctx.font = `${Math.max(11, Math.round(canvas.width / 90))}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("准备区", x, zone.yPx);
 }
