@@ -3,7 +3,13 @@ import type { CoachFeedback, EvidencePacket, HealthResponse } from "@pingpong/co
 import { DEFAULT_THRESHOLDS, type LocalVerdict } from "@pingpong/motion-core";
 import { PoseEngine, type EngineStatus } from "../vision/pose-engine.js";
 import { FrameScheduler, SourceEpochTracker } from "../capture/frame-scheduler.js";
-import { startCapture, type CaptureError, type CaptureHandle } from "../capture/capture-source.js";
+import {
+  listCameras,
+  listCamerasWithPermission,
+  startCapture,
+  type CaptureError,
+  type CaptureHandle,
+} from "../capture/capture-source.js";
 import {
   TrainingSession,
   verdictToSpeech,
@@ -40,6 +46,9 @@ export function App() {
   const [strokesPerGroup, setStrokesPerGroup] = useState(3);
   const [sourceKind, setSourceKind] = useState<"camera" | "video">("camera");
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  /** 显式选定的摄像头；null = 系统默认 */
+  const [videoDeviceId, setVideoDeviceId] = useState<string | null>(null);
+  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -73,6 +82,26 @@ export function App() {
   useEffect(() => {
     speechRef.current?.setEnabled(speechEnabled);
   }, [speechEnabled]);
+
+  /**
+   * 枚举视频输入设备。
+   *
+   * 为什么要在界面里显示数量：摄像头打不开时，「浏览器一个设备都没枚举到」
+   * 与「枚举到了但打不开」是两种完全不同的故障，前者要查系统隐私开关，
+   * 后者才要查占用。没有这个数字时只能靠猜。见 docs/known-failures.md F-009。
+   */
+  const refreshCameras = useCallback(async (withPermission = false) => {
+    setCameras(withPermission ? await listCamerasWithPermission() : await listCameras());
+  }, []);
+
+  useEffect(() => {
+    void refreshCameras();
+    const md = navigator.mediaDevices;
+    if (!md?.addEventListener) return;
+    const onChange = () => void refreshCameras();
+    md.addEventListener("devicechange", onChange);
+    return () => md.removeEventListener("devicechange", onChange);
+  }, [refreshCameras]);
 
   const engineReady = engineStatus?.ready === true;
 
@@ -213,23 +242,15 @@ export function App() {
     try {
       const handle = await startCapture({
         kind: sourceKind,
+        deviceId: videoDeviceId ?? undefined,
         getEpoch: () => epochRef.current.current,
         onFrame: (frame) => scheduler.submit(frame),
         requestedFps: 60,
         videoFile: videoFile ?? undefined,
       });
       captureRef.current = handle;
-
-      // 把采集视频挂到界面上
-      if (videoRef.current) {
-        videoRef.current.srcObject = handle.video.srcObject;
-        if (sourceKind === "video") {
-          videoRef.current.src = handle.video.src;
-        }
-        await videoRef.current.play().catch(() => {
-          /* 自动播放被拦截时用户可手动点击播放 */
-        });
-      }
+      // 授权成功后浏览器才返回设备名，这里补一次枚举把名称填上
+      void refreshCameras();
 
       // 默认准备区：画面中心偏下
       const w = handle.video.videoWidth || 1280;
@@ -253,7 +274,42 @@ export function App() {
     };
     // handleGroup 通过 ref 读取最新状态，这里不需要进依赖
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [handedness, focusId, cameraView, strokesPerGroup, sourceKind, videoFile, initEngine]);
+  }, [
+    handedness,
+    focusId,
+    cameraView,
+    strokesPerGroup,
+    sourceKind,
+    videoFile,
+    videoDeviceId,
+    refreshCameras,
+    initEngine,
+  ]);
+
+  /**
+   * 把采集流接到界面上的 <video>。
+   *
+   * 采集用的 video 元素是离屏创建的：点「开始训练」时界面还停在「拍摄检查」页，
+   * 练习页的 <video> 尚未挂载，此时直接赋值会落空（元素为 null），
+   * 于是切到练习页后只有一块黑屏。等元素真正挂载后再接一次。
+   */
+  useEffect(() => {
+    const el = videoRef.current;
+    const handle = captureRef.current;
+    // 同一路采集不重复赋值：给导入视频重新赋 src 会让预览跳回开头
+    if (
+      !el ||
+      !handle ||
+      (el.srcObject === handle.video.srcObject && el.src === handle.video.src)
+    ) {
+      return;
+    }
+    el.srcObject = handle.video.srcObject;
+    if (sourceKind === "video") el.src = handle.video.src;
+    void el.play().catch(() => {
+      /* 自动播放被拦截时用户可手动点击播放 */
+    });
+  }, [tab, running, sourceKind]);
 
   /** 一组完成后：发起一次模型分析，并把结果并入复查。 */
   const handleGroup = useCallback(async (packet: EvidencePacket) => {
@@ -402,6 +458,10 @@ export function App() {
             sourceKind,
             setSourceKind,
             setVideoFile,
+            cameras,
+            videoDeviceId,
+            setVideoDeviceId,
+            onRefreshCameras: (withPermission?: boolean) => void refreshCameras(withPermission),
             onInitEngine: initEngine,
             onStart: () => void start(),
             engineReady,
@@ -427,6 +487,7 @@ export function App() {
             onStart: () => void start(),
             onStop: stop,
             handedness,
+            mirrored: sourceKind === "camera",
           }}
         />
       )}
@@ -462,12 +523,20 @@ interface SetupProps {
   sourceKind: "camera" | "video";
   setSourceKind: (v: "camera" | "video") => void;
   setVideoFile: (f: File | null) => void;
+  cameras: MediaDeviceInfo[];
+  videoDeviceId: string | null;
+  setVideoDeviceId: (v: string | null) => void;
+  onRefreshCameras: (withPermission?: boolean) => void;
   onInitEngine: () => Promise<void>;
   onStart: () => void;
   engineReady: boolean;
 }
 
 function SetupView(props: SetupProps) {
+  // 只有拿到权限后浏览器才会给出 deviceId 与设备名；没有这些就无法按设备选择
+  const selectableCameras = props.cameras.filter((c) => c.deviceId !== "");
+  const hasVisibleLabels = props.cameras.length > 0 && props.cameras.every((c) => c.label === "");
+
   return (
     <div className="grid two">
       <div>
@@ -550,6 +619,24 @@ function SetupView(props: SetupProps) {
                 <option value="video">导入视频</option>
               </select>
             </div>
+            {props.sourceKind === "camera" && selectableCameras.length > 0 && (
+              <div className="field">
+                <label>摄像头设备</label>
+                <select
+                  value={props.videoDeviceId ?? ""}
+                  onChange={(e) =>
+                    props.setVideoDeviceId(e.target.value === "" ? null : e.target.value)
+                  }
+                >
+                  <option value="">系统默认</option>
+                  {selectableCameras.map((c, i) => (
+                    <option key={c.deviceId} value={c.deviceId}>
+                      {c.label || `视频设备 ${i + 1}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {props.sourceKind === "video" && (
               <div className="field">
                 <label>视频文件</label>
@@ -561,10 +648,28 @@ function SetupView(props: SetupProps) {
               </div>
             )}
           </div>
+          {props.sourceKind === "camera" && (
+            <>
+              <div className="small muted">
+                浏览器当前枚举到 <strong>{props.cameras.length}</strong> 个视频输入设备。
+                {props.cameras.length === 0 &&
+                  "一个都没有，说明浏览器拿不到系统摄像头 —— 这与画面设置无关。"}
+                {hasVisibleLabels && "设备名为空是正常的：浏览器只在授予摄像头权限后才返回名称。"}
+              </div>
+              <div className="small muted mono">当前浏览器：{navigator.userAgent}</div>
+              <div className="row">
+                <button onClick={() => props.onRefreshCameras()}>重新枚举设备</button>
+                <button onClick={() => props.onRefreshCameras(true)}>授权并刷新设备名</button>
+              </div>
+            </>
+          )}
           {props.captureError && (
             <div className="notice danger">
               <strong>{props.captureError.message}</strong>
               <div className="small">{props.captureError.hint}</div>
+              {props.captureError.detail && (
+                <div className="small mono">原始错误：{props.captureError.detail}</div>
+              )}
             </div>
           )}
           <div className="small muted">
@@ -708,6 +813,8 @@ interface PracticeProps {
   onStart: () => void;
   onStop: () => void;
   handedness: "left" | "right";
+  /** 预览是否镜像。必须与 drawSkeleton 的 mirrored 取同一个值 */
+  mirrored: boolean;
 }
 
 function PracticeView(props: PracticeProps) {
@@ -746,7 +853,12 @@ function PracticeView(props: PracticeProps) {
             </div>
           </div>
           <div className="stage">
-            <video ref={props.videoRef} playsInline muted />
+            <video
+              ref={props.videoRef}
+              className={props.mirrored ? "mirrored" : undefined}
+              playsInline
+              muted
+            />
             <canvas ref={props.canvasRef} />
           </div>
           <div className="spacer" />

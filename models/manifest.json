@@ -1,6 +1,5 @@
 {
   "$comment": "模型资产清单。实现 models:fetch 脚本时以本文件为准，记录模型 ID、来源、URL、SHA-256、文件大小、SDK 版本、关键点集合及许可来源。校验失败必须明确报错，不静默换用另一版模型。重新选择模型后需重新评测并记录 modelId。",
-
   "assets": [
     {
       "modelId": "pose_landmarker_full",
@@ -17,8 +16,8 @@
         {
           "path": "apps/web/public/models/pose_landmarker_full.task",
           "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task",
-          "sha256": null,
-          "bytes": null
+          "sha256": "4eaa5eb7a98365221087693fcc286334cf0858e2eb6e15b506aa4a7ecdcec4ad",
+          "bytes": 9398198
         }
       ],
       "notes": [
@@ -42,14 +41,13 @@
         {
           "path": "apps/web/public/models/pose_landmarker_lite.task",
           "url": "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task",
-          "sha256": null,
-          "bytes": null
+          "sha256": "59929e1d1ee95287735ddd833b19cf4ac46d29bc7afddbbf6753c459690d574a",
+          "bytes": 5777746
         }
       ],
       "notes": ["未启用。启用前必须在同一素材上比较质量与速度。"]
     }
   ],
-
   "conditionalAlternatives": [
     {
       "engine": "rtmlib (RTMPose)",

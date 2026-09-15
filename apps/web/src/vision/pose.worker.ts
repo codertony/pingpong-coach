@@ -89,16 +89,52 @@ export const KEYPOINT_SET_NAME = "blaze_33";
 
 let landmarker: PoseLandmarker | null = null;
 
+/**
+ * MediaPipe 的 WASM 加载器（`vision_wasm_internal.js`）是 UMD 经典脚本：
+ * 它靠顶层 `var ModuleFactory` 落在**全局作用域**，才能把工厂函数交给调用方。
+ * MediaPipe 自己只会用 `<script>`（主线程）或 `importScripts`（经典 Worker）执行它。
+ *
+ * 本项目为了不阻塞界面跑在**模块 Worker** 里，两条路都不可用：
+ * `importScripts` 调用即抛 TypeError，MediaPipe 于是退回动态 `import()`，
+ * 而 ESM 的 `var` 留在模块作用域，全局上永远拿不到 `ModuleFactory`。
+ *
+ * 更麻烦的是 ESM 模块只求值一次：GPU 创建失败降级到 CPU 时会再次
+ * `createFromOptions`，即使第一次侥幸挂上了全局，第二次也不会重新执行。
+ *
+ * 所以每次实例化之前自己取源码，按经典脚本语义在全局作用域执行一遍。
+ */
+type WasmHost = typeof globalThis & { ModuleFactory?: (options?: unknown) => Promise<unknown> };
+
+async function loadWasmFactory(loaderUrl: string): Promise<void> {
+  const host = globalThis as WasmHost;
+  if (host.ModuleFactory) return;
+
+  const res = await fetch(loaderUrl);
+  if (!res.ok) {
+    throw new Error(`无法获取 WASM 加载器（HTTP ${res.status}）：${loaderUrl}`);
+  }
+  const source = await res.text();
+  // 间接 eval 在全局作用域执行，`var ModuleFactory` 因而成为全局属性。
+  // 这是模块 Worker 里获得经典脚本语义的唯一途径，不能用动态 import 代替。
+  (0, eval)(source);
+
+  if (!host.ModuleFactory) {
+    throw new Error("WASM 加载器执行后仍未提供 ModuleFactory");
+  }
+}
+
 async function initLandmarker(msg: WorkerInitMessage): Promise<WorkerReadyMessage> {
   const started = Date.now();
   const vision = await FilesetResolver.forVisionTasks(msg.wasmBasePath);
 
-  const create = (delegate: "GPU" | "CPU") =>
-    PoseLandmarker.createFromOptions(vision, {
+  const create = async (delegate: "GPU" | "CPU") => {
+    await loadWasmFactory(vision.wasmLoaderPath);
+    return PoseLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: msg.modelAssetPath, delegate },
       runningMode: "VIDEO",
       numPoses: 1,
     });
+  };
 
   let activeDelegate: "GPU" | "CPU" = msg.delegate;
   let downgraded = false;

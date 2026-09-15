@@ -14,9 +14,15 @@ import type { ModelAsset } from "../vision/pose-engine.js";
  * 最终模型必须通过同一素材选定，不能仅凭型号推断质量。
  */
 export const MODEL_ASSET: ModelAsset = {
-  modelId: process.env.MODEL_ID_ASSET ?? "pose_landmarker_full",
+  modelId: import.meta.env.VITE_MODEL_ID_ASSET ?? "pose_landmarker_full",
   modelAssetPath: "/models/pose_landmarker_full.task",
-  wasmBasePath: "/wasm/",
+  // 必须是带 origin 的绝对 URL，且不带尾斜杠：
+  // MediaPipe 在运行期动态 import(`${wasmBasePath}/vision_wasm_internal.js`)，
+  // 而 Vite dev 会把以 "/" 开头的动态 import 改写成 `?import`，
+  // 指向 public/ 的文件被 import 会直接 500；写成 "/wasm/" 则会命中
+  // SPA 回退返回 index.html，浏览器按模块解析 HTML 失败。
+  // 绝对 URL 不在 Vite 的改写范围内（见 vite 的 injectQuery 实现）。
+  wasmBasePath: new URL("/wasm", document.baseURI).href,
   // 先尝试 GPU，失败时 Worker 会自动降级到 CPU 并如实回报
   preferredDelegate: "GPU",
 };

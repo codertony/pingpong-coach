@@ -124,6 +124,17 @@ body {
   height: 100%;
 }
 
+/**
+ * 摄像头是自拍视角，预览要镜像显示（与用户自己的左右感一致）。
+ *
+ * 骨架必须在**绘制层**做同样的镜像 —— 两边任何一侧缺了，
+ * 骨架就会与人物左右相反。见 docs/known-failures.md F-010。
+ * 导入视频不镜像：那段素材不是自拍。
+ */
+.stage video.mirrored {
+  transform: scaleX(-1);
+}
+
 .row {
   display: flex;
   gap: 10px;

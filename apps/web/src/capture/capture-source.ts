@@ -17,6 +17,14 @@ export interface CaptureError {
   message: string;
   /** 面向用户的具体排查建议 */
   hint: string;
+  /**
+   * 原始错误摘要（`Name: message`），原样展示给用户。
+   *
+   * 存在的理由：三种完全不同的故障（枚举不到设备 / 打不开设备 / 参数不满足）
+   * 曾经共用一句"检查摄像头是否被其它程序占用"，排查时把人引向了错误的方向。
+   * 归类和翻译留在 message/hint，原始事实必须能被看到。
+   */
+  detail?: string;
 }
 
 export interface CaptureOptions {
@@ -28,6 +36,8 @@ export interface CaptureOptions {
   /** 请求的摄像头帧率（import 视频忽略） */
   requestedFps?: number;
   videoFile?: File;
+  /** 显式指定的摄像头设备；不给则用系统默认 */
+  deviceId?: string;
   facingMode?: "user" | "environment";
 }
 
@@ -38,9 +48,22 @@ export interface CaptureHandle {
   video: HTMLVideoElement;
 }
 
-function describeCameraError(err: unknown): CaptureError {
+/** 原始错误摘要。不做归类和翻译 —— 那是 message/hint 的事。 */
+function rawDetail(err: unknown): string {
   const e = err as { name?: string; message?: string };
+  const name = e.name ? String(e.name) : "";
+  const message = e.message ? String(e.message) : "";
+  if (name && message) return `${name}: ${message}`;
+  if (name) return name;
+  if (message) return message;
+  return String(err);
+}
+
+export function describeCameraError(err: unknown): CaptureError {
+  const e = err as { name?: string; message?: string; constraint?: string };
   const name = e.name ?? "";
+  const detail = rawDetail(err);
+
   if (name === "NotAllowedError" || name === "SecurityError") {
     return {
       code: "camera_permission_denied",
@@ -48,13 +71,28 @@ function describeCameraError(err: unknown): CaptureError {
       hint:
         "浏览器地址栏的权限图标里允许摄像头；确认页面在 localhost 或 HTTPS 下打开。" +
         "局域网 IP + HTTP 无法使用摄像头。",
+      detail,
     };
   }
-  if (name === "NotFoundError" || name === "OverconstrainedError") {
+  if (name === "NotFoundError") {
     return {
       code: "camera_unavailable",
-      message: "未找到可用的摄像头设备",
-      hint: "检查摄像头是否被其它程序占用，或改用导入视频。",
+      message: "浏览器没有枚举到任何摄像头",
+      hint:
+        "这是「一个摄像头都看不到」，与「被其它程序占用」是两回事（后者会提示占用）。" +
+        "确认页面是在桌面版 Chrome / Edge 里打开的 —— App 内置浏览器与网页视图" +
+        "（微信、钉钉、IDE 预览面板等）常常不暴露摄像头。" +
+        "如果确实是桌面浏览器，再检查 Windows「隐私和安全性 → 相机」的总开关与" +
+        "「让桌面应用访问你的相机」、以及设备管理器里摄像头是否被禁用。",
+      detail,
+    };
+  }
+  if (name === "OverconstrainedError") {
+    return {
+      code: "camera_unavailable",
+      message: `摄像头无法满足请求的画面参数${e.constraint ? `：${e.constraint}` : ""}`,
+      hint: "在「视频源」里换一个摄像头设备后重试，或改用导入视频。",
+      detail,
     };
   }
   if (name === "NotReadableError") {
@@ -62,12 +100,14 @@ function describeCameraError(err: unknown): CaptureError {
       code: "camera_unavailable",
       message: "摄像头被其它程序占用或无法读取",
       hint: "关闭正在使用摄像头的会议软件后重试。",
+      detail,
     };
   }
   return {
     code: "camera_unavailable",
     message: e.message ?? "摄像头启动失败",
     hint: "可以改用导入视频继续验证链路。",
+    detail,
   };
 }
 
@@ -94,6 +134,9 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
           frameRate: { ideal: options.requestedFps ?? 60 },
           width: { ideal: 1280 },
           height: { ideal: 720 },
+          // 显式选设备时才用 exact —— 设备被拔掉时它会给出一条
+          // 可辨认的 OverconstrainedError，而不是静默换一个摄像头
+          ...(options.deviceId ? { deviceId: { exact: options.deviceId } } : {}),
           ...(options.facingMode ? { facingMode: options.facingMode } : {}),
         },
         audio: false,
@@ -237,4 +280,24 @@ export async function listCameras(): Promise<MediaDeviceInfo[]> {
   if (!navigator.mediaDevices?.enumerateDevices) return [];
   const devices = await navigator.mediaDevices.enumerateDevices();
   return devices.filter((d) => d.kind === "videoinput");
+}
+
+/**
+ * 先取一次权限再枚举。
+ *
+ * 浏览器在授予摄像头权限**之前**不会返回设备名，`deviceId` 也是空的 ——
+ * 既认不出是哪个摄像头，也没法用它来选设备。这里用一次最小开销的
+ * getUserMedia 换取权限，随后立刻释放轨道。
+ *
+ * 拿不到权限时不抛错，照常返回当前能看到的列表：调用方要展示的是
+ * 「枚举到几个」，权限失败本身由后续的 startCapture 给出具体原因。
+ */
+export async function listCamerasWithPermission(): Promise<MediaDeviceInfo[]> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    for (const track of stream.getTracks()) track.stop();
+  } catch {
+    // 故意吞掉：枚举结果本身仍有用，失败原因由 startCapture 统一报告
+  }
+  return listCameras();
 }
