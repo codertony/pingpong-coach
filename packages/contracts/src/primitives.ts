@@ -1,5 +1,11 @@
 import { z } from "zod";
-import { CAMERA_VIEWS, FOCUS_IDS, KEYPOINT_NAMES, SCHEMA_VERSION } from "./constants.js";
+import {
+  CAMERA_VIEWS,
+  FOCUS_IDS,
+  HAND_LANDMARK_NAMES,
+  KEYPOINT_NAMES,
+  SCHEMA_VERSION,
+} from "./constants.js";
 
 /**
  * 质量状态。三态而非布尔：区分"看不清"与"确有动作偏差"，
@@ -12,7 +18,16 @@ export const handednessSchema = z.enum(["left", "right"]);
 export const cameraViewSchema = z.enum(CAMERA_VIEWS as unknown as [string, ...string[]]);
 export const strokeTypeSchema = z.literal("forehand_drive");
 export const focusIdSchema = z.enum(FOCUS_IDS as unknown as [string, ...string[]]);
-export const keypointNameSchema = z.enum(KEYPOINT_NAMES as unknown as [string, ...string[]]);
+/**
+ * 合法关键点名 = 姿态点 + 手部点。
+ *
+ * 手部点与姿态点共用 `Keypoint2D` 结构，因为二者的坐标语义完全相同
+ * （原始画面像素、缺失保持缺失）。用独立的命名前缀（`*_hand_wrist` 等）
+ * 区分二者，避免与姿态的 `left_wrist` / `right_wrist` 混淆。
+ */
+export const ALL_KEYPOINT_NAMES = [...KEYPOINT_NAMES, ...HAND_LANDMARK_NAMES] as const;
+
+export const keypointNameSchema = z.enum(ALL_KEYPOINT_NAMES as unknown as [string, ...string[]]);
 
 /** 已知错误码。新增需同步 docs/data-contracts.md。 */
 export const ERROR_CODES = [

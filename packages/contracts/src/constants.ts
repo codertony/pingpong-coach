@@ -31,6 +31,72 @@ export const KEYPOINT_NAMES = [
 
 export type KeypointName = (typeof KEYPOINT_NAMES)[number];
 
+/**
+ * 手部关键点名（MediaPipe Hand Landmarker 的 21 点）。
+ *
+ * 为什么用它：姿态模型（BlazePose）每只手只有腕加三个粗点，
+ * 看不到指节，因而无法回答"手指在做什么"这类问题。
+ *
+ * ⚠️ **红线 3 约束**：这些点可以用于**测量**可见的指关节几何
+ * （例如手指屈曲角度），但**不得**据此推断：
+ * - 精确拍面姿态 / 拍面朝向 —— 拍面方向取决于握拍方式与三维旋转，
+ *   单目二维骨架无法确定，红线 3 明确点名禁止；
+ * - 握力、肌肉紧张。
+ * 相关几何量必须按"观测值"命名并标注 `estimate`，不得命名成"拍面角度"。
+ */
+export const HAND_LANDMARK_NAMES = [
+  "left_hand_wrist",
+  "left_thumb_cmc",
+  "left_thumb_mcp",
+  "left_thumb_ip",
+  "left_thumb_tip",
+  "left_index_mcp",
+  "left_index_pip",
+  "left_index_dip",
+  "left_index_tip",
+  "left_middle_mcp",
+  "left_middle_pip",
+  "left_middle_dip",
+  "left_middle_tip",
+  "left_ring_mcp",
+  "left_ring_pip",
+  "left_ring_dip",
+  "left_ring_tip",
+  "left_pinky_mcp",
+  "left_pinky_pip",
+  "left_pinky_dip",
+  "left_pinky_tip",
+  "right_hand_wrist",
+  "right_thumb_cmc",
+  "right_thumb_mcp",
+  "right_thumb_ip",
+  "right_thumb_tip",
+  "right_index_mcp",
+  "right_index_pip",
+  "right_index_dip",
+  "right_index_tip",
+  "right_middle_mcp",
+  "right_middle_pip",
+  "right_middle_dip",
+  "right_middle_tip",
+  "right_ring_mcp",
+  "right_ring_pip",
+  "right_ring_dip",
+  "right_ring_tip",
+  "right_pinky_mcp",
+  "right_pinky_pip",
+  "right_pinky_dip",
+  "right_pinky_tip",
+] as const;
+
+export type HandLandmarkName = (typeof HAND_LANDMARK_NAMES)[number];
+
+/** 关键点集合名称。手部模型启用时集合是两者之和，必须显式区分。 */
+export const KEYPOINT_SET_POSE_ONLY = "blaze_33";
+export const KEYPOINT_SET_POSE_AND_HAND = "blaze_33+hand_21";
+
+export type KeypointSetName = typeof KEYPOINT_SET_POSE_ONLY | typeof KEYPOINT_SET_POSE_AND_HAND;
+
 /** 持拍侧。镜像预览不得改变此语义标签。 */
 export type Handedness = "left" | "right";
 

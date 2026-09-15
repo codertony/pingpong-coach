@@ -16,3 +16,5 @@ export * from "./segmentation.js";
 export * from "./features.js";
 export * from "./rules.js";
 export * from "./readiness.js";
+export * from "./hand.js";
+export * from "./hand-assignment.js";

@@ -9,8 +9,15 @@
  * 并提供 CPU 降级。
  */
 
-import { FilesetResolver, PoseLandmarker } from "@mediapipe/tasks-vision";
-import { KEYPOINT_NAMES, type Keypoint2D } from "@pingpong/contracts";
+import { FilesetResolver, HandLandmarker, PoseLandmarker } from "@mediapipe/tasks-vision";
+import {
+  HAND_LANDMARK_NAMES,
+  KEYPOINT_NAMES,
+  KEYPOINT_SET_POSE_AND_HAND,
+  KEYPOINT_SET_POSE_ONLY,
+  type Keypoint2D,
+} from "@pingpong/contracts";
+import { assignHandsToSides } from "@pingpong/motion-core";
 
 /** MediaPipe Pose Landmarker 的 33 点索引 → 本项目统一语义名称 */
 const BLAZE33_TO_SEMANTIC: Record<number, (typeof KEYPOINT_NAMES)[number]> = {
@@ -29,10 +36,27 @@ const BLAZE33_TO_SEMANTIC: Record<number, (typeof KEYPOINT_NAMES)[number]> = {
   28: "right_ankle",
 };
 
+/**
+ * 手部 21 点在本项目里的语义名，按侧别切分。
+ *
+ * 命名带 `_hand_` 中缀，与姿态的 `left_wrist` / `right_wrist` 显式区分：
+ * 二者是**同一个物理手腕**的两个独立观测，不能互相覆盖。
+ * 顺序必须与 MediaPipe Hand Landmarker 的 21 点一致。
+ */
+const HAND_NAMES_BY_SIDE: Record<
+  "left" | "right",
+  readonly (typeof HAND_LANDMARK_NAMES)[number][]
+> = {
+  left: HAND_LANDMARK_NAMES.slice(0, 21),
+  right: HAND_LANDMARK_NAMES.slice(21),
+};
+
 export interface WorkerInitMessage {
   type: "init";
   wasmBasePath: string;
   modelAssetPath: string;
+  /** 手部模型资产；不给则只跑姿态（手指细节不可用） */
+  handModelAssetPath?: string;
   modelId: string;
   /** 期望的委托方式；实际使用哪种会在 ready 消息中回报 */
   delegate: "GPU" | "CPU";
@@ -55,6 +79,8 @@ export interface WorkerReadyMessage {
   delegate: "GPU" | "CPU";
   modelId: string;
   keypointSet: string;
+  /** 手部模型是否可用（不可用时不产出任何手部关键点） */
+  handModelAvailable: boolean;
   /** 是否发生了降级 */
   downgraded: boolean;
   initMs: number;
@@ -71,9 +97,12 @@ export interface WorkerResultMessage {
   inferenceMs: number;
   imageWidth: number;
   imageHeight: number;
+  /** 姿态点 + （可用时）手部点；缺失点保持缺失，不补零 */
   keypoints2D: Keypoint2D[];
   /** 该帧是否检测到人体 */
   detected: boolean;
+  /** 该帧是否检测到手（手部模型不可用时恒为 false） */
+  handDetected: boolean;
 }
 
 export interface WorkerErrorMessage {
@@ -85,9 +114,10 @@ export interface WorkerErrorMessage {
 
 export type WorkerResponse = WorkerReadyMessage | WorkerResultMessage | WorkerErrorMessage;
 
-export const KEYPOINT_SET_NAME = "blaze_33";
+export const KEYPOINT_SET_NAME = KEYPOINT_SET_POSE_ONLY;
 
 let landmarker: PoseLandmarker | null = null;
+let handLandmarker: HandLandmarker | null = null;
 
 /**
  * MediaPipe 的 WASM 加载器（`vision_wasm_internal.js`）是 UMD 经典脚本：
@@ -127,6 +157,7 @@ async function initLandmarker(msg: WorkerInitMessage): Promise<WorkerReadyMessag
   const started = Date.now();
   // 每次重新初始化都从"无历史"开始，避免沿用上一个实例的时间戳基线
   lastDetectTimestampMs = Number.NEGATIVE_INFINITY;
+  handErrorReported = false;
   const vision = await FilesetResolver.forVisionTasks(msg.wasmBasePath);
 
   const create = async (delegate: "GPU" | "CPU") => {
@@ -152,18 +183,100 @@ async function initLandmarker(msg: WorkerInitMessage): Promise<WorkerReadyMessag
     downgraded = true;
   }
 
+  // 手部模型是**可选增强**：它失败时姿态链路必须照常可用，
+  // 只把手指细节标记为不可用。这里绝不因为手部模型失败而抛错。
+  let handModelAvailable = false;
+  if (msg.handModelAssetPath) {
+    try {
+      await loadWasmFactory(vision.wasmLoaderPath);
+      handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: msg.handModelAssetPath, delegate: activeDelegate },
+        runningMode: "VIDEO",
+        // 两只手都检测：出拍侧由**姿态的腕部位置**来判定，
+        // 不用 handedness 标签（见 motion-core 的 assignHandsToSides）。
+        numHands: 2,
+      });
+      handModelAvailable = true;
+    } catch (err) {
+      handLandmarker = null;
+      post({
+        type: "error",
+        code: "hand_model_unavailable",
+        message: (err as Error).message,
+      });
+    }
+  }
+
   return {
     type: "ready",
     delegate: activeDelegate,
     modelId: msg.modelId,
-    keypointSet: KEYPOINT_SET_NAME,
+    keypointSet: handModelAvailable ? KEYPOINT_SET_POSE_AND_HAND : KEYPOINT_SET_POSE_ONLY,
+    handModelAvailable,
     downgraded,
     initMs: Date.now() - started,
   };
 }
 
+/** 归一化坐标 → 原始画面像素；缺失点保持缺失（不补零）。 */
+function toPixel(
+  name: string,
+  lm: { x: number; y: number; visibility?: number } | undefined,
+  width: number,
+  height: number,
+): Keypoint2D {
+  if (!lm) {
+    return {
+      name: name as Keypoint2D["name"],
+      xPx: Number.NaN,
+      yPx: Number.NaN,
+      score: null,
+      visible: false,
+    };
+  }
+  return {
+    name: name as Keypoint2D["name"],
+    xPx: lm.x * width,
+    yPx: lm.y * height,
+    score: lm.visibility ?? null,
+    visible: lm.visibility == null ? null : lm.visibility > 0,
+  };
+}
+
+/**
+ * 把手部检测结果分配到左右两侧（按姿态腕部锚点）。
+ *
+ * 具体判定逻辑在 motion-core 的 `assignHandsToSides` 里 —— 那是纯计算，
+ * 放在那个包才能被单元测试直接覆盖；这里只做像素换算与逐个点的投影。
+ */
+function projectHands(
+  hands: ReadonlyArray<ReadonlyArray<{ x: number; y: number; visibility?: number }>>,
+  poseWrists: { left: { x: number; y: number } | null; right: { x: number; y: number } | null },
+  width: number,
+  height: number,
+  anchorTolerancePx: number,
+): Partial<Record<"left" | "right", Keypoint2D[]>> {
+  const anchors = {
+    left: poseWrists.left,
+    right: poseWrists.right,
+  };
+  const { assigned } = assignHandsToSides(hands, anchors, anchorTolerancePx);
+
+  const out: Partial<Record<"left" | "right", Keypoint2D[]>> = {};
+  for (const side of ["left", "right"] as const) {
+    const lm = assigned[side];
+    if (!lm) continue;
+    const names = HAND_NAMES_BY_SIDE[side];
+    out[side] = lm.map((p, i) => toPixel(names[i]!, p, width, height));
+  }
+  return out;
+}
+
 /** 上一次交给 MediaPipe 的时间戳，用于保证严格递增。 */
 let lastDetectTimestampMs = Number.NEGATIVE_INFINITY;
+
+/** 手部检测错误只报一次，避免逐帧刷屏掩盖真正的问题。 */
+let handErrorReported = false;
 
 /**
  * 把媒体时间单调化后再交给 MediaPipe。
@@ -191,33 +304,72 @@ function detect(msg: WorkerDetectMessage): WorkerResultMessage {
     throw new Error("模型尚未初始化");
   }
   const started = performance.now();
-  const result = landmarker.detectForVideo(msg.bitmap, monotonicDetectTimestamp(msg.sourceTimeMs));
-  const inferenceMs = performance.now() - started;
+  const timestamp = monotonicDetectTimestamp(msg.sourceTimeMs);
+  const result = landmarker.detectForVideo(msg.bitmap, timestamp);
 
   const landmarks = result.landmarks?.[0];
   const detected = landmarks != null && landmarks.length > 0;
 
+  const width = msg.bitmap.width;
+  const height = msg.bitmap.height;
   const keypoints2D: Keypoint2D[] = [];
+  let poseWrists: {
+    left: { x: number; y: number } | null;
+    right: { x: number; y: number } | null;
+  } = { left: null, right: null };
+
   if (detected) {
     for (const [indexStr, name] of Object.entries(BLAZE33_TO_SEMANTIC)) {
       const index = Number(indexStr);
-      const lm = landmarks[index];
-      if (!lm) {
-        // 缺失点保持缺失
-        keypoints2D.push({ name, xPx: Number.NaN, yPx: Number.NaN, score: null, visible: false });
-        continue;
+      // 缺失点保持缺失（toPixel 负责），不补零
+      keypoints2D.push(toPixel(name, landmarks[index], width, height));
+    }
+    const toWrist = (idx: number) => {
+      const lm = landmarks[idx];
+      return lm ? { x: lm.x * width, y: lm.y * height } : null;
+    };
+    poseWrists = { left: toWrist(15), right: toWrist(16) };
+  }
+
+  // 手部是可选增强：它失败时姿态结果照常返回，只是没有手指细节。
+  let handDetected = false;
+  if (handLandmarker) {
+    try {
+      // 与姿态共用同一个（已单调化的）时间戳：
+      // 两个计算图各自维护自己的时间基线，但要求的递增性相同。
+      const handResult = handLandmarker.detectForVideo(msg.bitmap, timestamp);
+      const hands = handResult.landmarks ?? [];
+      handDetected = hands.length > 0;
+      const assigned = projectHands(
+        hands,
+        poseWrists,
+        width,
+        height,
+        // 容差按画面对角线的 15%：太紧会因姿态/手部轻微不一致而全部丢弃，
+        // 太松会把另一只手错配给持拍侧。宁可不给，也不给错的。
+        Math.hypot(width, height) * 0.15,
+      );
+      for (const side of ["left", "right"] as const) {
+        const pts = assigned[side];
+        const names = HAND_NAMES_BY_SIDE[side];
+        if (pts) {
+          keypoints2D.push(...pts);
+        } else {
+          // 没有这只手 → 显式记为缺失，而不是悄悄不产出
+          for (const name of names) keypoints2D.push(toPixel(name, undefined, width, height));
+        }
       }
-      // MediaPipe 输出归一化坐标 → 还原为原始画面像素。
-      // 用归一化 x/y 计算角度会因长宽比失真，所以这里必须先还原。
-      keypoints2D.push({
-        name,
-        xPx: lm.x * msg.bitmap.width,
-        yPx: lm.y * msg.bitmap.height,
-        score: lm.visibility ?? null,
-        visible: lm.visibility == null ? null : lm.visibility > 0,
-      });
+    } catch (err) {
+      // 手部单帧失败不能影响姿态链路：如实报错，但结果照常返回。
+      // 只报一次 —— 每帧都报会把控制台冲垮，反而不利于定位。
+      if (!handErrorReported) {
+        handErrorReported = true;
+        post({ type: "error", code: "hand_detect_failed", message: (err as Error).message });
+      }
     }
   }
+
+  const inferenceMs = performance.now() - started;
 
   return {
     type: "result",
@@ -227,10 +379,11 @@ function detect(msg: WorkerDetectMessage): WorkerResultMessage {
     receivedAtMonoMs: msg.receivedAtMonoMs,
     inferredAtMonoMs: performance.now(),
     inferenceMs,
-    imageWidth: msg.bitmap.width,
-    imageHeight: msg.bitmap.height,
+    imageWidth: width,
+    imageHeight: height,
     keypoints2D,
     detected,
+    handDetected,
   };
 }
 

@@ -46,6 +46,32 @@
         }
       ],
       "notes": ["未启用。启用前必须在同一素材上比较质量与速度。"]
+    },
+    {
+      "modelId": "hand_landmarker",
+      "role": "hand-detail",
+      "purpose": "手部 21 点。姿态模型（BlazePose）每只手只有腕加三个粗点，看不到指节；本模型用于测量可见的手指几何。",
+      "source": "mediapipe",
+      "keypointSet": "hand_21",
+      "keypointCount": 21,
+      "license": "Apache-2.0",
+      "licenseSource": "https://github.com/google-ai-edge/mediapipe",
+      "sdkPackage": "@mediapipe/tasks-vision",
+      "sdkVersionRange": "^0.10.18",
+      "files": [
+        {
+          "path": "apps/web/public/models/hand_landmarker.task",
+          "url": "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
+          "sha256": "fbc2a30080c3c557093b5ddfc334698132eb341044ccee322ccf8bcf3607cde1",
+          "bytes": 7819105
+        }
+      ],
+      "notes": [
+        "sha256 与 bytes 需在首次 models:fetch 时实际下载后填入（--write-hash），不预先编造。",
+        "红线 3：这些点可用于测量可见的指关节几何，**不得**用于推断精确拍面姿态或握力。",
+        "手部点与姿态点共用 Keypoint2D 结构，命名带 hand 前缀（如 right_hand_wrist）以区分于姿态的 right_wrist。",
+        "实测提醒：detectForVideo 的时间戳必须严格递增，否则计算图报 Packet timestamp mismatch 后整条推理静默失效（见 docs/known-failures.md F-011）。"
+      ]
     }
   ],
   "conditionalAlternatives": [

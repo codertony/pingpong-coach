@@ -6,12 +6,18 @@
  */
 
 import type { Keypoint2D } from "@pingpong/contracts";
+import { KEYPOINT_SET_POSE_ONLY } from "@pingpong/contracts";
 import type { WorkerRequest, WorkerResponse } from "./pose.worker.js";
 
 /** 模型资产清单。与 models/manifest.json 对应。 */
 export interface ModelAsset {
   modelId: string;
   modelAssetPath: string;
+  /**
+   * 手部模型资产（可选）。不提供时只跑姿态，手指细节不可用。
+   * 它初始化失败**不会**让姿态链路失败 —— 只是手部点缺失。
+   */
+  handModelAssetPath?: string;
   wasmBasePath: string;
   /** 期望委托 */
   preferredDelegate: "GPU" | "CPU";
@@ -29,6 +35,10 @@ export interface PoseResult {
   imageHeight: number;
   keypoints2D: Keypoint2D[];
   detected: boolean;
+  /** 该帧是否检测到手（手部模型不可用时恒为 false） */
+  handDetected: boolean;
+  /** 本帧关键点集合名称（`blaze_33` 或 `blaze_33+hand_21`），随引擎状态变化 */
+  keypointSet: string;
 }
 
 export interface EngineStatus {
@@ -37,6 +47,8 @@ export interface EngineStatus {
   downgraded: boolean;
   modelId: string | null;
   keypointSet: string | null;
+  /** 手部模型是否可用。界面必须如实展示，不能让人以为手指细节一定在跑。 */
+  handModelAvailable: boolean;
   initMs: number | null;
   error: string | null;
 }
@@ -51,6 +63,7 @@ export class PoseEngine {
     downgraded: false,
     modelId: null,
     keypointSet: null,
+    handModelAvailable: false,
     initMs: null,
     error: null,
   };
@@ -92,6 +105,7 @@ export class PoseEngine {
             downgraded: msg.downgraded,
             modelId: msg.modelId,
             keypointSet: msg.keypointSet,
+            handModelAvailable: msg.handModelAvailable,
             initMs: msg.initMs,
             error: null,
           };
@@ -101,7 +115,12 @@ export class PoseEngine {
 
         if (msg.type === "result") {
           if (!this.inFlight.delete(msg.frameId)) return; // 迟到结果直接丢弃
-          const result: PoseResult = { ...msg };
+          const result: PoseResult = {
+            ...msg,
+            // 集合名称来自 ready 时的引擎状态，而不是逐帧消息 ——
+            // 集合在会话中途不会变，逐帧传只是重复。
+            keypointSet: this.status.keypointSet ?? KEYPOINT_SET_POSE_ONLY,
+          };
           for (const l of this.listeners) l(result);
           return;
         }
@@ -109,6 +128,8 @@ export class PoseEngine {
         if (msg.type === "error") {
           // gpu_delegate_failed 是预期内的降级信号，不当作致命错误
           if (msg.code === "gpu_delegate_failed") return;
+          // 手部模型/单帧手部检测失败同样不致命：姿态链路照常运行
+          if (msg.code === "hand_model_unavailable" || msg.code === "hand_detect_failed") return;
           this.status.error = msg.message;
           if (!this.status.ready) {
             clearTimeout(timer);
@@ -127,6 +148,9 @@ export class PoseEngine {
         type: "init",
         wasmBasePath: this.asset.wasmBasePath,
         modelAssetPath: this.asset.modelAssetPath,
+        ...(this.asset.handModelAssetPath
+          ? { handModelAssetPath: this.asset.handModelAssetPath }
+          : {}),
         modelId: this.asset.modelId,
         delegate: this.asset.preferredDelegate,
       };
@@ -170,6 +194,7 @@ export class PoseEngine {
       downgraded: false,
       modelId: null,
       keypointSet: null,
+      handModelAvailable: false,
       initMs: null,
       error: null,
     };
@@ -180,6 +205,7 @@ type WorkerInitMessageLike = {
   type: "init";
   wasmBasePath: string;
   modelAssetPath: string;
+  handModelAssetPath?: string;
   modelId: string;
   delegate: "GPU" | "CPU";
 };

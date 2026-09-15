@@ -122,7 +122,7 @@ export function toPoseFrame(
     sourceTimeMs: result.sourceTimeMs,
     receivedAtMonoMs: result.receivedAtMonoMs,
     modelId: "pose_landmarker",
-    keypointSet: "blaze_33",
+    keypointSet: result.keypointSet,
     imageWidth: result.imageWidth,
     imageHeight: result.imageHeight,
     keypoints2D: result.keypoints2D,

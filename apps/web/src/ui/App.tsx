@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CoachFeedback, EvidencePacket, HealthResponse } from "@pingpong/contracts";
 import { DEFAULT_THRESHOLDS, type LocalVerdict } from "@pingpong/motion-core";
 import { PoseEngine, type EngineStatus } from "../vision/pose-engine.js";
@@ -461,22 +461,37 @@ export function App() {
           {modelMode === "mock" ? "mock 模型模式" : modelMode === "live" ? "真实模型" : "后端未知"}
         </span>
         <span className="badge muted">P0–P1</span>
-        <div className="tabs">
-          <div className={`tab ${tab === "setup" ? "active" : ""}`} onClick={() => setTab("setup")}>
+        {/* 用真正的 button 而不是带 onClick 的 div：
+            div 不可聚焦、不能用键盘激活、屏幕阅读器也读不出"这是个可切换的东西"。
+            role/aria-selected 让辅助技术知道这是一组选项卡以及当前选中哪个。 */}
+        <div className="tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "setup"}
+            className={`tab ${tab === "setup" ? "active" : ""}`}
+            onClick={() => setTab("setup")}
+          >
             拍摄检查
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "practice"}
             className={`tab ${tab === "practice" ? "active" : ""}`}
             onClick={() => setTab("practice")}
           >
             练习
-          </div>
-          <div
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "review"}
             className={`tab ${tab === "review" ? "active" : ""}`}
             onClick={() => setTab("review")}
           >
             复查 {reviews.length > 0 && `(${reviews.length})`}
-          </div>
+          </button>
         </div>
       </div>
 
@@ -588,6 +603,9 @@ function SetupView(props: SetupProps) {
   // 只有拿到权限后浏览器才会给出 deviceId 与设备名；没有这些就无法按设备选择
   const selectableCameras = props.cameras.filter((c) => c.deviceId !== "");
   const hasVisibleLabels = props.cameras.length > 0 && props.cameras.every((c) => c.label === "");
+  // 每个控件的稳定 id：label 必须通过 htmlFor 关联到控件，
+  // 否则屏幕阅读器读不出这个输入是干什么的，自动化测试也定位不到。
+  const uid = useId();
 
   return (
     <div className="grid two">
@@ -596,16 +614,17 @@ function SetupView(props: SetupProps) {
           <h2>1 · 本次训练设置</h2>
           <div className="row">
             <div className="field">
-              <label>动作</label>
-              <select disabled>
+              <label htmlFor={`${uid}-stroke`}>动作</label>
+              <select id={`${uid}-stroke`} disabled>
                 {STROKE_TYPE_OPTIONS.map((o) => (
                   <option key={o.id}>{o.label}</option>
                 ))}
               </select>
             </div>
             <div className="field">
-              <label>持拍手</label>
+              <label htmlFor={`${uid}-handedness`}>持拍手</label>
               <select
+                id={`${uid}-handedness`}
                 value={props.handedness}
                 onChange={(e) => props.setHandedness(e.target.value as "left" | "right")}
               >
@@ -614,8 +633,9 @@ function SetupView(props: SetupProps) {
               </select>
             </div>
             <div className="field">
-              <label>机位</label>
+              <label htmlFor={`${uid}-view`}>机位</label>
               <select
+                id={`${uid}-view`}
                 value={props.cameraView}
                 onChange={(e) => props.setCameraView(e.target.value)}
               >
@@ -630,8 +650,12 @@ function SetupView(props: SetupProps) {
           <div className="spacer" />
           <div className="row">
             <div className="field">
-              <label>本组关注点（一次只看一个）</label>
-              <select value={props.focusId} onChange={(e) => props.setFocusId(e.target.value)}>
+              <label htmlFor={`${uid}-focus`}>本组关注点（一次只看一个）</label>
+              <select
+                id={`${uid}-focus`}
+                value={props.focusId}
+                onChange={(e) => props.setFocusId(e.target.value)}
+              >
                 {FOCUS_OPTIONS.map((o) => (
                   <option key={o.id} value={o.id}>
                     {o.label}
@@ -640,8 +664,9 @@ function SetupView(props: SetupProps) {
               </select>
             </div>
             <div className="field">
-              <label>每组有效挥拍数</label>
+              <label htmlFor={`${uid}-pergroup`}>每组有效挥拍数</label>
               <select
+                id={`${uid}-pergroup`}
                 value={props.strokesPerGroup}
                 onChange={(e) => props.setStrokesPerGroup(Number(e.target.value))}
               >
@@ -662,8 +687,9 @@ function SetupView(props: SetupProps) {
           <h2>2 · 视频源</h2>
           <div className="row">
             <div className="field">
-              <label>来源</label>
+              <label htmlFor={`${uid}-source`}>来源</label>
               <select
+                id={`${uid}-source`}
                 value={props.sourceKind}
                 onChange={(e) => props.setSourceKind(e.target.value as "camera" | "video")}
               >
@@ -673,8 +699,9 @@ function SetupView(props: SetupProps) {
             </div>
             {props.sourceKind === "camera" && selectableCameras.length > 0 && (
               <div className="field">
-                <label>摄像头设备</label>
+                <label htmlFor={`${uid}-device`}>摄像头设备</label>
                 <select
+                  id={`${uid}-device`}
                   value={props.videoDeviceId ?? ""}
                   onChange={(e) =>
                     props.setVideoDeviceId(e.target.value === "" ? null : e.target.value)
@@ -691,8 +718,9 @@ function SetupView(props: SetupProps) {
             )}
             {props.sourceKind === "video" && (
               <div className="field">
-                <label>视频文件</label>
+                <label htmlFor={`${uid}-file`}>视频文件</label>
                 <input
+                  id={`${uid}-file`}
                   type="file"
                   accept="video/*"
                   onChange={(e) => props.setVideoFile(e.target.files?.[0] ?? null)}
@@ -819,6 +847,16 @@ function SetupView(props: SetupProps) {
                   <td className="mono">{props.engineStatus.keypointSet}</td>
                 </tr>
                 <tr>
+                  <td>手部细节</td>
+                  <td>
+                    {props.engineStatus.handModelAvailable ? (
+                      <span className="badge ok">可用（21 点/手）</span>
+                    ) : (
+                      <span className="badge warn">不可用</span>
+                    )}
+                  </td>
+                </tr>
+                <tr>
                   <td>初始化耗时</td>
                   <td className="num">{props.engineStatus.initMs} ms</td>
                 </tr>
@@ -837,6 +875,10 @@ function SetupView(props: SetupProps) {
           <ul className="tight small">
             <li>只处理定点正手攻球、单人、固定机位</li>
             <li>只测量可见的二维关节位置与角度</li>
+            <li>
+              手部 21 点<b>只用于测量</b>可见的指关节几何；<b>不</b>推断拍面朝向、握力或发力大小 ——
+              单目二维确定不了这些
+            </li>
             <li>不判断肌肉紧张、发力大小、足底承重、精确拍面</li>
             <li>锚点是腕部速度峰值，不是已确认的击球时刻</li>
             <li>持拍手臂被遮挡时会明确提示"暂无法判断"，不会编造结论</li>

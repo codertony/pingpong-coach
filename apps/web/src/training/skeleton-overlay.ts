@@ -27,6 +27,18 @@ export interface DrawOptions {
   minScore: number;
 }
 
+/** 手指骨段：每根手指从掌指关节到指尖的连线（用本项目的手部语义名）。 */
+const HAND_FINGER_CHAINS: ReadonlyArray<ReadonlyArray<string>> = [
+  ["thumb_mcp", "thumb_ip", "thumb_tip"],
+  ["index_mcp", "index_pip", "index_dip", "index_tip"],
+  ["middle_mcp", "middle_pip", "middle_dip", "middle_tip"],
+  ["ring_mcp", "ring_pip", "ring_dip", "ring_tip"],
+  ["pinky_mcp", "pinky_pip", "pinky_dip", "pinky_tip"],
+];
+
+/** 掌心轮廓：腕 → 食指根 → … → 小指根 → 回到腕。 */
+const HAND_PALM_CHAIN = ["wrist", "index_mcp", "middle_mcp", "ring_mcp", "pinky_mcp", "wrist"];
+
 export function drawSkeleton(
   canvas: HTMLCanvasElement,
   keypoints: Keypoint2D[],
@@ -112,6 +124,81 @@ export function drawSkeleton(
     ctx.beginPath();
     ctx.arc(e.x, e.y, Math.max(18, width / 40), a1, a2, false);
     ctx.stroke();
+  }
+
+  // 手部 21 点：只在持拍侧画，且只在手部模型可用时才有这些点。
+  // 这是**测量**的呈现 —— 画的是检测到的指关节位置，不表示任何拍面结论。
+  drawHand(ctx, map, toXY, handedness, width, options);
+}
+
+/**
+ * 绘制持拍侧的手部关键点与骨段。
+ *
+ * 视觉纪律：手部点比姿态点密得多，用细线 + 小点，避免盖住真正要看的肩肘腕。
+ * 手部点缺失时（手部模型未启用）什么都不画，不留残影。
+ */
+function drawHand(
+  ctx: CanvasRenderingContext2D,
+  map: Map<string, Keypoint2D>,
+  toXY: (kp: Keypoint2D) => { x: number; y: number } | null,
+  handedness: "left" | "right",
+  width: number,
+  options: DrawOptions,
+): void {
+  const p = (suffix: string) => {
+    const kp = map.get(`${handedness}_hand_${suffix}`);
+    return kp ? toXY(kp) : null;
+  };
+
+  const wrist = p("wrist");
+  const indexMcp = p("index_mcp");
+  const pinkyMcp = p("pinky_mcp");
+  // 三个锚点缺任一就不画：半个手比不画更容易被误读为"手就是这样"
+  if (!wrist || !indexMcp || !pinkyMcp) return;
+
+  const reliable = (suffix: string) => {
+    const kp = map.get(`${handedness}_hand_${suffix}`);
+    return (kp?.score ?? 1) >= options.minScore;
+  };
+
+  ctx.lineWidth = Math.max(1.5, width / 500);
+
+  // 掌心轮廓
+  const palmPts = HAND_PALM_CHAIN.map((s) => p(s));
+  if (palmPts.every((q): q is { x: number; y: number } => q != null)) {
+    ctx.strokeStyle = "rgba(255,209,102,0.9)";
+    ctx.beginPath();
+    palmPts.forEach((q, i) => (i === 0 ? ctx.moveTo(q.x, q.y) : ctx.lineTo(q.x, q.y)));
+    ctx.stroke();
+  }
+
+  // 五根手指
+  for (const finger of HAND_FINGER_CHAINS) {
+    const pts = finger.map((s) => p(s));
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if (!a || !b) continue;
+      ctx.strokeStyle =
+        reliable(finger[i]!) && reliable(finger[i + 1]!)
+          ? "rgba(255,209,102,0.95)"
+          : "rgba(210,153,34,0.5)";
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y);
+      ctx.lineTo(b.x, b.y);
+      ctx.stroke();
+    }
+  }
+
+  // 指节点：小圆点，只画可见且有限坐标的
+  ctx.fillStyle = "rgba(255,209,102,0.95)";
+  for (const [, kp] of map) {
+    if (!kp.name.startsWith(`${handedness}_hand_`)) continue;
+    const q = toXY(kp);
+    if (!q) continue;
+    ctx.beginPath();
+    ctx.arc(q.x, q.y, Math.max(1.5, width / 640), 0, Math.PI * 2);
+    ctx.fill();
   }
 }
 

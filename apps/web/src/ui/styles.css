@@ -70,6 +70,11 @@ body {
   border-color: var(--accent);
   font-weight: 600;
 }
+/* 键盘用户必须能看到焦点在哪：tab 现在是真 button，可以用 Tab 键切换 */
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
 
 .panel {
   background: var(--panel);
