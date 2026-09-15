@@ -3,12 +3,7 @@
   "version": "1.0.0",
   "strokeType": "forehand_drive",
   "focusId": "return_to_ready_zone",
-  "cameraViews": [
-    "front",
-    "front_left_diagonal",
-    "front_right_diagonal",
-    "right_side"
-  ],
+  "cameraViews": ["front", "front_left_diagonal", "front_right_diagonal", "right_side"],
   "context": "定点正手攻球中，一次完整挥拍包含准备、引拍、向前挥拍与还原四个阶段。本条目只处理「还原：回到本组准备区域」这一个目标。回位是否及时，直接影响下一拍的准备时间。",
   "observable": [
     "从腕部速度峰值到重新进入本组准备区域的耗时",
@@ -27,10 +22,7 @@
     "击球后先把重心带回准备位置，然后再看下一拍。",
     "保持这个节奏，回到准备区的时间在目标范围内。"
   ],
-  "allowedDrillIds": [
-    "shadow_forehand_return_ready",
-    "multi_ball_forehand_rhythm"
-  ],
+  "allowedDrillIds": ["shadow_forehand_return_ready", "multi_ball_forehand_rhythm"],
   "sources": [
     "本条目为项目内部拟定，尚未取得教练认可的参考片段。",
     "阈值参考见 configs/thresholds.json。"

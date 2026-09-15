@@ -2,12 +2,15 @@
 
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
-当前状态：**P0 + P1 代码骨架已完成**，全部单元测试通过。
+当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
+**368 项测试全部通过**（含 36 项真实 Chromium 端到端测试）。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
 > 所有阈值都是**暂定值**，所有评分规则都是 `observation_only`（未审核），
-> 真实精度和真实延迟**尚未验证**。详见 `docs/known-failures.md` 与 `docs/evaluation-log.md`。
+> 真实精度和真实延迟**尚未验证** —— **沙箱内没有跑过一次真实的姿态推理**（见 F-006）。
+>
+> 详见 `docs/known-failures.md`、`docs/evaluation-log.md`、`docs/roadmap.md`。
 
 ---
 
@@ -142,6 +145,11 @@ pnpm dev:api        # 只启动 API
 pnpm build          # 全量构建
 pnpm typecheck      # 全量类型检查（strict + noUncheckedIndexedAccess）
 pnpm test           # 全量单元测试
+pnpm test:e2e       # 真实浏览器端到端测试
+pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 测试 + 构建）
+pnpm lint           # ESLint（含架构边界约束）
+pnpm lint:fix       # ESLint 自动修复
+pnpm format         # Prettier 格式化
 pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
 pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
 pnpm clean          # 清理构建产物
@@ -164,7 +172,11 @@ pingpong-coach/
 ├─ models/manifest.json     # 模型清单 + SHA-256（sha256 需实际下载后回填）
 ├─ evaluation/samples.json  # 三层标注样本（当前为空）
 ├─ scripts/                 # fetch-models、eval-replay
-└─ docs/                    # spec / acceptance / data-contracts / decisions / 评测日志 / 已知失败
+├─ docs/                    # spec / acceptance / data-contracts / decisions / 评测日志 / 已知失败
+│                           # + roadmap（功能待办与分工）/ local-verification（本机验证清单）
+├─ .github/workflows/       # CI：verify + e2e 两个 job
+├─ eslint.config.mjs        # 架构护栏：依赖方向 + 红线约束（违规即报错）
+└─ .husky/                  # 提交前门禁（lint-staged）
 ```
 
 ---
@@ -189,28 +201,43 @@ pingpong-coach/
 ## 7. 测试与验证
 
 ```powershell
-pnpm typecheck
-pnpm test
+pnpm verify         # 一把梭：typecheck → lint → format:check → test → build
+pnpm test           # 只跑单元测试
+pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome）
 ```
 
-当前共 **172 个测试**分布在 4 个包：
+`pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-| 包 | 测试数 |
-| --- | --- |
-| `@pingpong/contracts` | 12 |
-| `@pingpong/motion-core` | 95 |
-| `@pingpong/api` | 28 |
-| `@pingpong/web` | 37 |
+当前共 **368 项测试**：
 
-**这些测试证明的是什么**：几何计算、滤波、切分状态机、输出校验逻辑在**构造数据**上是正确的。
+| 包 | 单元测试 | 浏览器测试 |
+| --- | --- | --- |
+| `@pingpong/contracts` | 27 | — |
+| `@pingpong/motion-core` | 141 | — |
+| `@pingpong/api` | 127 | — |
+| `@pingpong/web` | 37 | 36 |
+| **合计** | **332** | **36** |
+
+**这些测试证明的是什么**：
+
+- 几何、滤波、切分状态机、特征提取、规则判定在**构造数据**与**边界数据**上正确；
+- 输出校验能拦住未审核规则、缺失值填 0、非法结构；
+- **架构约束是真的生效的** —— 依赖方向、红线（不重试、不臆造）都有测试守着，
+  四条违规路径逐一验证过会报 lint 错误；
+- 浏览器测试用**真实 Chromium**跑，覆盖 jsdom 做不到的部分：
+  真实 Canvas 像素、真实 Worker 跨线程、真实 `ImageBitmap` 句柄释放。
 
 **这些测试不能证明什么**：
 
-- 真实摄像头下的姿态稳定性
-- 真实选手动作的切分准确率
-- 真实模型的延迟与建议质量
+- **真实姿态推理**（沙箱内 `storage.googleapis.com` 被墙，模型下不来 → 见 F-006）；
+- 真实摄像头下的姿态稳定性；
+- 真实选手动作的切分准确率；
+- 真实模型的延迟与建议质量。
 
-上述三项都需要真实设备 + 真实标注数据，**必须在本地实测**。详见 `docs/acceptance.md`。
+上述四项都需要真实设备 + 真实素材，**必须在你本机实测**。
+👉 按 [`docs/local-verification.md`](./docs/local-verification.md) 逐条勾选即可。
+👉 功能待办与"哪些我做、哪些你做"的分工见 [`docs/roadmap.md`](./docs/roadmap.md)。
+
 
 ---
 

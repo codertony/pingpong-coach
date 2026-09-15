@@ -11,13 +11,7 @@
 
 import type { FeatureValue, PoseFrame, QualityState } from "@pingpong/contracts";
 import { FEATURE_IDS } from "@pingpong/contracts";
-import {
-  angleDeg,
-  coefficientOfVariation,
-  mean,
-  median,
-  type Point2D,
-} from "./geometry.js";
+import { angleDeg, coefficientOfVariation, mean, median, type Point2D } from "./geometry.js";
 import { pointOf } from "./quality.js";
 
 /** 一帧里本组关注所需的几何量。 */
@@ -47,8 +41,7 @@ export function extractFrameGeometry(
   const rShoulder = pointOf(frame, "right_shoulder");
 
   // 肩—肘—腕 二维夹角。180 度表示伸直。
-  const elbowAngleDeg =
-    shoulder && elbow && wrist ? angleDeg(shoulder, elbow, wrist) : null;
+  const elbowAngleDeg = shoulder && elbow && wrist ? angleDeg(shoulder, elbow, wrist) : null;
 
   // 躯干参考点：双肩中点与双髋中点的连线中点，比单一肩点稳定
   let torsoRef: Point2D | null = null;
@@ -118,8 +111,7 @@ export function computeElbowAngleRange(
   const angles = geometries.map((g) => g.elbowAngleDeg);
   const q = qualityOf(angles);
   const present = angles.filter((v): v is number => v != null);
-  const value =
-    present.length === 0 ? null : Math.max(...present) - Math.min(...present);
+  const value = present.length === 0 ? null : Math.max(...present) - Math.min(...present);
 
   return {
     id: FEATURE_IDS.ELBOW_ANGLE_RANGE,
@@ -197,7 +189,11 @@ export function computeElbowTorsoDrift(
     coordinateSpace: "body_relative_2d",
     intervalMs,
     quality,
-    reasonIfMissing: null,
+    // 与同文件其他特征保持一致：优先说明具体原因。
+    // 这里 value 恒非 null（包围盒总存在），所以 reason 就是唯一的质量说明来源。
+    // 若把 reason 丢掉，质量降级成 limited 时调用方将看不到任何解释，
+    // 违反 AGENTS.md 红线 1（缺失/降级必须有理由）。
+    reasonIfMissing: reason,
   };
 }
 

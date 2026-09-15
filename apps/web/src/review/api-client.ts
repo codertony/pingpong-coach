@@ -4,7 +4,12 @@
  * 注意：API 密钥只存在于服务端。前端只调用本地代理，不持有任何密钥。
  */
 
-import type { AnalyzeResult, CoachFeedback, EvidencePacket, HealthResponse } from "@pingpong/contracts";
+import type {
+  AnalyzeResult,
+  CoachFeedback,
+  EvidencePacket,
+  HealthResponse,
+} from "@pingpong/contracts";
 
 export async function fetchHealth(): Promise<HealthResponse> {
   const res = await fetch("/api/health");

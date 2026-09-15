@@ -137,9 +137,7 @@ async function main() {
   );
 
   if (failed > 0) {
-    console.error(
-      "\n存在未通过的资产。请解决后再开始训练 —— 不要用未校验的模型文件产出评估结论。",
-    );
+    console.error("\n存在未通过的资产。请解决后再开始训练 —— 不要用未校验的模型文件产出评估结论。");
     process.exit(1);
   }
 }

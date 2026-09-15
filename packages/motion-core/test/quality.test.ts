@@ -22,9 +22,7 @@ const W = 1280;
 const H = 720;
 
 /** 构造一个右持拍、肩肘腕位置上合理的帧 */
-function frame(
-  overrides: Partial<PoseFrame> & { keypoints2D?: Keypoint2D[] } = {},
-): PoseFrame {
+function frame(overrides: Partial<PoseFrame> & { keypoints2D?: Keypoint2D[] } = {}): PoseFrame {
   return {
     schemaVersion: SCHEMA_VERSION,
     sessionId: "s1",
@@ -57,11 +55,7 @@ describe("racketSideKeypointNames", () => {
       "right_elbow",
       "right_wrist",
     ]);
-    expect(racketSideKeypointNames("left")).toEqual([
-      "left_shoulder",
-      "left_elbow",
-      "left_wrist",
-    ]);
+    expect(racketSideKeypointNames("left")).toEqual(["left_shoulder", "left_elbow", "left_wrist"]);
   });
 });
 
@@ -210,7 +204,10 @@ describe("summarizeGroupQuality", () => {
 
   it("自定义门槛可覆盖默认值", () => {
     const frames = [mk("usable"), mk("unusable")];
-    const s = summarizeGroupQuality(frames, { ...DEFAULT_QUALITY_CONFIG, minUsableFrameRatio: 0.5 });
+    const s = summarizeGroupQuality(frames, {
+      ...DEFAULT_QUALITY_CONFIG,
+      minUsableFrameRatio: 0.5,
+    });
     expect(s.judgeable).toBe(true);
   });
 });

@@ -8,7 +8,12 @@ import {
   quantile,
   bodyScale,
 } from "../src/geometry.js";
-import { fromSourcePixel, isInsideFrame, mirrorHandedness, toSourcePixel } from "../src/coordinates.js";
+import {
+  fromSourcePixel,
+  isInsideFrame,
+  mirrorHandedness,
+  toSourcePixel,
+} from "../src/coordinates.js";
 import type { ImageTransform } from "@pingpong/contracts";
 
 describe("geometry.angleDeg", () => {
@@ -77,17 +82,19 @@ describe("geometry.angleDegFromNormalized（长宽比修正）", () => {
     // 归一化空间直接算：被歪成约 72.01 度
     expect(angleDeg(toNorm(a), toNorm(b), toNorm(c))).toBeCloseTo(72.008, 2);
     // 乘回原图宽高：恢复真实 60 度
-    expect(
-      angleDegFromNormalized(toNorm(a), toNorm(b), toNorm(c), IMG_W, IMG_H),
-    ).toBeCloseTo(60, 6);
+    expect(angleDegFromNormalized(toNorm(a), toNorm(b), toNorm(c), IMG_W, IMG_H)).toBeCloseTo(
+      60,
+      6,
+    );
   });
 
   it("真实 45 度角在归一化坐标下会被算成约 60.6 度", () => {
     const { a, b, c } = trueAnglePoints(45);
     expect(angleDeg(toNorm(a), toNorm(b), toNorm(c))).toBeCloseTo(60.642, 2);
-    expect(
-      angleDegFromNormalized(toNorm(a), toNorm(b), toNorm(c), IMG_W, IMG_H),
-    ).toBeCloseTo(45, 6);
+    expect(angleDegFromNormalized(toNorm(a), toNorm(b), toNorm(c), IMG_W, IMG_H)).toBeCloseTo(
+      45,
+      6,
+    );
   });
 
   it("真实 135 度角（肘部接近伸直）也会被扭曲", () => {
@@ -95,9 +102,10 @@ describe("geometry.angleDegFromNormalized（长宽比修正）", () => {
     const naive = angleDeg(toNorm(a), toNorm(b), toNorm(c))!;
     // 归一化直算偏离真实值超过 1 度，足以影响肘角结论
     expect(Math.abs(naive - 135)).toBeGreaterThan(1);
-    expect(
-      angleDegFromNormalized(toNorm(a), toNorm(b), toNorm(c), IMG_W, IMG_H),
-    ).toBeCloseTo(135, 6);
+    expect(angleDegFromNormalized(toNorm(a), toNorm(b), toNorm(c), IMG_W, IMG_H)).toBeCloseTo(
+      135,
+      6,
+    );
   });
 
   it("轴向直角在归一化空间下同样保持 90 度（说明失真只影响非轴向角）", () => {

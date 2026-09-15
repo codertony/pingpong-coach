@@ -192,10 +192,7 @@ export class StrokeSegmenter {
             } else {
               this.zoneDwellMs = 0;
             }
-            if (
-              this.zoneDwellMs >= this.config.readyStableMinMs &&
-              this.currentStrokeId == null
-            ) {
+            if (this.zoneDwellMs >= this.config.readyStableMinMs && this.currentStrokeId == null) {
               // 本组开始：从此刻起收集证据。
               // 这样引拍阶段不会被"离开准备区"这个瞬间切掉。
               this.beginStroke(sample);
@@ -287,10 +284,7 @@ export class StrokeSegmenter {
     this.lastSampleTimeMs = sample.sourceTimeMs;
 
     // 单次挥拍超时即异常结束
-    if (
-      this.currentStrokeId != null &&
-      elapsedInStroke > this.config.maxStrokeDurationMs
-    ) {
+    if (this.currentStrokeId != null && elapsedInStroke > this.config.maxStrokeDurationMs) {
       return this.abortCurrent("stroke_too_long");
     }
 

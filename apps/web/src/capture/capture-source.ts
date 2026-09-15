@@ -140,9 +140,11 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
   let lastMediaTimeMs = -1;
 
   const hasVideoFrameCallback =
-    typeof (video as HTMLVideoElement & {
-      requestVideoFrameCallback?: unknown;
-    }).requestVideoFrameCallback === "function";
+    typeof (
+      video as HTMLVideoElement & {
+        requestVideoFrameCallback?: unknown;
+      }
+    ).requestVideoFrameCallback === "function";
 
   const emit = (mediaTimeMs: number): void => {
     if (!running) return;

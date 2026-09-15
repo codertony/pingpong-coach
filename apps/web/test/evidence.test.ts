@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { KeyframeCache, bytesToBase64, selectRepresentativeFrames } from "../src/evidence/evidence-builder.js";
+import {
+  KeyframeCache,
+  bytesToBase64,
+  selectRepresentativeFrames,
+} from "../src/evidence/evidence-builder.js";
 
 function makeBytes(size: number): Uint8Array {
   return new Uint8Array(size);
@@ -8,16 +12,44 @@ function makeBytes(size: number): Uint8Array {
 describe("KeyframeCache（有界缓存）", () => {
   it("在预算内正常保存", () => {
     const cache = new KeyframeCache(1000);
-    cache.add({ frameId: "a", sourceTimeMs: 0, bytes: makeBytes(400), width: 100, height: 100, pinned: false });
-    cache.add({ frameId: "b", sourceTimeMs: 40, bytes: makeBytes(400), width: 100, height: 100, pinned: false });
+    cache.add({
+      frameId: "a",
+      sourceTimeMs: 0,
+      bytes: makeBytes(400),
+      width: 100,
+      height: 100,
+      pinned: false,
+    });
+    cache.add({
+      frameId: "b",
+      sourceTimeMs: 40,
+      bytes: makeBytes(400),
+      width: 100,
+      height: 100,
+      pinned: false,
+    });
     expect(cache.size).toBe(2);
     expect(cache.usedBytes).toBe(800);
   });
 
   it("超出预算时淘汰未保留的最旧候选", () => {
     const cache = new KeyframeCache(1000);
-    cache.add({ frameId: "a", sourceTimeMs: 0, bytes: makeBytes(600), width: 100, height: 100, pinned: false });
-    cache.add({ frameId: "b", sourceTimeMs: 40, bytes: makeBytes(600), width: 100, height: 100, pinned: false });
+    cache.add({
+      frameId: "a",
+      sourceTimeMs: 0,
+      bytes: makeBytes(600),
+      width: 100,
+      height: 100,
+      pinned: false,
+    });
+    cache.add({
+      frameId: "b",
+      sourceTimeMs: 40,
+      bytes: makeBytes(600),
+      width: 100,
+      height: 100,
+      pinned: false,
+    });
     // 总量 1200 > 1000，最旧的 a 应被淘汰
     expect(cache.get("a")).toBeUndefined();
     expect(cache.get("b")).toBeDefined();
@@ -26,9 +58,23 @@ describe("KeyframeCache（有界缓存）", () => {
 
   it("用户主动保留的候选不会被自动淘汰", () => {
     const cache = new KeyframeCache(1000);
-    cache.add({ frameId: "keep", sourceTimeMs: 0, bytes: makeBytes(600), width: 100, height: 100, pinned: false });
+    cache.add({
+      frameId: "keep",
+      sourceTimeMs: 0,
+      bytes: makeBytes(600),
+      width: 100,
+      height: 100,
+      pinned: false,
+    });
     cache.pin("keep");
-    cache.add({ frameId: "b", sourceTimeMs: 40, bytes: makeBytes(600), width: 100, height: 100, pinned: false });
+    cache.add({
+      frameId: "b",
+      sourceTimeMs: 40,
+      bytes: makeBytes(600),
+      width: 100,
+      height: 100,
+      pinned: false,
+    });
     // keep 被 pin，因此淘汰的是 b，即使 b 更新
     expect(cache.get("keep")).toBeDefined();
     expect(cache.get("b")).toBeUndefined();
@@ -36,14 +82,35 @@ describe("KeyframeCache（有界缓存）", () => {
 
   it("全部被 pin 时不淘汰，允许超预算而不是丢弃用户数据", () => {
     const cache = new KeyframeCache(500);
-    cache.add({ frameId: "a", sourceTimeMs: 0, bytes: makeBytes(400), width: 100, height: 100, pinned: true });
-    cache.add({ frameId: "b", sourceTimeMs: 40, bytes: makeBytes(400), width: 100, height: 100, pinned: true });
+    cache.add({
+      frameId: "a",
+      sourceTimeMs: 0,
+      bytes: makeBytes(400),
+      width: 100,
+      height: 100,
+      pinned: true,
+    });
+    cache.add({
+      frameId: "b",
+      sourceTimeMs: 40,
+      bytes: makeBytes(400),
+      width: 100,
+      height: 100,
+      pinned: true,
+    });
     expect(cache.size).toBe(2);
   });
 
   it("clear 释放全部缓存", () => {
     const cache = new KeyframeCache(10000);
-    cache.add({ frameId: "a", sourceTimeMs: 0, bytes: makeBytes(100), width: 1, height: 1, pinned: false });
+    cache.add({
+      frameId: "a",
+      sourceTimeMs: 0,
+      bytes: makeBytes(100),
+      width: 1,
+      height: 1,
+      pinned: false,
+    });
     cache.clear();
     expect(cache.size).toBe(0);
     expect(cache.usedBytes).toBe(0);

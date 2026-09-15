@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>浏览器测试夹具</title>
+    <style>
+      body {
+        margin: 0;
+        background: #0d1117;
+      }
+      canvas {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 夹具页只用于真实浏览器测试，不是产品界面 -->
+    <canvas id="skeleton" width="640" height="360"></canvas>
+    <canvas id="zone" width="640" height="360"></canvas>
+    <script type="module" src="./fixture-entry.ts"></script>
+  </body>
+</html>

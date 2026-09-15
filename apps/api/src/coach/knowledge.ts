@@ -40,9 +40,7 @@ export interface KnowledgeBase {
   entries: KnowledgeEntry[];
 }
 
-const KNOWLEDGE_DIR = resolve(
-  process.env.KNOWLEDGE_DIR ?? join(process.cwd(), "../../knowledge"),
-);
+const KNOWLEDGE_DIR = resolve(process.env.KNOWLEDGE_DIR ?? join(process.cwd(), "../../knowledge"));
 
 /** 载入全部知识条目。文件解析失败时明确报错，不静默跳过。 */
 export async function loadKnowledge(): Promise<KnowledgeBase> {

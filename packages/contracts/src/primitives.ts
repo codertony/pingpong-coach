@@ -1,10 +1,5 @@
 import { z } from "zod";
-import {
-  CAMERA_VIEWS,
-  FOCUS_IDS,
-  KEYPOINT_NAMES,
-  SCHEMA_VERSION,
-} from "./constants.js";
+import { CAMERA_VIEWS, FOCUS_IDS, KEYPOINT_NAMES, SCHEMA_VERSION } from "./constants.js";
 
 /**
  * 质量状态。三态而非布尔：区分"看不清"与"确有动作偏差"，
@@ -14,16 +9,10 @@ export const qualityStateSchema = z.enum(["usable", "limited", "unusable"]);
 export type QualityState = z.infer<typeof qualityStateSchema>;
 
 export const handednessSchema = z.enum(["left", "right"]);
-export const cameraViewSchema = z.enum(
-  CAMERA_VIEWS as unknown as [string, ...string[]],
-);
+export const cameraViewSchema = z.enum(CAMERA_VIEWS as unknown as [string, ...string[]]);
 export const strokeTypeSchema = z.literal("forehand_drive");
-export const focusIdSchema = z.enum(
-  FOCUS_IDS as unknown as [string, ...string[]],
-);
-export const keypointNameSchema = z.enum(
-  KEYPOINT_NAMES as unknown as [string, ...string[]],
-);
+export const focusIdSchema = z.enum(FOCUS_IDS as unknown as [string, ...string[]]);
+export const keypointNameSchema = z.enum(KEYPOINT_NAMES as unknown as [string, ...string[]]);
 
 /** 已知错误码。新增需同步 docs/data-contracts.md。 */
 export const ERROR_CODES = [
@@ -59,9 +48,7 @@ export const ERROR_CODES = [
   "internal_error",
 ] as const;
 
-export const errorCodeSchema = z.enum(
-  ERROR_CODES as unknown as [string, ...string[]],
-);
+export const errorCodeSchema = z.enum(ERROR_CODES as unknown as [string, ...string[]]);
 export type ErrorCode = z.infer<typeof errorCodeSchema>;
 
 /** 可复用的 schema 版本字段。 */

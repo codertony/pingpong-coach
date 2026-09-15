@@ -121,7 +121,8 @@ export function selectRepresentativeFrames(
   maxCount = 6,
 ): Array<{ frameId: string; role: EvidenceKeyframe["role"] }> {
   const inRange = candidates.filter(
-    (c) => c.sourceTimeMs >= stroke.startMs && (stroke.endMs == null || c.sourceTimeMs <= stroke.endMs),
+    (c) =>
+      c.sourceTimeMs >= stroke.startMs && (stroke.endMs == null || c.sourceTimeMs <= stroke.endMs),
   );
   if (inRange.length === 0) return [];
 

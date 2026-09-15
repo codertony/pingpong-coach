@@ -164,19 +164,30 @@ describe("StrokeSegmenter", () => {
     let t = 0;
     for (let i = 0; i < 4; i++, t += 40) seg.push(sample(t, 0));
     // 引拍
-    for (const d of [0.15, 0.3, 0.45]) { seg.push(sample(t, d)); t += 40; }
+    for (const d of [0.15, 0.3, 0.45]) {
+      seg.push(sample(t, d));
+      t += 40;
+    }
     // 向前，接近准备区
-    for (const d of [0.3, 0.15]) { seg.push(sample(t, d)); t += 40; }
+    for (const d of [0.3, 0.15]) {
+      seg.push(sample(t, d));
+      t += 40;
+    }
     // 刚进准备区（0.02 在区内）还没待够稳定时间，就再次明确离开（0.45 在区外）
-    seg.push(sample(t, 0.02)); t += 40;
-    const stillOpen = seg.push(sample(t, 0.45)); t += 40;
+    seg.push(sample(t, 0.02));
+    t += 40;
+    const stillOpen = seg.push(sample(t, 0.45));
+    t += 40;
 
     // 此时不该闭合，而应退回引拍重新等一次真正的前挥
     expect(stillOpen).toBeNull();
     expect(seg.diagnostics.phase).toBe("backswing");
 
     // 再向前并稳定回准备区，最终才闭合
-    for (const d of [0.1, 0.02]) { seg.push(sample(t, d)); t += 40; }
+    for (const d of [0.1, 0.02]) {
+      seg.push(sample(t, d));
+      t += 40;
+    }
     let done = null;
     for (let i = 0; i < 4 && !done; i++, t += 40) {
       done = seg.push(sample(t, 0.0));
@@ -191,11 +202,15 @@ describe("StrokeSegmenter", () => {
 
     let t = 0;
     for (let i = 0; i < 4; i++, t += 40) seg.push(sample(t, 0));
-    for (const d of [0.15, 0.3, 0.45]) { seg.push(sample(t, d)); t += 40; }
+    for (const d of [0.15, 0.3, 0.45]) {
+      seg.push(sample(t, d));
+      t += 40;
+    }
     // 向前，但只停在"缓冲区"内（0.05 仍在区内，但随后立刻被拉出去）
     // 关键：每次在区内只停留 1 个采样（40ms < returnStableMinMs=80），
     // 中间必须离开，因此永远凑不满稳定驻留时间。
-    seg.push(sample(t, 0.3)); t += 40;
+    seg.push(sample(t, 0.3));
+    t += 40;
     let completed = null;
     for (const d of [0.0, 0.6, 0.0, 0.6, 0.0, 0.6, 0.0]) {
       completed = seg.push(sample(t, d));
@@ -232,7 +247,10 @@ describe("StrokeSegmenter", () => {
     seg.setReadyZone(READY_CENTER);
     let t = 0;
     for (let i = 0; i < 4; i++, t += 40) seg.push(sample(t, 0));
-    for (const d of [0.15, 0.3]) { seg.push(sample(t, d)); t += 40; }
+    for (const d of [0.15, 0.3]) {
+      seg.push(sample(t, d));
+      t += 40;
+    }
     seg.push(sample(t + 500, 0.3)); // 触发间断
 
     // 间断后应能重新开始

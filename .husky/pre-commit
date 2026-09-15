@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+# 提交前守卫：只对本次改动的文件跑 lint + 格式化。
+# 纪律不靠记性，靠这个钩子。
+
+pnpm exec lint-staged

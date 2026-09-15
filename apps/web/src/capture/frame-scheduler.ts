@@ -51,9 +51,7 @@ export class FrameScheduler {
   private dropped = 0;
   private timestamps: number[] = [];
 
-  constructor(
-    private readonly handler: (frame: FrameEnvelope) => Promise<void>,
-  ) {}
+  constructor(private readonly handler: (frame: FrameEnvelope) => Promise<void>) {}
 
   /** 提交一帧。若当前正忙，则替换掉旧的待处理帧。 */
   submit(frame: FrameEnvelope): void {
@@ -179,5 +177,11 @@ export class SourceEpochTracker {
 /** 从姿态结果构造 PoseFrame 的公共形状（不含关键点，由 vision 层补充）。 */
 export type PoseFrameBase = Omit<
   PoseFrame,
-  "modelId" | "keypointSet" | "imageWidth" | "imageHeight" | "keypoints2D" | "quality" | "qualityReasons"
+  | "modelId"
+  | "keypointSet"
+  | "imageWidth"
+  | "imageHeight"
+  | "keypoints2D"
+  | "quality"
+  | "qualityReasons"
 >;

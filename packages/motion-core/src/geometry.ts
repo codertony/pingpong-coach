@@ -12,9 +12,7 @@ export interface Point2D {
 
 /** 判断点是否可用于计算。缺失点保持缺失，不补零。 */
 export function isUsablePoint(p: Point2D | null | undefined): p is Point2D {
-  return (
-    p != null && Number.isFinite(p.x) && Number.isFinite(p.y)
-  );
+  return p != null && Number.isFinite(p.x) && Number.isFinite(p.y);
 }
 
 /**
@@ -129,8 +127,7 @@ export function coefficientOfVariation(values: number[]): number | null {
   if (clean.length < 2) return null;
   const m = mean(clean);
   if (m == null || Math.abs(m) < 1e-9) return null;
-  const variance =
-    clean.reduce((s, v) => s + (v - m) ** 2, 0) / (clean.length - 1);
+  const variance = clean.reduce((s, v) => s + (v - m) ** 2, 0) / (clean.length - 1);
   return Math.sqrt(variance) / Math.abs(m);
 }
 

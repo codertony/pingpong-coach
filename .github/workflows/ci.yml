@@ -1,0 +1,92 @@
+# 持续集成。
+#
+# 门禁顺序刻意与本地 `pnpm verify` 保持一致：类型 → 纪律 → 测试 → 构建。
+# 把 lint 放在测试之前，是因为架构越界比测试失败更值得先拦下 ——
+# 它能防止代码在错误的方向上"测试全绿"。
+#
+# 需要说明的边界：本工作流运行在 GitHub 托管的 Ubuntu 上，没有摄像头，
+# 也无法在 CI 里做真实动作识别质量验证。它只能证明
+# 「代码契约与工程纪律成立」，不能证明「识别准确」。
+# 真实质量验证见 docs/acceptance.md。
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一分支的新推送取消旧的进行中任务，避免排队浪费
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: 类型 / 纪律 / 测试 / 构建
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.1
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm typecheck
+
+      - name: 依赖边界与纪律检查
+        run: pnpm lint
+
+      - name: 格式检查
+        run: pnpm format:check
+
+      - name: 单元测试
+        run: pnpm test
+
+      - name: 构建
+        run: pnpm build
+
+  e2e:
+    name: 真实浏览器测试（Playwright）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.28.2
+
+      - name: 安装 Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.1
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 安装 Playwright 浏览器
+        run: pnpm --filter @pingpong/web exec playwright install --with-deps chromium
+
+      - name: 浏览器测试
+        run: pnpm test:e2e

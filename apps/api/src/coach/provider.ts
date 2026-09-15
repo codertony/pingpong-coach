@@ -110,9 +110,7 @@ export async function callModel(
     return {
       raw: null,
       error: aborted ? "model_timeout" : "model_unavailable",
-      errorDetail: aborted
-        ? `超过 ${config.modelTimeoutMs}ms 未返回`
-        : (err as Error).message,
+      errorDetail: aborted ? `超过 ${config.modelTimeoutMs}ms 未返回` : (err as Error).message,
       mock: false,
       elapsedMs: Date.now() - started,
       usage: { inputTokens: null, outputTokens: null },
@@ -134,9 +132,7 @@ function mockCall(
   allowed: AllowedOutputs,
   started: number,
 ): ModelCallResult {
-  const returnFeature = packet.features.find(
-    (f) => f.id === "return_after_wrist_peak_ms",
-  );
+  const returnFeature = packet.features.find((f) => f.id === "return_after_wrist_peak_ms");
 
   const evidenceRefs: string[] = [];
   if (returnFeature) evidenceRefs.push(returnFeature.id);

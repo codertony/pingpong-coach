@@ -33,6 +33,12 @@ evaluation/out/
 logs/
 coverage/
 
+# 测试产物
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+
 # 操作系统与编辑器
 .DS_Store
 Thumbs.db

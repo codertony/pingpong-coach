@@ -14,14 +14,31 @@
     "build": "pnpm -r build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @pingpong/web test:e2e",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "verify": "pnpm typecheck && pnpm lint && pnpm test && pnpm build",
     "models:fetch": "node scripts/fetch-models.mjs",
     "eval:replay": "node scripts/eval-replay.mjs",
-    "clean": "pnpm -r exec rm -rf dist node_modules/.vite"
+    "clean": "pnpm -r exec rm -rf dist node_modules/.vite",
+    "prepare": "husky"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.5",
     "@types/node": "^22.10.2",
+    "eslint": "^9.39.4",
+    "eslint-plugin-boundaries": "^5.4.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.26",
+    "globals": "^15.15.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
+    "prettier": "^3.9.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^2.1.8"
   }
 }

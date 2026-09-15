@@ -44,8 +44,7 @@ function renderKnowledge(entries: KnowledgeEntry[]): string {
         `  背景：${e.context}`,
       ];
       if (e.observable.length > 0) lines.push(`  可观察：${e.observable.join("；")}`);
-      if (e.notApplicable.length > 0)
-        lines.push(`  不适用/易混淆：${e.notApplicable.join("；")}`);
+      if (e.notApplicable.length > 0) lines.push(`  不适用/易混淆：${e.notApplicable.join("；")}`);
       return lines.join("\n");
     })
     .join("\n");
@@ -85,10 +84,7 @@ export function buildPrompt(
   allowed: AllowedOutputs,
 ): PromptPayload {
   const keyframeList = packet.keyframes
-    .map(
-      (k) =>
-        `- ${k.id} @${k.sourceTimeMs}ms，角色=${k.role}，${k.width}x${k.height}`,
-    )
+    .map((k) => `- ${k.id} @${k.sourceTimeMs}ms，角色=${k.role}，${k.width}x${k.height}`)
     .join("\n");
 
   const user = `# 本次训练任务

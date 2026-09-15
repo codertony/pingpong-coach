@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { qualityStateSchema } from "./primitives.js";
+import { qualityStateSchema, schemaVersionSchema } from "./primitives.js";
 
 /** 坐标空间。原始画面坐标与身体相对坐标必须分开保存。 */
 export const coordinateSpaceSchema = z.enum(["image_2d", "body_relative_2d"]);
@@ -46,7 +46,10 @@ export type FeatureId = (typeof FEATURE_IDS)[keyof typeof FEATURE_IDS];
 
 /** 完整特征集。 */
 export const featureSetSchema = z.object({
-  schemaVersion: z.literal("1"),
+  // 复用统一版本常量，而不是硬编码 "1"。
+  // 硬编码会在 SCHEMA_VERSION 提升时静默脱节：其余 schema 都升了版本，
+  // 这里还认旧的，导致老数据被误判为当前格式。
+  schemaVersion: schemaVersionSchema,
   sessionId: z.string().min(1),
   groupId: z.string().min(1),
   strokeIds: z.array(z.string()),

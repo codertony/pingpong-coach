@@ -24,9 +24,7 @@ export interface BuildServerOptions {
   config?: ServerConfig;
 }
 
-export async function buildServer(
-  options: BuildServerOptions = {},
-): Promise<FastifyInstance> {
+export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
   const config = options.config ?? loadConfig();
   const dedupe = new RequestDedupe(config.dedupeTtlMs);
   const startedAt = Date.now();

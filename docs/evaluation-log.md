@@ -137,3 +137,105 @@
 - 可用视觉模型接口及其真实响应时间
 - 本组准备区域或教练认可的目标参考
 - 用户可接受的语音频率、每组挥拍数量、是否需要训练中完整录像
+
+---
+
+## 2026-09-15 · 工程护栏补齐 + 测试扩容（第二轮）
+
+### 环境（事实）
+
+| 项目 | 值 |
+| --- | --- |
+| 运行位置 | 云端开发沙箱（腾讯云 Cloud Studio，Ubuntu 24.04 Docker 容器） |
+| 内核 | `6.6.117-45.11.3.tl4.x86_64`（`.tl4` = 腾讯内核标识） |
+| Node | v22.13.0 |
+| TypeScript | 5.9.3 |
+| Vitest | 2.1.9 |
+| ESLint | 9.39.4（flat config） |
+| Prettier | 3.9.6 |
+| Playwright | 使用**系统 Chromium 144**（非 Playwright 自带浏览器） |
+
+### 本轮新增的工程护栏（事实）
+
+| 项 | 内容 | 是否验证过 |
+| --- | --- | --- |
+| ESLint 9 flat config | 依赖方向 + 红线约束 | ✅ 四条违规路径逐一确认会报错 |
+| `eslint-plugin-boundaries` | 跨模块依赖限制 | ✅ |
+| `no-restricted-imports` | 跨包裸标识符限制（boundaries 匹配不到裸包名，这是必要补充） | ✅ |
+| Prettier + `.prettierignore` | 统一格式 | ✅ `--check` 通过 |
+| husky + lint-staged | 提交前自动 lint + format | ✅ hook 已装 |
+| GitHub Actions CI | `verify` + `e2e` 两个 job | ✅ 配置就绪（未在真实 CI 上跑过） |
+| `pnpm verify` | 一键门禁 | ✅ 退出码 0 |
+
+### 测试扩容（事实）
+
+| 包 | 上轮 | 本轮 | 增量 |
+| --- | --- | --- | --- |
+| `@pingpong/contracts` | 12 | **27** | +15（版本常量一致性、枚举与 schema 同步） |
+| `@pingpong/motion-core` | 95 | **141** | +46（退化几何、CV 边界、NaN 约定、分位数不可变性） |
+| `@pingpong/api` | 28 | **127** | +99（知识筛选、去重 TTL、prompt 缺失值、provider 不重试、analyze 状态码） |
+| `@pingpong/web`（单元） | 37 | **37** | 持平 |
+| `@pingpong/web`（浏览器） | 0 | **36** | +36（真实 Canvas 像素、真实 Worker、真实 ImageBitmap） |
+| **合计** | 172 | **368** | **+196** |
+
+### 全量复跑结果（事实）
+
+```
+pnpm verify  →  退出码 0
+  contracts      27 passed
+  motion-core   141 passed
+  api           127 passed
+  web (vitest)   37 passed
+  （build 成功，web 产物 index-*.js 262.88 kB / gzip 79.45 kB）
+pnpm test:e2e  →  36 passed (10.3s)
+```
+
+### 本轮新发现的真实缺陷（事实）
+
+不是测试写错，是代码本身的问题：
+
+| 位置 | 缺陷 | 严重度 |
+| --- | --- | --- |
+| `motion-core/src/features.ts` | `computeElbowTorsoDrift` 解构出 `reason` 后丢弃，硬编码 `reasonIfMissing: null`。质量降级为 `limited` 时调用方看不到任何解释，违反红线 1 | 中（静默降级） |
+| `contracts/src/feature.ts` | `featureSetSchema` 硬编码 `z.literal("1")`，与 `schemaVersionSchema` 双份维护，改一处会漂移 | 中 |
+| `contracts/src/evidence.ts` | `strokeType` 重复定义字面量，未复用 `primitives.strokeTypeSchema` | 低 |
+| `web/src/training/training-session.ts` | 未使用的 `SpeechChannel` 导入 | 低 |
+| `web/src/ui/App.tsx` | 未使用的 `monotonicNow` 导入 | 低 |
+
+### 网络受限的实测边界（事实 —— 重要）
+
+沙箱的域名白名单是**真实存在**的，实测结果：
+
+| 域名 | 可达性 |
+| --- | --- |
+| `registry.npmmirror.com` | ✅ 可达（因此 `.npmrc` 指向它） |
+| `cdn.jsdelivr.net` | ✅ 可达 |
+| `unpkg.com` | ✅ 可达 |
+| `storage.googleapis.com` | ❌ **不可达**（DNS 解析到 `198.18.0.14`，TLS 报 `SSL_ERROR_SYSCALL`） |
+| `github.com` | ❌ 不可达 |
+| `huggingface.co` | ❌ 不可达 |
+| `registry.npmjs.org` | ❌ 不可达 |
+
+**直接后果**：MediaPipe Pose Landmarker 的 `.task` 权重托管在 `storage.googleapis.com`，
+因此**沙箱内从未跑过一次真实的姿态推理**。这被记录为 **F-006（OPEN）**。
+
+### 未验证项（相较上轮的变化）
+
+上轮列出的 9 项未验证项，本轮**只消除了其中一部分**，必须如实区分：
+
+| 项 | 上轮 | 本轮 |
+| --- | --- | --- |
+| GPU 委托在 Worker 中的可用性 | ❌ 未验证 | 🟡 **协议层已测**（9 个用例覆盖降级上报），**硬件层仍未验证** |
+| 浏览器内 Canvas / Worker / ImageBitmap 行为 | ❌ 未验证 | ✅ **已用真实 Chromium 验证**（36 项） |
+| 真实摄像头采集与姿态推理 | ❌ 未验证 | ❌ **仍未验证**（且沙箱内不可能验证 → F-006） |
+| 真实挥拍分段准确率 | ❌ 未验证 | ❌ 仍未验证 |
+| 二维肘角真实 MAE | ❌ 未验证 | ❌ 仍未验证（仅构造数据验证） |
+| 端到端延迟 | ❌ 未验证 | ❌ 仍未验证 |
+| 真实多模态模型调用质量/延迟/费用 | ❌ 未验证 | ❌ 仍未验证（mock 路径已测） |
+| 20 分钟连续运行稳定性 | ❌ 未验证 | ❌ 仍未验证 |
+| 手机局域网访问 | ❌ 未验证 | ❌ 仍未验证 |
+| Windows / Chrome 实际行为 | ❌ 未验证 | ❌ 仍未验证（沙箱是 Linux + Chromium 144） |
+
+> **本轮最重要的一句话**：
+> 测试从 172 涨到 368，但**增量几乎全部落在"代码正确性"**上。
+> 关于"这个产品准不准"的结论，一项目前都没有增加 —— 那需要真实素材，见 `docs/roadmap.md`。

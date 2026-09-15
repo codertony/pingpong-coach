@@ -93,6 +93,58 @@
 
 **修复**：改用中文书名号 `「」`。**中文文案与代码字符串混排时需注意引号配对。**
 
+---
+
+### F-006 · 受限网络下无法取得 Pose Landmarker 模型，真实推理未经端到端验证
+
+**日期**：2026-09-15
+**分类**：姿态引擎或模型适配（**未验证**，非已修复）
+**严重度**：高 —— 这是整条视觉链路唯一没有真机证据的环节
+**状态**：**OPEN — 需要在你的本机完成**
+
+**现象**：构建沙箱对 `storage.googleapis.com` 不可达（该域名被解析到 `198.18.0.14`，TLS 握手直接 `SSL_ERROR_SYSCALL`）。
+MediaPipe Pose Landmarker 的 `.task` 权重托管在此域名上，因此：
+
+- `apps/web/public/models/pose_landmarker_full.task` 无法在沙箱内下载；
+- 沙箱内**没有跑过一次真实的姿态推理**。
+
+**沙箱内能验证的（已覆盖）**：客户端自身的协议与生命周期 ——
+`init` 消息字段、GPU→CPU 降级是否如实上报、迟到/幽灵结果是否丢弃、
+未就绪时位图是否释放、`dispose` 是否终止 Worker。
+共 9 个用例，见 `apps/web/e2e/pose-engine.e2e.ts`。它们用**受控的假 Worker** 替换真实 Worker，
+所以只证明"协议处理正确"，**不证明"模型输出正确"**。
+
+**沙箱内不能验证的**：
+
+- 模型权重能否加载；
+- WebAssembly 运行时（`/wasm` 下的文件）是否与本机 Chrome 版本兼容；
+- GPU 委托在你的显卡驱动上能否成功，失败时降级是否平滑；
+- 真实画面下的关键点精度与抖动水平。
+
+**本机验证步骤**：
+
+```bash
+# 1. 下载模型（约 9 MB）——沙箱做不了这一步
+mkdir -p apps/web/public/models
+curl -L -o apps/web/public/models/pose_landmarker_full.task \
+  https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
+
+# 2. 复制 WASM 运行时
+mkdir -p apps/web/public/wasm
+cp node_modules/@mediapipe/tasks-vision/wasm/* apps/web/public/wasm/
+
+# 3. 启动并肉眼确认骨架贴合
+pnpm --filter @pingpong/web dev
+```
+
+**判定标准**：站在镜头前，骨架应贴合关节；挥手时骨架跟随不脱节；
+`/api/health` 与页面状态栏显示的委托方式应为 `GPU`（若为 `CPU`，需记录降级原因）。
+
+**回归**：本机跑通后，把真实推理的结论补记在此处，并将 F-006 状态改为 CLOSED。
+在此之前，**任何关于识别准确度的结论都不得引用本项目的自动化测试结果**。
+
+---
+
 ## 待补充
 
 真实素材跑起来后，失败片段按上述分类逐条记录到这里，并附回归结果。

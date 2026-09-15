@@ -16,10 +16,7 @@ import type { Point2D } from "./geometry.js";
  * 顺序说明：采集端先裁剪、再旋转、最后可能做镜像预览。
  * 反解时按相反顺序还原。
  */
-export function toSourcePixel(
-  point: Point2D,
-  transform: ImageTransform,
-): Point2D | null {
+export function toSourcePixel(point: Point2D, transform: ImageTransform): Point2D | null {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
   if (!(transform.cropWidth > 0) || !(transform.cropHeight > 0)) return null;
 
@@ -49,10 +46,7 @@ export function toSourcePixel(
  * 把原始画面像素坐标变换到**当前显示/处理画面**坐标。
  * 与 toSourcePixel 互为逆运算。
  */
-export function fromSourcePixel(
-  point: Point2D,
-  transform: ImageTransform,
-): Point2D | null {
+export function fromSourcePixel(point: Point2D, transform: ImageTransform): Point2D | null {
   if (!Number.isFinite(point.x) || !Number.isFinite(point.y)) return null;
   if (!(transform.cropWidth > 0) || !(transform.cropHeight > 0)) return null;
 

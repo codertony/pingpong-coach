@@ -49,7 +49,11 @@ export class RequestDedupe {
     return this.inFlight.has(sessionId);
   }
 
-  begin(sessionId: string, requestId: string, task: Promise<CoachFeedback>): Promise<CoachFeedback> {
+  begin(
+    sessionId: string,
+    requestId: string,
+    task: Promise<CoachFeedback>,
+  ): Promise<CoachFeedback> {
     this.inFlight.set(sessionId, requestId);
     this.pending.set(requestId, task);
     return task;

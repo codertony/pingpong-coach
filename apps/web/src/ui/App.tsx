@@ -2,9 +2,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CoachFeedback, EvidencePacket, HealthResponse } from "@pingpong/contracts";
 import { DEFAULT_THRESHOLDS, type LocalVerdict } from "@pingpong/motion-core";
 import { PoseEngine, type EngineStatus } from "../vision/pose-engine.js";
-import { FrameScheduler, monotonicNow, SourceEpochTracker } from "../capture/frame-scheduler.js";
+import { FrameScheduler, SourceEpochTracker } from "../capture/frame-scheduler.js";
 import { startCapture, type CaptureError, type CaptureHandle } from "../capture/capture-source.js";
-import { TrainingSession, verdictToSpeech, type TrainingTelemetry } from "../training/training-session.js";
+import {
+  TrainingSession,
+  verdictToSpeech,
+  type TrainingTelemetry,
+} from "../training/training-session.js";
 import { drawSkeleton } from "../training/skeleton-overlay.js";
 import { SpeechChannel, type SpeechStatus } from "../audio/speech-channel.js";
 import { analyzeGroup, fetchHealth } from "../review/api-client.js";
@@ -252,59 +256,54 @@ export function App() {
   }, [handedness, focusId, cameraView, strokesPerGroup, sourceKind, videoFile, initEngine]);
 
   /** 一组完成后：发起一次模型分析，并把结果并入复查。 */
-  const handleGroup = useCallback(
-    async (packet: EvidencePacket) => {
-      const groupAtStart = packet.groupId;
-      setStatusText(`本组证据已就绪（${packet.strokes.length} 次挥拍），正在请求分析…`);
-      const outcome = await analyzeGroup(packet);
+  const handleGroup = useCallback(async (packet: EvidencePacket) => {
+    const groupAtStart = packet.groupId;
+    setStatusText(`本组证据已就绪（${packet.strokes.length} 次挥拍），正在请求分析…`);
+    const outcome = await analyzeGroup(packet);
 
-      // 写入复查记录
-      const item: ReviewItem = {
-        requestId: packet.requestId,
-        groupId: packet.groupId,
-        sessionId: packet.sessionId,
-        focusId: packet.focusId,
-        packet,
-        feedback: outcome.feedback,
-        error: outcome.error,
-        elapsedMs: outcome.elapsedMs,
-        deduplicated: outcome.deduplicated,
-        userRating: null,
-      };
-      setReviews((prev) => [item, ...prev].slice(0, 30));
+    // 写入复查记录
+    const item: ReviewItem = {
+      requestId: packet.requestId,
+      groupId: packet.groupId,
+      sessionId: packet.sessionId,
+      focusId: packet.focusId,
+      packet,
+      feedback: outcome.feedback,
+      error: outcome.error,
+      elapsedMs: outcome.elapsedMs,
+      deduplicated: outcome.deduplicated,
+      userRating: null,
+    };
+    setReviews((prev) => [item, ...prev].slice(0, 30));
 
-      if (outcome.feedback) {
-        setFeedback(outcome.feedback);
-        // 只在仍是同一分组的上下文下播报
-        if (outcome.feedback.cue) {
-          const spoke = speechRef.current?.speak({
-            text: outcome.feedback.cue,
-            sessionId: packet.sessionId,
-            groupId: packet.groupId,
-            focusId: packet.focusId,
-          });
-          if (!spoke) {
-            setStatusText("反馈已保存；语音未播报（上下文已切换或语音不可用）");
-            return;
-          }
+    if (outcome.feedback) {
+      setFeedback(outcome.feedback);
+      // 只在仍是同一分组的上下文下播报
+      if (outcome.feedback.cue) {
+        const spoke = speechRef.current?.speak({
+          text: outcome.feedback.cue,
+          sessionId: packet.sessionId,
+          groupId: packet.groupId,
+          focusId: packet.focusId,
+        });
+        if (!spoke) {
+          setStatusText("反馈已保存；语音未播报（上下文已切换或语音不可用）");
+          return;
         }
-        setStatusText(`本组反馈已送达（${Math.round(outcome.elapsedMs)}ms）`);
-      } else if (outcome.error) {
-        // 模型失败不影响本地训练
-        setStatusText(
-          `模型侧未返回结论（${outcome.error.code}），本地训练继续，可查看复查页`,
-        );
       }
+      setStatusText(`本组反馈已送达（${Math.round(outcome.elapsedMs)}ms）`);
+    } else if (outcome.error) {
+      // 模型失败不影响本地训练
+      setStatusText(`模型侧未返回结论（${outcome.error.code}），本地训练继续，可查看复查页`);
+    }
 
-      // 更新语音上下文到下一组
-      speechRef.current?.setContext({
-        sessionId: packet.sessionId,
-        groupId: groupAtStart,
-        focusId: packet.focusId,
-      });
-    },
-    [],
-  );
+    // 更新语音上下文到下一组
+    speechRef.current?.setContext({
+      sessionId: packet.sessionId,
+      groupId: groupAtStart,
+      focusId: packet.focusId,
+    });
+  }, []);
 
   const rateReview = useCallback((requestId: string, rating: ReviewItem["userRating"]) => {
     setReviews((prev) =>
@@ -360,10 +359,16 @@ export function App() {
           <div className={`tab ${tab === "setup" ? "active" : ""}`} onClick={() => setTab("setup")}>
             拍摄检查
           </div>
-          <div className={`tab ${tab === "practice" ? "active" : ""}`} onClick={() => setTab("practice")}>
+          <div
+            className={`tab ${tab === "practice" ? "active" : ""}`}
+            onClick={() => setTab("practice")}
+          >
             练习
           </div>
-          <div className={`tab ${tab === "review" ? "active" : ""}`} onClick={() => setTab("review")}>
+          <div
+            className={`tab ${tab === "review" ? "active" : ""}`}
+            onClick={() => setTab("review")}
+          >
             复查 {reviews.length > 0 && `(${reviews.length})`}
           </div>
         </div>
@@ -371,9 +376,10 @@ export function App() {
 
       {modelMode === "mock" && (
         <div className="notice warn">
-          <strong>当前为 mock 模式</strong>：后端未配置真实模型密钥，反馈由本地规则与 mock 输出生成。
-          界面上的耗时与结论<strong>不代表真实模型质量或延迟</strong>。配置 <span className="mono">MODEL_API_KEY</span>、
-          <span className="mono">MODEL_BASE_URL</span>、<span className="mono">MODEL_ID</span> 后重启后端即可切换。
+          <strong>当前为 mock 模式</strong>：后端未配置真实模型密钥，反馈由本地规则与 mock
+          输出生成。 界面上的耗时与结论<strong>不代表真实模型质量或延迟</strong>。配置{" "}
+          <span className="mono">MODEL_API_KEY</span>、<span className="mono">MODEL_BASE_URL</span>
+          、<span className="mono">MODEL_ID</span> 后重启后端即可切换。
         </div>
       )}
 
@@ -488,7 +494,10 @@ function SetupView(props: SetupProps) {
             </div>
             <div className="field">
               <label>机位</label>
-              <select value={props.cameraView} onChange={(e) => props.setCameraView(e.target.value)}>
+              <select
+                value={props.cameraView}
+                onChange={(e) => props.setCameraView(e.target.value)}
+              >
                 <option value="front">正面</option>
                 <option value="front_right_diagonal">右前斜</option>
                 <option value="front_left_diagonal">左前斜</option>
@@ -624,8 +633,8 @@ function SetupView(props: SetupProps) {
             </table>
           ) : (
             <div className="notice warn">
-              未能连接后端。本地骨架预览仍可用，但不会得到模型反馈。
-              启动后端：<span className="mono">pnpm dev:api</span>
+              未能连接后端。本地骨架预览仍可用，但不会得到模型反馈。 启动后端：
+              <span className="mono">pnpm dev:api</span>
             </div>
           )}
         </div>
@@ -772,7 +781,9 @@ function PracticeView(props: PracticeProps) {
             <div className="metric">
               <div className="label">有效帧比例</div>
               <div className="value">
-                {props.telemetry != null ? `${(props.telemetry.usableRatio * 100).toFixed(0)}%` : "—"}
+                {props.telemetry != null
+                  ? `${(props.telemetry.usableRatio * 100).toFixed(0)}%`
+                  : "—"}
               </div>
             </div>
           </div>
@@ -819,7 +830,9 @@ function PracticeView(props: PracticeProps) {
         <div className="panel">
           <h2>说明</h2>
           <ul className="tight small">
-            <li>每组够了只会发起<strong>一次</strong>模型请求，不逐帧上传视频。</li>
+            <li>
+              每组够了只会发起<strong>一次</strong>模型请求，不逐帧上传视频。
+            </li>
             <li>模型请求在途时不会积压新请求；本地分析与提示不受影响。</li>
             <li>反馈绑定会话、分组与关注点，切换后旧响应不会被播报。</li>
           </ul>

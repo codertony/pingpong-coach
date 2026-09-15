@@ -42,10 +42,7 @@ export interface AnalyzeFailure {
 
 export type AnalyzeResult = AnalyzeSuccess | AnalyzeFailure;
 
-export async function analyze(
-  body: unknown,
-  deps: AnalyzeDeps,
-): Promise<AnalyzeResult> {
+export async function analyze(body: unknown, deps: AnalyzeDeps): Promise<AnalyzeResult> {
   const { config, dedupe } = deps;
   const now = deps.now ?? (() => Date.now());
 
@@ -156,9 +153,7 @@ async function runAnalysis(
     const code = result.error ?? "model_unavailable";
     throw new AnalysisError(
       code,
-      code === "model_timeout"
-        ? `模型超过 ${config.modelTimeoutMs}ms 未返回`
-        : "模型接口调用失败",
+      code === "model_timeout" ? `模型超过 ${config.modelTimeoutMs}ms 未返回` : "模型接口调用失败",
       // 服务端不会把模型失败变成 5xx——本地链路应继续运行。
       // 前端据此保留本地反馈，不阻塞采集。
       200,
@@ -176,12 +171,10 @@ async function runAnalysis(
   }
 
   if (parseError != null) {
-    throw new AnalysisError(
-      "model_invalid_json",
-      "模型返回内容不是合法 JSON",
-      200,
-      [parseError, result.raw.slice(0, 200)],
-    );
+    throw new AnalysisError("model_invalid_json", "模型返回内容不是合法 JSON", 200, [
+      parseError,
+      result.raw.slice(0, 200),
+    ]);
   }
 
   const outcome = validateModelOutput(rawParsed, packet, allowed, {

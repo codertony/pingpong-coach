@@ -178,12 +178,7 @@ export const BUILTIN_RULES: RuleDefinition[] = [
     id: "return_to_ready_zone_v1",
     version: "1.0.0",
     strokeType: "forehand_drive",
-    cameraViews: [
-      "front",
-      "front_left_diagonal",
-      "front_right_diagonal",
-      "right_side",
-    ],
+    cameraViews: ["front", "front_left_diagonal", "front_right_diagonal", "right_side"],
     focusId: "return_to_ready_zone",
     requiredFeatureIds: [FEATURE_IDS.RETURN_AFTER_WRIST_PEAK],
     notApplicableWhen: [

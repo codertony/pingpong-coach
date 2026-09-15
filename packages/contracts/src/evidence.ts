@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { schemaVersionSchema } from "./primitives.js";
+import { schemaVersionSchema, strokeTypeSchema } from "./primitives.js";
 import { strokeEventSchema } from "./stroke.js";
 import { featureValueSchema } from "./feature.js";
 
@@ -41,7 +41,8 @@ export const evidencePacketSchema = z.object({
   sessionId: z.string().min(1),
   groupId: z.string().min(1),
   focusId: z.string().min(1),
-  strokeType: z.literal("forehand_drive"),
+  // 复用 primitives 中的定义，避免同一约束在两处各写一遍后走样。
+  strokeType: strokeTypeSchema,
   handedness: z.enum(["left", "right"]),
   cameraView: z.string().min(1),
   strokes: z.array(strokeEventSchema),

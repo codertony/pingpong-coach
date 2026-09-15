@@ -1,0 +1,10 @@
+dist/
+node_modules/
+coverage/
+pnpm-lock.yaml
+apps/web/public/models/
+apps/web/public/wasm/
+evaluation/fixtures/
+test-results/
+playwright-report/
+*.md

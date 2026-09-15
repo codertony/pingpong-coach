@@ -14,7 +14,8 @@ describe("toSpeechText", () => {
   });
 
   it("超过 30 字时取第一句，若仍超长则放弃播报", () => {
-    const long = "这是一句非常长的解释性文字用来测试语音播报的长度限制逻辑是否按预期工作并避免播报半句话";
+    const long =
+      "这是一句非常长的解释性文字用来测试语音播报的长度限制逻辑是否按预期工作并避免播报半句话";
     expect(toSpeechText(long)).toBeNull();
   });
 
@@ -49,7 +50,12 @@ describe("SpeechChannel（上下文绑定）", () => {
   it("上下文不匹配（旧分组）时静默丢弃", () => {
     const ch = new SpeechChannel();
     ch.setContext(CTX);
-    const ok = ch.speak({ text: "旧建议", sessionId: "s1", groupId: "g_old", focusId: "return_to_ready_zone" });
+    const ok = ch.speak({
+      text: "旧建议",
+      sessionId: "s1",
+      groupId: "g_old",
+      focusId: "return_to_ready_zone",
+    });
     expect(ok).toBe(false);
     ch.dispose();
   });

@@ -60,12 +60,15 @@ export function drawSkeleton(
     if (!pa || !pb) continue;
 
     const onRacketSide = a.startsWith(handedness) || b.startsWith(handedness);
-    const reliable =
-      (ka.score ?? 1) >= options.minScore && (kb.score ?? 1) >= options.minScore;
+    const reliable = (ka.score ?? 1) >= options.minScore && (kb.score ?? 1) >= options.minScore;
 
     ctx.strokeStyle = onRacketSide
-      ? reliable ? "#4ea1ff" : "#d29922"
-      : reliable ? "rgba(230,237,243,0.45)" : "rgba(210,153,34,0.45)";
+      ? reliable
+        ? "#4ea1ff"
+        : "#d29922"
+      : reliable
+        ? "rgba(230,237,243,0.45)"
+        : "rgba(210,153,34,0.45)";
     if (onRacketSide) ctx.lineWidth = Math.max(3, width / 240);
     else ctx.lineWidth = Math.max(1.5, width / 420);
     ctx.beginPath();
@@ -82,9 +85,7 @@ export function drawSkeleton(
     const onRacketSide = kp.name.startsWith(handedness);
     const reliable = (kp.score ?? 1) >= options.minScore;
     const r = onRacketSide ? Math.max(4, width / 170) : Math.max(2.5, width / 320);
-    ctx.fillStyle = onRacketSide
-      ? reliable ? "#ffffff" : "#d29922"
-      : "rgba(230,237,243,0.55)";
+    ctx.fillStyle = onRacketSide ? (reliable ? "#ffffff" : "#d29922") : "rgba(230,237,243,0.55)";
     ctx.beginPath();
     ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
     ctx.fill();

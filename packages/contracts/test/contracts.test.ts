@@ -17,9 +17,7 @@ const basePoseFrame = {
   keypointSet: "blaze_33",
   imageWidth: 1280,
   imageHeight: 720,
-  keypoints2D: [
-    { name: "right_elbow", xPx: 640, yPx: 360, score: 0.9, visible: true },
-  ],
+  keypoints2D: [{ name: "right_elbow", xPx: 640, yPx: 360, score: 0.9, visible: true }],
   quality: "usable",
   qualityReasons: [],
 };
@@ -32,9 +30,7 @@ describe("PoseFrame", () => {
   it("允许 score 与 visible 为 null，表示引擎未给出该信息", () => {
     const frame = {
       ...basePoseFrame,
-      keypoints2D: [
-        { name: "right_wrist", xPx: 1, yPx: 2, score: null, visible: null },
-      ],
+      keypoints2D: [{ name: "right_wrist", xPx: 1, yPx: 2, score: null, visible: null }],
     };
     expect(poseFrameSchema.safeParse(frame).success).toBe(true);
   });
@@ -42,9 +38,7 @@ describe("PoseFrame", () => {
   it("拒绝非有限坐标，避免 NaN 污染几何计算", () => {
     const frame = {
       ...basePoseFrame,
-      keypoints2D: [
-        { name: "right_elbow", xPx: Number.NaN, yPx: 360, score: 0.9, visible: true },
-      ],
+      keypoints2D: [{ name: "right_elbow", xPx: Number.NaN, yPx: 360, score: 0.9, visible: true }],
     };
     expect(poseFrameSchema.safeParse(frame).success).toBe(false);
   });
@@ -52,9 +46,7 @@ describe("PoseFrame", () => {
   it("拒绝未映射的引擎原生关键点名", () => {
     const frame = {
       ...basePoseFrame,
-      keypoints2D: [
-        { name: "landmark_13", xPx: 1, yPx: 2, score: 0.9, visible: true },
-      ],
+      keypoints2D: [{ name: "landmark_13", xPx: 1, yPx: 2, score: 0.9, visible: true }],
     };
     expect(poseFrameSchema.safeParse(frame).success).toBe(false);
   });

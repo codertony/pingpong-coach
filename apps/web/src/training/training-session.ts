@@ -40,8 +40,12 @@ import {
   type LocalVerdict,
 } from "@pingpong/motion-core";
 import type { PoseResult } from "../vision/pose-engine.js";
-import { KeyframeCache, selectRepresentativeFrames, buildKeyframes } from "../evidence/evidence-builder.js";
-import { toSpeechText, type SpeechChannel } from "../audio/speech-channel.js";
+import {
+  KeyframeCache,
+  selectRepresentativeFrames,
+  buildKeyframes,
+} from "../evidence/evidence-builder.js";
+import { toSpeechText } from "../audio/speech-channel.js";
 
 export interface TrainingConfig {
   sessionId: string;
@@ -200,9 +204,7 @@ export class TrainingSession {
 
     // 腕部滤波：因果、单向，不偷看未来帧
     const rawWrist = findPoint(result.keypoints2D, `${this.config.handedness}_wrist`);
-    const filteredWrist = rawWrist
-      ? this.wristFilter.push(rawWrist, result.sourceTimeMs)
-      : null;
+    const filteredWrist = rawWrist ? this.wristFilter.push(rawWrist, result.sourceTimeMs) : null;
 
     // 躯干参考与体尺度
     const lShoulder = findPoint(result.keypoints2D, "left_shoulder");
@@ -222,9 +224,13 @@ export class TrainingSession {
       frameId: frame.frameId,
       sourceTimeMs: frame.sourceTimeMs,
       wristPx: filteredWrist,
-      wristRelReadyZonePx: filteredWrist && this.readyZoneCenter
-        ? { x: filteredWrist.x - this.readyZoneCenter.x, y: filteredWrist.y - this.readyZoneCenter.y }
-        : null,
+      wristRelReadyZonePx:
+        filteredWrist && this.readyZoneCenter
+          ? {
+              x: filteredWrist.x - this.readyZoneCenter.x,
+              y: filteredWrist.y - this.readyZoneCenter.y,
+            }
+          : null,
       bodyScalePx,
       quality: frame.quality,
     });
@@ -251,7 +257,9 @@ export class TrainingSession {
 
     const remaining = this.config.strokesPerGroup - this.validStrokes.length;
     if (remaining > 0) {
-      this.callbacks.onStatus(`已记录 ${this.validStrokes.length} 次有效挥拍，还需 ${remaining} 次`);
+      this.callbacks.onStatus(
+        `已记录 ${this.validStrokes.length} 次有效挥拍，还需 ${remaining} 次`,
+      );
       // 一次挥拍足以判断的已验证目标可以更快更新本地状态
       this.emitLocalVerdictIfPossible();
       return;
@@ -290,10 +298,7 @@ export class TrainingSession {
 
     const first = this.validStrokes[0]!;
     const last = this.validStrokes[this.validStrokes.length - 1]!;
-    const interval: [number, number] = [
-      first.startMs,
-      last.endMs ?? last.anchor.timeMs,
-    ];
+    const interval: [number, number] = [first.startMs, last.endMs ?? last.anchor.timeMs];
 
     const geometriesInGroup = this.geometries.filter(
       (g) => g.sourceTimeMs >= interval[0] && g.sourceTimeMs <= interval[1],
@@ -340,7 +345,9 @@ export class TrainingSession {
         { startMs: s.startMs, endMs: s.endMs, anchor: s.anchor },
         // 这里用姿态帧代替真实图片候选，真实图片压缩在 capture 层完成
         poses
-          .filter((p) => p.sourceTimeMs >= s.startMs && (s.endMs == null || p.sourceTimeMs <= s.endMs))
+          .filter(
+            (p) => p.sourceTimeMs >= s.startMs && (s.endMs == null || p.sourceTimeMs <= s.endMs),
+          )
           .map((p) => ({
             frameId: p.frameId,
             sourceTimeMs: p.sourceTimeMs,
@@ -415,7 +422,7 @@ export class TrainingSession {
     const p95 =
       sorted.length === 0
         ? null
-        : sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? null;
+        : (sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? null);
 
     const sampling = computeSamplingStats(this.frameTimes, DEFAULT_QUALITY_CONFIG);
     const poses = [...this.posesByFrameId.values()];

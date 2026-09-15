@@ -33,11 +33,7 @@ export function emaConfig(alpha = 0.5): FilterConfig {
   return { kind: "ema", alpha };
 }
 
-export function oneEuroConfig(
-  minCutoff = 1.0,
-  beta = 0.007,
-  dCutoff = 1.0,
-): FilterConfig {
+export function oneEuroConfig(minCutoff = 1.0, beta = 0.007, dCutoff = 1.0): FilterConfig {
   return { kind: "one_euro", minCutoff, beta, dCutoff };
 }
 

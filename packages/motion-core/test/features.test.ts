@@ -14,11 +14,7 @@ function kp(name: string, x: number, y: number, visible = true): Keypoint2D {
   return { name, xPx: x, yPx: y, score: 0.9, visible };
 }
 
-function frame(
-  keypoints: Keypoint2D[],
-  frameId = "f1",
-  timeMs = 0,
-): PoseFrame {
+function frame(keypoints: Keypoint2D[], frameId = "f1", timeMs = 0): PoseFrame {
   return {
     schemaVersion: SCHEMA_VERSION,
     sessionId: "s1",
@@ -109,9 +105,27 @@ describe("extractFrameGeometry", () => {
 describe("computeElbowAngleRange", () => {
   it("取区间内最大与最小的差", () => {
     const gs = [
-      { frameId: "a", sourceTimeMs: 0, elbowAngleDeg: 120, elbowRelTorsoBodyScale: null, bodyScalePx: 100 },
-      { frameId: "b", sourceTimeMs: 40, elbowAngleDeg: 150, elbowRelTorsoBodyScale: null, bodyScalePx: 100 },
-      { frameId: "c", sourceTimeMs: 80, elbowAngleDeg: 90, elbowRelTorsoBodyScale: null, bodyScalePx: 100 },
+      {
+        frameId: "a",
+        sourceTimeMs: 0,
+        elbowAngleDeg: 120,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: 100,
+      },
+      {
+        frameId: "b",
+        sourceTimeMs: 40,
+        elbowAngleDeg: 150,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: 100,
+      },
+      {
+        frameId: "c",
+        sourceTimeMs: 80,
+        elbowAngleDeg: 90,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: 100,
+      },
     ];
     const f = computeElbowAngleRange(gs, [0, 80]);
     expect(f.value).toBe(60);
@@ -121,7 +135,13 @@ describe("computeElbowAngleRange", () => {
 
   it("全部缺失时 value 为 null 并给出原因，而不是 0", () => {
     const gs = [
-      { frameId: "a", sourceTimeMs: 0, elbowAngleDeg: null, elbowRelTorsoBodyScale: null, bodyScalePx: null },
+      {
+        frameId: "a",
+        sourceTimeMs: 0,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: null,
+      },
     ];
     const f = computeElbowAngleRange(gs, [0, 0]);
     expect(f.value).toBeNull();
@@ -131,9 +151,27 @@ describe("computeElbowAngleRange", () => {
 
   it("过半缺失时降为 limited", () => {
     const gs = [
-      { frameId: "a", sourceTimeMs: 0, elbowAngleDeg: 120, elbowRelTorsoBodyScale: null, bodyScalePx: 100 },
-      { frameId: "b", sourceTimeMs: 40, elbowAngleDeg: null, elbowRelTorsoBodyScale: null, bodyScalePx: null },
-      { frameId: "c", sourceTimeMs: 80, elbowAngleDeg: null, elbowRelTorsoBodyScale: null, bodyScalePx: null },
+      {
+        frameId: "a",
+        sourceTimeMs: 0,
+        elbowAngleDeg: 120,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: 100,
+      },
+      {
+        frameId: "b",
+        sourceTimeMs: 40,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: null,
+      },
+      {
+        frameId: "c",
+        sourceTimeMs: 80,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: null,
+      },
     ];
     const f = computeElbowAngleRange(gs, [0, 80]);
     expect(f.quality).toBe("limited");
@@ -144,8 +182,20 @@ describe("computeElbowAngleRange", () => {
 describe("computeElbowTorsoDrift", () => {
   it("计算相对躯干位移的包围盒对角长度", () => {
     const gs = [
-      { frameId: "a", sourceTimeMs: 0, elbowAngleDeg: null, elbowRelTorsoBodyScale: { x: 0, y: 0 }, bodyScalePx: 100 },
-      { frameId: "b", sourceTimeMs: 40, elbowAngleDeg: null, elbowRelTorsoBodyScale: { x: 0.3, y: 0.4 }, bodyScalePx: 100 },
+      {
+        frameId: "a",
+        sourceTimeMs: 0,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: { x: 0, y: 0 },
+        bodyScalePx: 100,
+      },
+      {
+        frameId: "b",
+        sourceTimeMs: 40,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: { x: 0.3, y: 0.4 },
+        bodyScalePx: 100,
+      },
     ];
     const f = computeElbowTorsoDrift(gs, [0, 40]);
     expect(f.value).toBeCloseTo(0.5, 10);
@@ -155,11 +205,66 @@ describe("computeElbowTorsoDrift", () => {
 
   it("无可用点时为 null 并说明原因", () => {
     const f = computeElbowTorsoDrift(
-      [{ frameId: "a", sourceTimeMs: 0, elbowAngleDeg: null, elbowRelTorsoBodyScale: null, bodyScalePx: null }],
+      [
+        {
+          frameId: "a",
+          sourceTimeMs: 0,
+          elbowAngleDeg: null,
+          elbowRelTorsoBodyScale: null,
+          bodyScalePx: null,
+        },
+      ],
       [0, 0],
     );
     expect(f.value).toBeNull();
     expect(f.quality).toBe("unusable");
+  });
+
+  it("超过一半采样点缺失时降级为 limited，且 reasonIfMissing 不为 null", () => {
+    // 这条锁死一个曾经的真实缺陷：该函数把 qualityOf 返回的 reason 丢掉，
+    // 硬写 reasonIfMissing: null，导致质量降级时调用方看不到任何解释。
+    // value 在这条路径上仍非 null（包围盒总存在），所以 reasonIfMissing
+    // 是唯一的质量说明来源，丢了就等于「静默降级」。
+    const gs = [
+      {
+        frameId: "a",
+        sourceTimeMs: 0,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: { x: 0, y: 0 },
+        bodyScalePx: 100,
+      },
+      {
+        frameId: "b",
+        sourceTimeMs: 40,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: null,
+      },
+      {
+        frameId: "c",
+        sourceTimeMs: 80,
+        elbowAngleDeg: null,
+        elbowRelTorsoBodyScale: null,
+        bodyScalePx: null,
+      },
+    ];
+    const f = computeElbowTorsoDrift(gs, [0, 80]);
+    expect(f.quality).toBe("limited");
+    expect(f.reasonIfMissing).not.toBeNull();
+    expect(f.reasonIfMissing).toContain("缺失");
+  });
+
+  it("全部可用时 quality 为 usable 且 reasonIfMissing 为 null", () => {
+    const mk = (t: number, x: number, y: number) => ({
+      frameId: `f-${t}`,
+      sourceTimeMs: t,
+      elbowAngleDeg: null,
+      elbowRelTorsoBodyScale: { x, y },
+      bodyScalePx: 100,
+    });
+    const f = computeElbowTorsoDrift([mk(0, 0, 0), mk(40, 0.1, 0.1)], [0, 40]);
+    expect(f.quality).toBe("usable");
+    expect(f.reasonIfMissing).toBeNull();
   });
 });
 
@@ -198,7 +303,11 @@ describe("computeReturnAfterWristPeak", () => {
 
 describe("computeIntraGroupConsistency", () => {
   it("多次挥拍取值稳定时变异系数很小", () => {
-    const f = computeIntraGroupConsistency([500, 502, 498], "return_after_wrist_peak_ms", [0, 1000]);
+    const f = computeIntraGroupConsistency(
+      [500, 502, 498],
+      "return_after_wrist_peak_ms",
+      [0, 1000],
+    );
     expect(f.value).not.toBeNull();
     expect(f.value!).toBeLessThan(0.01);
   });

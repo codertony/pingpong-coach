@@ -125,12 +125,7 @@ describe("validateModelOutput — 硬性拒绝", () => {
   });
 
   it("输出结论但完全不引用证据也被拒绝", () => {
-    const r = validateModelOutput(
-      output({ evidenceRefs: [] }),
-      PACKET,
-      ALLOWED_REVIEWED,
-      EXPECTED,
-    );
+    const r = validateModelOutput(output({ evidenceRefs: [] }), PACKET, ALLOWED_REVIEWED, EXPECTED);
     expect(r.feedback).toBeNull();
     expect(r.issues.some((i) => i.code === "evidence_ref_unknown")).toBe(true);
   });

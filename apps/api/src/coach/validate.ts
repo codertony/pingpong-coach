@@ -19,12 +19,7 @@ const MAX_CUE_CHARS = 30;
 
 /** 模型被要求返回的原始结构。仅做形状校验，语义另查。 */
 export const modelOutputSchema = z.object({
-  status: z.enum([
-    "target_met",
-    "suggest_adjustment",
-    "observation_only",
-    "insufficient_evidence",
-  ]),
+  status: z.enum(["target_met", "suggest_adjustment", "observation_only", "insufficient_evidence"]),
   observation: z.string(),
   evidenceRefs: z.array(z.string()),
   cue: z.string().nullable(),
@@ -49,10 +44,7 @@ export interface ValidationIssue {
 
 export interface ValidationOutcome {
   /** 校验通过后可用于播报的反馈；被拒绝时为 null */
-  feedback: Omit<
-    CoachFeedback,
-    "modelId" | "mock" | "serverElapsedMs" | "createdAtMonoMs"
-  > | null;
+  feedback: Omit<CoachFeedback, "modelId" | "mock" | "serverElapsedMs" | "createdAtMonoMs"> | null;
   issues: ValidationIssue[];
   /** 被拒绝或降级的禁用语结论 */
   rejectedClaims: string[];
@@ -198,7 +190,11 @@ export function validateModelOutput(
     status = "observation_only";
     limitations.push("模型原始输出包含无法验证的发力类结论，已降级为观察");
   }
-  if (status !== "observation_only" && status !== "insufficient_evidence" && !allowed.hasReviewedReference) {
+  if (
+    status !== "observation_only" &&
+    status !== "insufficient_evidence" &&
+    !allowed.hasReviewedReference
+  ) {
     issues.push({
       code: "reference_not_reviewed",
       detail: "无已审核参考，降级为 observation_only",
