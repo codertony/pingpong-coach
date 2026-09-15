@@ -15,8 +15,12 @@
 
 import { defineConfig, devices } from "@playwright/test";
 import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 const PORT = Number(process.env.E2E_PORT ?? 5199);
+/** 集成测试用的真实 API 进程端口（mock 模式）。与开发默认的 8787 错开。 */
+const API_PORT = Number(process.env.E2E_API_PORT ?? 8788);
 
 /**
  * 选择浏览器可执行文件。
@@ -88,10 +92,36 @@ export default defineConfig({
   // 复用 vite dev server；夹具页走 vite 才能解析 TS 与 workspace 包。
   // 必须显式 --host 127.0.0.1：vite 默认绑 localhost，在容器/CI 里
   // localhost 可能不解析到 127.0.0.1，导致 Playwright 探活一直失败。
-  webServer: {
-    command: `pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,
-    url: `http://127.0.0.1:${PORT}/e2e/fixtures/fixture.html`,
-    reuseExistingServer: !process.env.CI,
-    timeout: 60_000,
-  },
+  //
+  // 第二个 webServer 是**真实 API 进程**（集成测试用）。
+  // 为什么必须起真的：`api-client.e2e.ts` 用 page.route 造假响应，
+  // 那测的是"前端拿到某个响应会怎么处理"，测不到"这条 HTTP 真的通不通"。
+  // F-007/F-008/F-011 三个缺陷都藏在这种缝里。这里让 vite 把 /api 代理到
+  // 真实 Fastify 进程，前端 fetch 会真的打到它。
+  // 走 mock 模式：测试环境不提供密钥，也不会把密钥写进测试。
+  webServer: [
+    {
+      // 注意：命令里**不能**写 `PORT=8788 pnpm ...` —— Playwright 在 Windows 上
+      // 用 cmd.exe 执行，那种 POSIX 前缀语法会被当成程序名而失败。
+      // 端口一律通过 env 传（跨平台）。
+      command: `pnpm --filter @pingpong/api start`,
+      url: `http://127.0.0.1:${API_PORT}/api/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      cwd: resolveRepoRoot(),
+      env: { PORT: String(API_PORT), HOST: "127.0.0.1" },
+    },
+    {
+      command: `pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,
+      url: `http://127.0.0.1:${PORT}/e2e/fixtures/fixture.html`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      env: { API_ORIGIN: `http://127.0.0.1:${API_PORT}` },
+    },
+  ],
 });
+
+/** 仓库根目录（从 apps/web 往上两级）。 */
+function resolveRepoRoot(): string {
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+}

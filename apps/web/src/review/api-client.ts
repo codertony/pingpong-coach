@@ -11,8 +11,20 @@ import type {
   HealthResponse,
 } from "@pingpong/contracts";
 
+/**
+ * API 基地址。默认空字符串 = 走同源 `/api`（开发时由 vite 代理转发）。
+ *
+ * 允许覆写只为一件事：端到端测试需要把请求打到**另一个后端实例**
+ * （例如 live 模式 + 假模型供应商那个）。测试夹具页会在加载时设置它，
+ * 产品代码从不设置。注意这里**只能是地址**，密钥永远不进浏览器。
+ */
+function apiBase(): string {
+  const override = (globalThis as { __apiBase?: unknown }).__apiBase;
+  return typeof override === "string" ? override : "";
+}
+
 export async function fetchHealth(): Promise<HealthResponse> {
-  const res = await fetch("/api/health");
+  const res = await fetch(`${apiBase()}/api/health`);
   if (!res.ok) throw new Error(`健康检查失败：HTTP ${res.status}`);
   return (await res.json()) as HealthResponse;
 }
@@ -36,7 +48,7 @@ export interface AnalyzeOutcome {
 export async function analyzeGroup(packet: EvidencePacket): Promise<AnalyzeOutcome> {
   const started = performance.now();
   try {
-    const res = await fetch("/api/coach/analyze", {
+    const res = await fetch(`${apiBase()}/api/coach/analyze`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(packet),
