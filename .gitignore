@@ -43,6 +43,11 @@ playwright-report/
 blob-report/
 .playwright/
 
+# 排查用的临时截图 / 目录：随时可能被丢下，不该进仓库
+# （踩过：我漏删了一个 .tmp-shot/，两张调试截图被误提交）
+.tmp-*/
+**/.tmp-*/
+
 # 操作系统与编辑器
 .DS_Store
 Thumbs.db
