@@ -69,8 +69,19 @@ export interface TrainingCallbacks {
 }
 
 export interface TrainingTelemetry {
-  /** 姿态处理耗时 P95 */
-  poseProcessingP95Ms: number | null;
+  /**
+   * **端到端处理延迟** P95：从浏览器收到帧（`receivedAtMonoMs`）到骨架结果可用。
+   *
+   * 这是用户真正感受到的那段延迟 —— 它**包含**调度器排队与 Worker 跨线程往返。
+   * 不要用 `poseInferenceP95Ms` 冒充它：那个只算 Worker 内的推理，
+   * 而排队与往返恰恰是最容易出问题、也最容易被漏掉的部分。
+   */
+  poseLatencyP95Ms: number | null;
+  /**
+   * Worker 内**推理本身**的耗时 P95。与上面的差值就是"排队 + 跨线程 + 序列化"的开销。
+   * 单列出来是为了能判断延迟到底花在模型上还是花在链路开销上。
+   */
+  poseInferenceP95Ms: number | null;
   /** 本组从第一次挥拍开始到反馈可见的耗时 */
   groupFeedbackMs: number | null;
   /** 已处理的帧数与丢帧数 */
@@ -166,6 +177,8 @@ export class TrainingSession {
   /** 当前准备区是否由自动标定得出（用于界面如实标注） */
   private autoCalibrated = false;
   private poseLatencies: number[] = [];
+  /** Worker 内推理耗时，单独留一份用于区分"模型慢"与"链路慢" */
+  private poseInferenceLatencies: number[] = [];
   private groupFirstStrokeAtMs: number | null = null;
   private framesProcessed = 0;
   private framesDropped = 0;
@@ -285,8 +298,11 @@ export class TrainingSession {
    */
   pushPoseResult(result: PoseResult): void {
     this.framesProcessed++;
-    this.poseLatencies.push(result.inferenceMs);
+    // 端到端延迟：收到帧 → 结果可用。含排队与跨线程往返。
+    this.poseLatencies.push(result.inferredAtMonoMs - result.receivedAtMonoMs);
     if (this.poseLatencies.length > 500) this.poseLatencies.shift();
+    this.poseInferenceLatencies.push(result.inferenceMs);
+    if (this.poseInferenceLatencies.length > 500) this.poseInferenceLatencies.shift();
     this.frameTimes.push(result.sourceTimeMs);
     if (this.frameTimes.length > 500) this.frameTimes.shift();
 
@@ -538,11 +554,12 @@ export class TrainingSession {
   }
 
   get telemetry(): TrainingTelemetry {
-    const sorted = [...this.poseLatencies].sort((a, b) => a - b);
-    const p95 =
-      sorted.length === 0
-        ? null
-        : (sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? null);
+    /** 取 P95（样本不足时退回最大值；空样本给 null）。 */
+    const p95Of = (values: number[]): number | null => {
+      if (values.length === 0) return null;
+      const sorted = [...values].sort((a, b) => a - b);
+      return sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))] ?? null;
+    };
 
     const sampling = computeSamplingStats(this.frameTimes, DEFAULT_QUALITY_CONFIG);
     const poses = [...this.posesByFrameId.values()];
@@ -563,7 +580,8 @@ export class TrainingSession {
         : null;
 
     return {
-      poseProcessingP95Ms: p95,
+      poseLatencyP95Ms: p95Of(this.poseLatencies),
+      poseInferenceP95Ms: p95Of(this.poseInferenceLatencies),
       groupFeedbackMs: null,
       framesProcessed: this.framesProcessed,
       framesDropped: this.framesDropped,
@@ -592,6 +610,9 @@ export class TrainingSession {
     this.geometries.length = 0;
     this.frameTimes.length = 0;
     this.wristSamples.length = 0;
+    // 延迟样本也要清：它们是逐帧累积的，会话结束不清就把整段历史挂在对象上
+    this.poseLatencies.length = 0;
+    this.poseInferenceLatencies.length = 0;
     this.wristFilter.reset();
     this.segmenter.reset();
   }

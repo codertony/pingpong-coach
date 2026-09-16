@@ -1010,10 +1010,27 @@ function PracticeView(props: PracticeProps) {
               </div>
             </div>
             <div className="metric">
-              <div className="label">姿态处理 P95</div>
+              {/* 口径要说清：这是**用户真正感受到的**那段延迟（收到帧 → 骨架可用），
+                  包含排队与跨线程往返。只报"推理耗时"会系统性低估它。 */}
+              <div className="label" title="收到帧 → 骨架结果可用，含排队与跨线程往返">
+                端到端处理延迟 P95
+              </div>
               <div className="value">
-                {props.telemetry?.poseProcessingP95Ms != null
-                  ? `${Math.round(props.telemetry.poseProcessingP95Ms)} ms`
+                {props.telemetry?.poseLatencyP95Ms != null
+                  ? `${Math.round(props.telemetry.poseLatencyP95Ms)} ms`
+                  : "—"}
+              </div>
+            </div>
+            <div className="metric">
+              <div
+                className="label"
+                title="仅 Worker 内推理；与上面的差值 = 排队 + 跨线程 + 序列化开销"
+              >
+                其中推理耗时 P95
+              </div>
+              <div className="value">
+                {props.telemetry?.poseInferenceP95Ms != null
+                  ? `${Math.round(props.telemetry.poseInferenceP95Ms)} ms`
                   : "—"}
               </div>
             </div>
