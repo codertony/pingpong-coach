@@ -30,6 +30,12 @@ import { PoseEngine } from "../../src/vision/pose-engine.js";
 import { MODEL_ASSET } from "../../src/config/model-asset.js";
 import { TrainingSession } from "../../src/training/training-session.js";
 import { buildTrainingConfig } from "../../src/training/session-config.js";
+import {
+  MAX_KEYFRAME_LONG_EDGE_PX,
+  createKeyframeCapturer,
+  encodeKeyframeJpeg,
+  fitWithinLongEdge,
+} from "../../src/evidence/keyframe-capture.js";
 import { assignHandsToSides } from "@pingpong/motion-core";
 import type { EvidencePacket, Keypoint2D } from "@pingpong/contracts";
 
@@ -86,6 +92,15 @@ declare global {
         strokes?: number;
         handedness?: "left" | "right";
       }) => Promise<EvidencePacket | null>;
+      /**
+       * 关键帧采集（F-028）。暴露它们是为了让**真实浏览器**能证明
+       * "JPEG 编码真的能产出字节、并且真的进了证据包" ——
+       * jsdom 没有 OffscreenCanvas，这一段只能在浏览器里验。
+       */
+      encodeKeyframeJpeg: typeof encodeKeyframeJpeg;
+      createKeyframeCapturer: typeof createKeyframeCapturer;
+      fitWithinLongEdge: typeof fitWithinLongEdge;
+      MAX_KEYFRAME_LONG_EDGE_PX: typeof MAX_KEYFRAME_LONG_EDGE_PX;
       /** 造一个真实的 ImageBitmap（用 OffscreenCanvas 生成，不依赖图片文件） */
       makeRealBitmap: (w: number, h: number, color?: string) => Promise<ImageBitmap>;
       /** 造一段真实 Worker 脚本并返回真实 Worker 实例 */
@@ -294,6 +309,10 @@ window.__fixture = {
   MODEL_ASSET,
   TrainingSession,
   buildTrainingConfig,
+  encodeKeyframeJpeg,
+  createKeyframeCapturer,
+  fitWithinLongEdge,
+  MAX_KEYFRAME_LONG_EDGE_PX,
   assignHandsToSides,
   setApiBase,
   runSyntheticGroup,

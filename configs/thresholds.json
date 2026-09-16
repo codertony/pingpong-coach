@@ -57,7 +57,7 @@
       "minValidStrokes": 3
     },
     "evidenceBudget": {
-      "$comment": "方案 9.2 的初始工程预算。⚠️ **这些值未被校验**：它们与代码里同名的常量**没有**逐值对应关系，所以没有任何测试守着它们。grep 实测（2026-09-16）：`maxRequestBytes` 在 apps/api 的 config 里确有同值（2*1024*1024），但那是另一个包、且有 env 覆盖；`maxModelOutputTokens` 对应 apps/api 的 `MODEL_MAX_TOKENS` 默认 400（同样在另一个包）；`maxSpeechChars` 对应 apps/web 的 `MAX_SPEECH_CHARS`，**常量名不同**；`maxKeyframes` 对应 evidence-builder 里 `selectRepresentativeFrames(..., maxCount = 6)` 的默认参数；**`maxImageLongEdgePx` 在代码里没有任何地方读它 —— 关键帧没有被降采样**。详见 known-failures F-027。",
+      "$comment": "方案 9.2 的初始工程预算。⚠️ **这些值未被校验**：它们与代码里同名的常量**没有**逐值对应关系，所以没有任何测试守着它们。grep 实测（2026-09-16）：`maxRequestBytes` 在 apps/api 的 config 里确有同值（2*1024*1024），但那是另一个包、且有 env 覆盖；`maxModelOutputTokens` 对应 apps/api 的 `MODEL_MAX_TOKENS` 默认 400（同样在另一个包）；`maxSpeechChars` 对应 apps/web 的 `MAX_SPEECH_CHARS`，**常量名不同**；`maxKeyframes` 对应 evidence-builder 里 `selectRepresentativeFrames(..., maxCount = 6)` 的默认参数；**`maxImageLongEdgePx` 已实现**：`apps/web` 的 `evidence/keyframe-capture.ts` 读它来缩放关键帧（见 known-failures F-028），但两边仍是**手工同步**、没有测试比对。详见 known-failures F-027。",
       "maxKeyframes": 6,
       "maxImageLongEdgePx": 960,
       "maxRequestBytes": 2097152,

@@ -304,6 +304,31 @@ export class TrainingSession {
   }
 
   /**
+   * 把某一帧的图片像素放进关键帧缓存（F-028）。
+   *
+   * 采集侧在把位图交给引擎**之前**调用它（位图的所有权随后转移给 Worker，
+   * 之后就取不到像素了）。成组时 `selectRepresentativeFrames` 会回溯挑出若干张，
+   * `buildKeyframes` 再从本缓存按 frameId 取图。
+   *
+   * **在此之前整个缓存没有任何产品代码写入**，于是 `keyframes` 恒为空数组、
+   * 模型收到的是纯文本。这里只做"放进去"，不判断哪张会被选中 ——
+   * 选中是成组时才知道的事。
+   *
+   * 空字节直接忽略：那等于没有图，塞进去只会让 `keyframes` 里多出一条空图片
+   * （比"取不到"更糟 —— 它看起来是有的）。
+   */
+  addFramePixels(
+    frameId: string,
+    sourceTimeMs: number,
+    bytes: Uint8Array,
+    width: number,
+    height: number,
+  ): void {
+    if (bytes.byteLength === 0) return;
+    this.keyframeCache.add({ frameId, sourceTimeMs, bytes, width, height, pinned: false });
+  }
+
+  /**
    * 投入一帧姿态结果。这是热路径，必须轻量。
    */
   pushPoseResult(result: PoseResult): void {

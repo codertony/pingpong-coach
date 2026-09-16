@@ -139,6 +139,17 @@ test.describe("连续运行稳定性", () => {
       const canvas = new OffscreenCanvas(640, 360);
       const cctx = canvas.getContext("2d")!;
 
+      // 关键帧采集：**必须和 App 一样接在 detect 之前**，否则这条 soak
+      // 测不到 F-028 新引入的 JPEG 编码开销 —— 而它恰恰是落在热路径上的东西。
+      const keyframeCapturer = window.__fixture.createKeyframeCapturer();
+      let keyframesCaptured = 0;
+      const countingSession = {
+        addFramePixels(frameId: string, t: number, b: Uint8Array, w: number, h: number) {
+          keyframesCaptured++;
+          session.addFramePixels(frameId, t, b, w, h);
+        },
+      };
+
       let frameIndex = 0;
       let stopped = false;
       let lastSecondFrames = 0;
@@ -157,6 +168,11 @@ test.describe("连续运行稳定性", () => {
           counts.framesSubmitted++;
           const frameId = `soak_${frameIndex}`;
           submitAt.set(frameId, nowMs);
+          keyframeCapturer.captureIfDue(countingSession, {
+            frameId,
+            sourceTimeMs: Math.round(nowMs),
+            bitmap,
+          });
           try {
             engine.detect({
               frameId,
@@ -207,6 +223,8 @@ test.describe("连续运行稳定性", () => {
         },
         read: () => ({
           ...counts,
+          /** 通过关键帧采集写进缓存的帧数（F-028 的编码开销就走在这条路上）*/
+          keyframesCaptured,
           fpsSeries,
           engineLatencyMs: (() => {
             if (engineLatencies.length === 0) return null;
@@ -307,6 +325,7 @@ test.describe("连续运行稳定性", () => {
       engineErrors: number;
       strokes: number;
       groups: number;
+      keyframesCaptured: number;
       fpsSeries: number[];
       engineLatencyMs: LatencyStats | null;
       workerReportedMs: LatencyStats | null;
@@ -346,6 +365,7 @@ test.describe("连续运行稳定性", () => {
         `未完成帧数：首 2 分钟均值 ${backlogFirst.toFixed(1)} → 末 2 分钟均值 ${backlogLast.toFixed(1)}（全程最大 ${backlogMax}）`,
         `吞吐：前半段 ${fpsFirst.toFixed(1)} fps → 后半段 ${fpsLast.toFixed(1)} fps`,
         `提交 ${final.framesSubmitted} 帧，引擎返回 ${final.results} 次，引擎异常 ${final.engineErrors} 次`,
+        `关键帧采集：编码并写入缓存 ${final.keyframesCaptured} 张（每 3 帧一张，含 JPEG 编码开销）`,
         `会话：成组 ${final.groups} 次、有效挥拍 ${final.strokes} 次（0 就说明分段链路没跑起来）`,
         final.engineLatencyMs
           ? `引擎往返延迟（自测，n=${final.engineLatencyMs.n}）：min ${final.engineLatencyMs.min.toFixed(1)} / ` +
@@ -372,6 +392,11 @@ test.describe("连续运行稳定性", () => {
       "一次有效挥拍都没产生 —— 分段链路没跑起来，稳定性结论不覆盖它",
     ).toBeGreaterThan(0);
     expect(final.groups, "一次都没成组 —— 证据打包那条路径没被覆盖").toBeGreaterThan(0);
+    // F-028 的编码也必须在跑：否则这条 soak 测不到那条新加的热路径开销
+    expect(
+      final.keyframesCaptured,
+      "关键帧采集一张都没写进去 —— 编码那条路径没被覆盖",
+    ).toBeGreaterThan(0);
 
     // 吞吐不衰减：后半段不应低于前半段的一半
     expect(

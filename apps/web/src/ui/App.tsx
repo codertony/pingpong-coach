@@ -16,6 +16,7 @@ import {
   type TrainingTelemetry,
 } from "../training/training-session.js";
 import { drawSkeleton, drawReadyZone } from "../training/skeleton-overlay.js";
+import { createKeyframeCapturer } from "../evidence/keyframe-capture.js";
 import { buildTrainingConfig } from "../training/session-config.js";
 import { SpeechChannel, type SpeechStatus } from "../audio/speech-channel.js";
 import { analyzeGroup, fetchHealth } from "../review/api-client.js";
@@ -288,7 +289,13 @@ export function App() {
       }
     });
 
+    const keyframeCapturer = createKeyframeCapturer();
     const scheduler = new FrameScheduler(async (frame) => {
+      // ⚠️ 关键帧像素必须在下面那步**之前**取：`engine.detect` 会把位图的
+      // 所有权转移给 Worker，转移之后主线程就再也拿不到像素了（F-028）。
+      // 这里只做"放进缓存"，成组时再由 selectRepresentativeFrames 回溯挑选。
+      // 编码是异步的，且**不阻塞** detect —— 采集与推理不能等它（红线 9）。
+      keyframeCapturer.captureIfDue(sessionRef.current, frame);
       engine.detect({
         frameId: frame.frameId,
         sourceEpoch: frame.sourceEpoch,
