@@ -1,0 +1,42 @@
+# 构建上下文排除清单。
+#
+# 目的有二：一是别把几百 MB 的无用文件塞进构建上下文（拖慢每次 build），
+# 二是**确保某些文件确实进到镜像里时是从正确来源来的**。
+
+# 依赖与产物：镜像里由 pnpm install / pnpm build 重新生成
+node_modules
+**/node_modules
+dist
+**/dist
+.vite
+
+# 模型权重与 wasm 运行时：由 `pnpm models:fetch` 在构建阶段下载并校验 sha256。
+# 不排除的话会把本机那份（可能来源不明）直接塞进镜像，绕过了校验。
+# wasm 来自 node_modules，装依赖时就有。
+apps/web/public/models
+apps/web/public/wasm
+
+# Git 与 CI
+.git
+.github
+.husky
+
+# 测试与测试产物
+test-results
+playwright-report
+**/test-results
+**/playwright-report
+
+# 文档：镜像里不需要
+docs
+*.md
+!README.md
+
+# 本机临时目录与编辑器
+.tmp-*
+.tmp-verify
+.DS_Store
+*.log
+
+# 真实视频素材（含个人信息，见 docs/data-contracts.md：保存在 Git 之外）
+evaluation/raw

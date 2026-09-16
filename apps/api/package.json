@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Node/Fastify 后端：证据校验、知识选择、模型调用与输出校验",
+  "_comment": "tsx 放在 dependencies 而不是 devDependencies：它是 `start` 脚本实际使用的运行时启动器，不是开发工具。放 devDependencies 会让 `pnpm install --prod` 把它剪掉，生产容器里服务就起不来。",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
@@ -15,11 +16,11 @@
     "@fastify/static": "^8.0.4",
     "@pingpong/contracts": "workspace:*",
     "fastify": "^5.2.1",
+    "tsx": "^4.19.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
-    "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"
   }

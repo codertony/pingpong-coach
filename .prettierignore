@@ -8,3 +8,6 @@ evaluation/fixtures/
 test-results/
 playwright-report/
 *.md
+# Prettier 没有内置 Docker 解析器（需额外插件），跳过而不是为它引一个依赖
+Dockerfile
+.dockerignore
