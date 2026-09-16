@@ -95,7 +95,7 @@ apps/web            Tests   60 passed (60)
 pnpm test:e2e
 ```
 
-**预期**：`49 passed`，约 25 秒。
+**预期**：`50 passed`，约 30 秒。
 
 > 端到端测试会**自己起两个进程**：vite（端口 5199）和一个**真实的 API 进程**
 > （端口 8788，mock 模式）。后者是为了让"前端 → 代理 → 真实后端"这条链路
@@ -115,7 +115,7 @@ pnpm test:e2e
 CHROMIUM_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" pnpm test:e2e
 ```
 
-- [ ] 49 项全部通过
+- [ ] 50 项全部通过
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________

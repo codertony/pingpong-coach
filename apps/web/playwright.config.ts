@@ -21,6 +21,16 @@ import { fileURLToPath } from "node:url";
 const PORT = Number(process.env.E2E_PORT ?? 5199);
 /** 集成测试用的真实 API 进程端口（mock 模式）。与开发默认的 8787 错开。 */
 const API_PORT = Number(process.env.E2E_API_PORT ?? 8788);
+/**
+ * 第二个 API 实例：**live 模式**，模型端点指向本地假供应商。
+ *
+ * 存在的理由：红线 8 要求"模型输出必须在服务端校验"，而 mock 模式根本不经过
+ * 模型调用 —— 那条校验路径在所有其它用例里都走不到，而它正是红线所在。
+ */
+const API_LIVE_PORT = Number(process.env.E2E_API_LIVE_PORT ?? 8789);
+const FAKE_MODEL_PORT = Number(process.env.E2E_FAKE_MODEL_PORT ?? 8790);
+/** 把前端请求转到 live 实例的转发服务（见 scripts/e2e-stage2-proxy.mjs）。 */
+const STAGE2_PORT = Number(process.env.E2E_STAGE2_PORT ?? 8891);
 
 /**
  * 选择浏览器可执行文件。
@@ -59,6 +69,14 @@ function resolveChromiumPath(): string | undefined {
 
 const executablePath = resolveChromiumPath();
 
+/**
+ * 仓库根目录（从 apps/web 往上两级）。
+ *
+ * 用 const 而不是函数：它只在下面的 webServer 数组里用一次，
+ * 而那个数组是对象字面量的一部分 —— 不能在里面写语句。
+ */
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+
 export default defineConfig({
   testDir: "./e2e",
   testMatch: /.*\.e2e\.ts/,
@@ -93,13 +111,49 @@ export default defineConfig({
   // 必须显式 --host 127.0.0.1：vite 默认绑 localhost，在容器/CI 里
   // localhost 可能不解析到 127.0.0.1，导致 Playwright 探活一直失败。
   //
-  // 第二个 webServer 是**真实 API 进程**（集成测试用）。
+  // 第 2 个 webServer 是**真实 API 进程**（集成测试用）。
   // 为什么必须起真的：`api-client.e2e.ts` 用 page.route 造假响应，
   // 那测的是"前端拿到某个响应会怎么处理"，测不到"这条 HTTP 真的通不通"。
-  // F-007/F-008/F-011 三个缺陷都藏在这种缝里。这里让 vite 把 /api 代理到
-  // 真实 Fastify 进程，前端 fetch 会真的打到它。
-  // 走 mock 模式：测试环境不提供密钥，也不会把密钥写进测试。
+  // F-007/F-008/F-011 三个缺陷都藏在这种缝里。
+  //
+  // 第 3、4、5 个只服务**红线 8 那一条用例**：live 实例 + 假供应商 + 转发。
+  // 为什么值得三个进程：服务端校验模型输出这条路径，mock 模式永远走不到，
+  // 而它是本项目最硬的安全约束之一（伪造证据不得被播报）。
+  //
+  // 路径一律用绝对路径：webServer 的 cwd 是 apps/web，相对路径会解析错。
   webServer: [
+    {
+      // 假模型供应商
+      command: `node ${resolve(repoRoot, "scripts/e2e-fake-model.mjs")} ${FAKE_MODEL_PORT}`,
+      url: `http://127.0.0.1:${FAKE_MODEL_PORT}/`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+    {
+      // live 模式 API：三要素齐备才会进 live（见 apps/api/src/config.ts）
+      command: `pnpm --filter @pingpong/api start`,
+      url: `http://127.0.0.1:${API_LIVE_PORT}/api/health`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 60_000,
+      cwd: repoRoot,
+      env: {
+        PORT: String(API_LIVE_PORT),
+        HOST: "127.0.0.1",
+        // 假密钥：测试环境不放任何真实凭据
+        MODEL_API_KEY: "test-key-not-a-real-secret",
+        MODEL_BASE_URL: `http://127.0.0.1:${FAKE_MODEL_PORT}`,
+        MODEL_ID: "fake-model-for-e2e",
+      },
+    },
+    {
+      // 把 /stage2/* 转到 live 实例。
+      // 不用 vite 代理：实测 `/api-live` 会被 `/api` 规则先匹配走，
+      // 而 rewrite/bypass 在这个版本的行为都与预期不符。独立转发服务行为可预测。
+      command: `node ${resolve(repoRoot, "scripts/e2e-stage2-proxy.mjs")} ${STAGE2_PORT} ${API_LIVE_PORT}`,
+      url: `http://127.0.0.1:${STAGE2_PORT}/`,
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
     {
       // 注意：命令里**不能**写 `PORT=8788 pnpm ...` —— Playwright 在 Windows 上
       // 用 cmd.exe 执行，那种 POSIX 前缀语法会被当成程序名而失败。
@@ -108,7 +162,7 @@ export default defineConfig({
       url: `http://127.0.0.1:${API_PORT}/api/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
-      cwd: resolveRepoRoot(),
+      cwd: repoRoot,
       env: { PORT: String(API_PORT), HOST: "127.0.0.1" },
     },
     {
@@ -120,8 +174,3 @@ export default defineConfig({
     },
   ],
 });
-
-/** 仓库根目录（从 apps/web 往上两级）。 */
-function resolveRepoRoot(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-}
