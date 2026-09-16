@@ -29,6 +29,14 @@ export interface ServerConfig {
    * 猜一个值发出去可能直接 400。不设就与现在行为完全一致。
    */
   modelReasoningEffort?: string | null;
+  /**
+   * 每个会话在 20 分钟内允许的**模型调用次数**（费用保护）。
+   *
+   * 这个值原先只写在 `configs/thresholds.json` 里、**代码从不读它**（F-027），
+   * 属于"看着像开关、改了不生效"。现在实现了：真实模型按 token 计费，
+   * 一次失控的循环本可以无声烧钱。mock 不计费，所以预算只在 live 模式下生效。
+   */
+  sessionModelCallsPer20Min: number;
   /** 证据包请求总大小上限，初始 2 MiB */
   maxRequestBytes: number;
   /** 已完成响应复用的保留时长 */
@@ -78,6 +86,7 @@ export function loadConfig(): ServerConfig {
     modelMaxTokens: envInt("MODEL_MAX_TOKENS", 4000),
     // 空字符串 = 不发送（与"没配"同义），避免把 "" 当成一个值发给提供商
     modelReasoningEffort: (process.env.MODEL_REASONING_EFFORT ?? "").trim() || null,
+    sessionModelCallsPer20Min: envInt("SESSION_MODEL_CALLS_PER_20_MIN", 60),
     maxRequestBytes: envInt("MAX_REQUEST_BYTES", 2 * 1024 * 1024),
     dedupeTtlMs: envInt("DEDUPE_TTL_MS", 30_000),
   };

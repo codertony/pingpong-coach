@@ -82,7 +82,7 @@
     "enableServerPersistence": false
   },
   "budgets": {
-    "$comment": "⚠️ **这些值未被校验**（见 known-failures F-027）。`mediaCacheBytes` 与 apps/web 的 `DEFAULT_CACHE_BUDGET_BYTES`（32 MiB）数值一致，但那在**另一个包**里、且没有任何测试比对过两边；`sessionModelCallsPer20Min` 在代码里没有任何地方读它。",
+    "$comment": "⚠️ **未被校验**：这一块没有与代码逐值对应的测试。`mediaCacheBytes` 与 apps/web 的 `DEFAULT_CACHE_BUDGET_BYTES`（32 MiB）数值一致，但那在**另一个包**里、没有任何测试比对过两边。`sessionModelCallsPer20Min` **已实现**（apps/api 的 `coach/call-budget.ts`：每会话 20 分钟滑动窗口，只在 live 下生效，超限返回 200 + `model_budget_exceeded`，不阻塞本地链路），代码默认值同为 60、可用 `SESSION_MODEL_CALLS_PER_20_MIN` 覆盖，并已有 7 项单测 + 2 项 analyze 集成测试 —— 但**本文件与代码仍是手工同步**，所以整块仍按「未被校验」对待，别以为它像 quality/segmentation 那样两边被双向守着。",
     "sessionModelCallsPer20Min": 60,
     "mediaCacheBytes": 33554432
   }

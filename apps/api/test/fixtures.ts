@@ -102,6 +102,8 @@ export function makeConfig(overrides: Record<string, unknown> = {}) {
     modelApiKey: "",
     modelTimeoutMs: 4000,
     modelMaxTokens: 400,
+    // 费用保护上限（真实默认值见 src/config.ts；这里只是测试夹具）
+    sessionModelCallsPer20Min: 60,
     maxRequestBytes: 2 * 1024 * 1024,
     dedupeTtlMs: 30_000,
     ...overrides,

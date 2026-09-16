@@ -57,6 +57,9 @@ export const ERROR_CODES = [
   // 与上一个分开：截断的表现也是"JSON 不合法"，但原因在 token 预算上
   // （推理模型先花推理 token），报同一个码会把排查引到解析上去。
   "model_truncated",
+  // 本会话的模型调用超出预算（见 apps/api/src/coach/call-budget.ts）。
+  // 与"模型挂了"分开：这不是故障，是**费用保护**，用户等一会儿就能继续。
+  "model_budget_exceeded",
   "model_forbidden_claim",
   "stale_session_response",
   "disallowed_drill",

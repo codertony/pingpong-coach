@@ -8,6 +8,7 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { analyze } from "../src/coach/analyze.js";
 import { RequestDedupe } from "../src/coach/dedupe.js";
+import { SessionCallBudget } from "../src/coach/call-budget.js";
 import { makeConfig, makePacket, makeStroke } from "./fixtures.js";
 import type { ServerConfig } from "../src/config.js";
 
@@ -150,6 +151,72 @@ describe("analyze — 关键帧不是图片时不许拖垮整次分析（F-042�
       const text = res.feedback.limitations.join(" ");
       expect(text).toContain(badId);
       expect(text).toContain("不是有效图片");
+    }
+  });
+});
+
+describe("analyze — 每会话模型调用预算（费用保护，F-027）", () => {
+  const okResponse = () =>
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                status: "observation_only",
+                observation: "本组 1 次挥拍。",
+                evidenceRefs: ["return_after_wrist_peak_ms"],
+                cue: null,
+                nextDrillId: null,
+                limitations: ["锚点为腕部速度峰值"],
+              }),
+            },
+            finish_reason: "stop",
+          },
+        ],
+        usage: { prompt_tokens: 10, completion_tokens: 5 },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+
+  it("live 模式下超出上限就拒绝，**但仍返回 200**（不阻塞本地链路，红线 9）", async () => {
+    const fetchSpy = vi.fn(async () => okResponse());
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const callBudget = new SessionCallBudget(2);
+    const live = {
+      modelMode: "live" as const,
+      modelBaseUrl: "https://x.invalid",
+      modelApiKey: "k",
+      modelId: "m",
+    };
+
+    // 前两次放行
+    for (const id of ["r1", "r2"]) {
+      const res = await analyze(makePacket({ requestId: id }), { ...deps(live), callBudget });
+      expect(res.ok, `${id} 应当在预算内`).toBe(true);
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+
+    // 第三次拒绝，且**没有**再发起模型调用
+    const third = await analyze(makePacket({ requestId: "r3" }), { ...deps(live), callBudget });
+    expect(third.ok).toBe(false);
+    if (!third.ok) {
+      expect(third.code).toBe("model_budget_exceeded");
+      expect(third.httpStatus, "费用保护不是故障，不该变成 5xx").toBe(200);
+      expect(third.message).toContain("20 分钟");
+      expect(third.details.join(" ")).toContain("sessionModelCallsPer20Min");
+    }
+    expect(fetchSpy, "被预算拦住时绝不能再花钱调一次").toHaveBeenCalledTimes(2);
+  });
+
+  it("mock 模式**不受**预算限制（mock 不花钱，拿它去卡只会制造无意义的失败）", async () => {
+    const callBudget = new SessionCallBudget(1);
+    const d = { ...deps(), callBudget }; // deps() 默认就是 mock
+
+    for (const id of ["m1", "m2", "m3"]) {
+      const res = await analyze(makePacket({ requestId: id }), d);
+      expect(res.ok, "mock 下不该被预算拦住").toBe(true);
     }
   });
 });

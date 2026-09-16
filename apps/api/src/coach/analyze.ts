@@ -17,6 +17,7 @@ import { RequestDedupe } from "./dedupe.js";
 import { collectAllowedOutputs, loadKnowledge, selectKnowledge } from "./knowledge.js";
 import { callModel } from "./provider.js";
 import { splitDecodableKeyframes } from "./keyframe-guard.js";
+import { SessionCallBudget } from "./call-budget.js";
 import { validateModelOutput, type ValidationIssue } from "./validate.js";
 
 export interface AnalyzeDeps {
@@ -24,6 +25,13 @@ export interface AnalyzeDeps {
   dedupe: RequestDedupe;
   /** 注入时钟，便于测试 */
   now?: () => number;
+  /**
+   * 每会话的模型调用预算（费用保护）。不传 = 不限。
+   *
+   * 实现的是 `configs/thresholds.json` 里早就声明、此前却没人读的
+   * `budgets.sessionModelCallsPer20Min`（见 F-027）。
+   */
+  callBudget?: SessionCallBudget;
   /**
    * 每次**真实模型调用**后的用量回调（可选）。
    *
@@ -116,7 +124,28 @@ export async function analyze(body: unknown, deps: AnalyzeDeps): Promise<Analyze
     };
   }
 
-  // 6) 构造任务
+  // 6) 费用保护：真实模型按 token 计费，本会话的调用次数要有上限。
+  //    只在 live 下生效 —— mock 不花钱，拿它去卡只会制造没意义的失败。
+  //    超限不阻塞本地链路（红线 9）：仍返回 200，但说清楚原因与何时能再试。
+  if (config.modelMode === "live" && deps.callBudget != null) {
+    const budget = deps.callBudget.tryConsume(packet.sessionId, now());
+    if (!budget.allowed) {
+      return {
+        ok: false,
+        code: "model_budget_exceeded",
+        message:
+          `本会话 20 分钟内最多 ${budget.limit} 次模型调用，已用完；` +
+          `约 ${Math.ceil(budget.retryAfterMs / 1000)} 秒后可再试`,
+        details: [
+          "这是费用保护，不是故障；本地分析与提示不受影响",
+          `上限来自 configs/thresholds.json 的 budgets.sessionModelCallsPer20Min（当前 ${budget.limit}）`,
+        ],
+        httpStatus: 200,
+      };
+    }
+  }
+
+  // 7) 构造任务
   const task = runAnalysis(packet, config, now, onModelUsage);
   dedupe.begin(packet.sessionId, packet.requestId, task);
 

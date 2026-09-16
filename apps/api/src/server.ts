@@ -19,6 +19,7 @@ import { loadConfig, type ServerConfig } from "./config.js";
 import { applyEnvFile, defaultEnvCandidates } from "./env-file.js";
 import { analyze } from "./coach/analyze.js";
 import { RequestDedupe } from "./coach/dedupe.js";
+import { SessionCallBudget } from "./coach/call-budget.js";
 import { loadKnowledge } from "./coach/knowledge.js";
 
 export interface BuildServerOptions {
@@ -28,6 +29,8 @@ export interface BuildServerOptions {
 export async function buildServer(options: BuildServerOptions = {}): Promise<FastifyInstance> {
   const config = options.config ?? loadConfig();
   const dedupe = new RequestDedupe(config.dedupeTtlMs);
+  // 每会话的模型调用预算（费用保护）。见 coach/call-budget.ts 与 F-027。
+  const callBudget = new SessionCallBudget(config.sessionModelCallsPer20Min);
   const startedAt = Date.now();
 
   const app = Fastify({
@@ -59,6 +62,7 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
     const result = await analyze(request.body, {
       config,
       dedupe,
+      callBudget,
       // 真实模型按 token 计费，而响应体里不带用量 —— 不记日志的话
       // "这次花了多少"在产品里完全不可见。只记日志，不动契约。
       onModelUsage: (u) => {
