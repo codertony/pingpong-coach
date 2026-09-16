@@ -35,7 +35,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 180 项测试（含准备区标定、手部几何、肘角伸展） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 72 项 vitest + 60 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 74 项 vitest + 61 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -74,10 +74,10 @@
 contracts      30
 motion-core   180
 api           135
-web (vitest)   72
-web (Playwright/真 Chrome) 60
+web (vitest)   74
+web (Playwright/真 Chrome) 61
 ─────────────────────────────
-合计          477
+合计          480
 ```
 
 ---
@@ -260,9 +260,34 @@ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8899/   # → 200
 - 需要确认 `/api/health` 与页面状态栏报告的是 `GPU` 还是 `CPU`；
 - 若为 `CPU`，记录降级原因（这是真实用户体验数据，不是 bug）。
 
-### B3 · 摄像头采集的客观质量
+### B3 · 摄像头采集的客观质量 🟡 卡在设备本身，不在代码
 
 光照、机位高度、球台是否完整入画、人是否在画面中的合理位置 —— 这些我无法从代码判定。
+
+**但它现在被另一个问题挡在前面**：本机摄像头**枚举得到、却启动不了**
+（Chrome 自身 10 秒超时），所以"采集质量"暂时无从谈起。
+
+我这轮把它查到了这个程度（详见 `known-failures.md` F-009）：
+
+| 已排除 | 依据 |
+| --- | --- |
+| 没有摄像头 | 真实 Chrome 里**枚举到 5 个** videoinput |
+| 被别的程序占用 | FrameServer 停用；ConsentStore 里最后一次会话已 `stop` |
+| 系统隐私开关 / 权限 | 总开关 `Allow`；显式授权后逐设备试开仍全部失败 |
+| 只是"慢"（冷启动） | 把探针超时从 8s 调到 30s，真实摄像头仍在 **10.0s** 处失败 —— 那是 Chrome 自己的超时 |
+
+**而且这是今天新变的**：ConsentStore 显示 `chrome.exe` 有一次**成功**的会话，
+时间是 **今天 01:10 ~ 01:11**，与上一轮"用相同约束打开成功 1280×720@30"对得上。
+18 小时前能用，现在不能。
+
+**你要做的（2 分钟）**：把 USB 摄像头**换个口重新插**（或断电重连），然后跑探针：
+
+```bash
+PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
+```
+
+它会打印一张三阶段的表（枚举数 / 产品现在的调用方式 / 逐设备试开）。
+真实摄像头那一行变成 ✅ 就是恢复了。
 
 ### B4 · 真实训练素材
 

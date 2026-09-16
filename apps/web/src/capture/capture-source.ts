@@ -122,6 +122,25 @@ export function describeCameraError(err: unknown): CaptureError {
       detail,
     };
   }
+  if (name === "AbortError" || name === "TimeoutError") {
+    // 实测（2026-09-16，本机真实摄像头）就是这么失败的：
+    // 设备**能枚举出来**，但 `getUserMedia` 抛 `AbortError: Timeout starting video source`。
+    // 它与 NotFoundError（一个都枚举不到）、NotReadableError（立刻被判占用）都不同，
+    // 描述的是"设备在、但一直没画面"，所以必须单独给指引 ——
+    // 否则会落到兜底文案里，只吐一句英文原文，用户无从下手。
+    return {
+      code: "camera_unavailable",
+      message: "摄像头已找到，但一直没有画面（启动超时）",
+      hint:
+        "设备在列表里能看到，却取不到流。常见原因：" +
+        "① 被其它程序独占（会议、直播、XR 头显配套软件等）；" +
+        "② Windows「隐私和安全性 → 相机」里禁止了桌面应用访问；" +
+        "③ USB 供电不足或接触不良 —— 换个 USB 口重新插一次；" +
+        "④ 那是虚拟摄像头（例如 XR 头显注册的设备），本身不产生画面。" +
+        "在「视频源」里逐个换设备试；实在不行改用导入视频。",
+      detail,
+    };
+  }
   return {
     code: "camera_unavailable",
     message: e.message ?? "摄像头启动失败",

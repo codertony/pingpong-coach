@@ -72,7 +72,7 @@ pnpm verify
 packages/contracts  Tests   30 passed (30)
 packages/motion-core Tests 180 passed (180)
 apps/api            Tests  135 passed (135)
-apps/web            Tests   72 passed (72)
+apps/web            Tests   74 passed (74)
 ...
 ✓ built in ~2s
 ✓ 依赖体积在预算内。
@@ -81,7 +81,7 @@ apps/web            Tests   72 passed (72)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **417**）
+- [ ] 四组测试数字与上面完全一致（总共 **419**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -95,7 +95,7 @@ apps/web            Tests   72 passed (72)
 pnpm test:e2e
 ```
 
-**预期**：`52 passed, 1 skipped`，约 35 秒。
+**预期**：`55 passed, 6 skipped`，约 35 秒（跳过的是需要真实素材或摄像头的探针）。
 
 > 端到端测试会**自己起两个进程**：vite（端口 5199）和一个**真实的 API 进程**
 > （端口 8788，mock 模式）。后者是为了让"前端 → 代理 → 真实后端"这条链路
@@ -115,7 +115,7 @@ pnpm test:e2e
 CHROMIUM_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" pnpm test:e2e
 ```
 
-- [ ] 60 项（含若干项按需 skip）
+- [ ] 61 项（含若干项按需 skip）
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________
@@ -217,6 +217,17 @@ curl http://127.0.0.1:8787/api/health
 
 - [ ] `/api/health` 返回 200 且标明 mock 模式（`modelMode` 字段）
 
+**摄像头探针（可选，但建议先跑，省得到界面上对着一个笼统错误猜）**：
+
+```bash
+PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
+```
+
+它会自己起一个**真实 Chrome**（不替换成假设备），打印三张结果：
+枚举到几个 videoinput / **产品现在的调用方式**能不能起来 / **逐个设备**试开的结果。
+这样"没有设备""有设备但起不来""只有某个虚拟摄像头不行"三种情况一眼分得开。
+需要真的用摄像头，所以默认 skip，不设环境变量不会跑。
+
 **前端**（`pnpm dev:all` 已经包含）：
 
 ```bash
@@ -237,7 +248,7 @@ pnpm dev
 - [ ] **骨架贴合身体关节**（这是解锁整条链路的标志）
 - [ ] 抬手、转身时骨架跟随，不脱节、不闪烁
 
-> 这一条**已在一支真实素材上确认过贴合**（7 个采样帧，含持拍侧手臂局部放大），
+> 上面这条**已在一支真实素材上确认过贴合**（7 个采样帧，含持拍侧手臂局部放大），
 > 但那是**一个人、一个机位**、而且判定者是看图模型。你在这里做的仍然是独立证据 ——
 > 你的机位、你的身体、你的光照都可能不同。
 - [ ] 状态栏显示委托方式：**`GPU`** 或 `CPU`
