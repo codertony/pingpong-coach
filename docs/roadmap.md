@@ -34,7 +34,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 169 项测试（含准备区标定与手部几何） |
 | 后端 + Mock 适配器 | `[x]` | api 130 项测试 |
-| 前端采集链路 | `[x]` | web 51 项 vitest + 38 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 57 项 vitest + 47 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：verify + e2e 两个 job |
@@ -60,12 +60,12 @@
 
 ```
 contracts      30
-motion-core   145
+motion-core   169
 api           130
-web (vitest)   51
-web (Playwright/真 Chrome) 38
+web (vitest)   57
+web (Playwright/真 Chrome) 47
 ─────────────────────────────
-合计          394
+合计          433
 ```
 
 ---
@@ -81,7 +81,7 @@ web (Playwright/真 Chrome) 38
 | A3 | ✅ 边界与模糊测试 | 已对 api 与 contracts 各加 3 项模糊测试，断言畸形输入绝不 500 / 绝不 throw | 小 |
 | A4 | 🟡 性能基线 | 已给 `motion-core` 每帧热路径的四个函数定出 < 10 ms 哨兵；**`FrameScheduler` 在 60fps 下的丢帧率仍未覆盖** | 中 |
 | A5 | 🟡 错误路径补测 | 已覆盖畸形请求体、后端不可达、HTTP 500；**网络中途断开与摄像头中途被拔仍未覆盖** | 中 |
-| A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 118.7 KiB | 小 |
+| A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 135.7 KiB | 小 |
 | A7 | Docker 镜像构建验证 | Dockerfile 已存在但未在沙箱内真正 `docker build` 过 | 小 |
 | A8 | changesets 发布流程 | 已装但未配置，多包版本发布流程未打通 | 小 |
 | A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度另查出并修掉一个真实缺陷**：交互控件与装饰线原先共用一个边框色，表单控件边框对自身背景只有 **1.21:1**，深色主题下很难看出输入框边界 —— 拆出 `--border-control` 提到 3.18:1，并用 `contrast.test.ts` 6 项钉住 | 小 |

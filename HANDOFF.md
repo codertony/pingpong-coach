@@ -7,7 +7,7 @@
 > 和 [`docs/roadmap.md`](./roadmap.md)（功能分工）。
 
 **文档版本**：2026-09-16 · 对应提交：`git log -1` 查看最新提交
-**最近一次全量验证**：`pnpm verify` 退出码 0（356 项单元测试 + 依赖体积预算），`pnpm test:e2e` 38 passed
+**最近一次全量验证**：`pnpm verify` 退出码 0（386 项单元测试 + 依赖体积预算），`pnpm test:e2e` 47 passed
 
 > 📌 **文档会过时。** 如果本文描述与代码不符，**以代码和测试为准**，
 > 并顺手把本文改对 —— 这是接手者的第一份贡献。
@@ -34,7 +34,7 @@
 | 2 | [`AGENTS.md`](../AGENTS.md) | **12 条硬性红线** + 依赖方向。改代码前必读 |
 | 3 | [`docs/spec.md`](./spec.md) | 要做什么、当前阶段、已知限制 |
 | 4 | [`docs/data-contracts.md`](./data-contracts.md) | 坐标、单位、时钟、缺失值约定 |
-| 5 | [`docs/known-failures.md`](./known-failures.md) | 已踩过的坑（F-001 ~ F-006）**+ F-006 仍未解决** |
+| 5 | [`docs/known-failures.md`](./known-failures.md) | 已踩过的坑与**待验证能力**（F-001 ~ F-013）**+ F-006/F-009/F-013 仍未解决** |
 | 6 | [`docs/roadmap.md`](./roadmap.md) | 还剩什么、哪些需要人类介入 |
 | 7 | [`docs/decisions.md`](./decisions.md) | 为什么这样选、何时替换 |
 | 8 | [`docs/evaluation-log.md`](./evaluation-log.md) | 实测结果（严格区分事实/推测/未验证） |
@@ -47,11 +47,11 @@
 
 ```
 pingpong-coach/
-├─ packages/contracts/      507 行 · zod schema 单一事实来源
+├─ packages/contracts/      588 行 · zod schema 单一事实来源
 │   PoseFrame / StrokeEvent / FeatureSet / EvidencePacket / CoachFeedback
 │   ⚠️ 改字段先改这里，再改使用方
 │
-├─ packages/motion-core/   1694 行 · 纯计算，无 IO
+├─ packages/motion-core/   2081 行 · 纯计算，无 IO
 │   coordinates  坐标与角度（含长宽比修正 F-004）
 │   filter       因果滤波（禁止离线平滑 —— 红线 7）
 │   geometry     几何量
@@ -59,6 +59,9 @@ pingpong-coach/
 │   segmentation 挥拍切分状态机（F-001 修在这里）
 │   features     特征提取
 │   rules        规则判定（红线 4 卡在这里）
+│   readiness    准备区标定（速度加权；见 F-012）
+│   hand         手部 21 点几何（只测量，不推断拍面 —— 红线 3）
+│   hand-assignment  手部左右分配（按姿态腕部锚点，不用 handedness 标签）
 │   ⚠️ 不得引入 DOM / React / MediaPipe / 数据库 / 网络
 │
 ├─ apps/api/               1150 行 · Fastify 5 后端
@@ -72,24 +75,27 @@ pingpong-coach/
 │     dedupe     去重与并发锁
 │     analyze    主编排
 │
-├─ apps/web/               3341 行 · React 18 + Vite 6
+├─ apps/web/               4301 行 · React 18 + Vite 6
 │   capture/   摄像头采集 + 帧调度（位图释放最容易漏）
 │   vision/    pose.worker.ts（在 Worker 里跑 MediaPipe）+ pose-engine.ts（协议层）
 │   training/  训练会话状态机 + 骨架叠加绘制
 │   evidence/  关键帧选择 + 证据打包
 │   review/    后端 API 客户端
 │   audio/     语音播报（Web Speech API）
-│   ui/        App.tsx (1031 行) + ReviewPanel.tsx
+│   ui/        App.tsx (1176 行) + ReviewPanel.tsx (312 行)
 │
 ├─ knowledge/          训练知识条目（当前 status 均为 observation_only）
 ├─ configs/thresholds.json   全部阈值（均为暂定值）
-├─ models/manifest.json      模型清单（sha256 待首次下载后回填）
+├─ models/manifest.json      模型清单（sha256 已按实下载回填：pose ×2 + hand ×1）
 ├─ evaluation/         真实素材与标注（**当前为空** ← 这是最大的缺口）
-├─ scripts/            doctor / setup / fetch-models / eval-replay
+├─ scripts/            fetch-models / eval-replay / check-bundle
 └─ docs/               见第 2 节
 ```
 
-**源码 6692 行，测试 6585 行。** 测试与源码接近 1:1，这不是巧合 —— 见第 6 节。
+**源码 8120 行（42 个文件），测试 7648 行（41 个文件）。** 比例约 0.94:1，这不是巧合 —— 见第 6 节。
+
+> 复算：`git ls-files 'packages/contracts/src/*' 'packages/motion-core/src/*' 'apps/api/src/**' 'apps/web/src/**' | xargs wc -l`
+> 测试同理，把路径换成 `'packages/*/test/*' 'apps/*/test/*' 'apps/web/e2e/**'`。
 
 ---
 
@@ -104,11 +110,11 @@ pingpong-coach/
 | 数据契约正确性与内部一致性 | contracts 30 项测试 |
 | 几何/滤波/切分/特征/规则/准备区标定/手部几何 | motion-core 169 项测试 |
 | 后端全链路（含 mock） | api 130 项测试 |
-| 前端采集/证据/播报/组件渲染 | web 51 项 vitest（含 jsdom + Testing Library 渲染测试） |
-| **浏览器真实行为** | **web 38 项 Playwright（真实 Chromium）** |
+| 前端采集/证据/播报/组件渲染/配色对比度 | web 57 项 vitest（含 jsdom + Testing Library 渲染测试） |
+| **浏览器真实行为** | **web 47 项 Playwright（真实 Chromium）** |
 | 架构依赖方向 | ESLint boundaries + no-restricted-imports，**四条违规路径逐一验证会报错** |
 | 畸形输入不 500、不 throw | api fuzz 3 项 + contracts fuzz 3 项 |
-| 依赖体积不超预算 | `pnpm check:bundle`：主包 gzip 118.7 KiB / 预算 160 KiB |
+| 依赖体积不超预算 | `pnpm check:bundle`：合计 gzip 135.7 KiB / 预算 160 KiB |
 | 12 条红线中的可测部分 | 分散在上面各处，见第 5 节 |
 
 浏览器测试覆盖的是 jsdom **做不到**的部分：真实 Canvas 像素、真实 Worker 跨线程、
@@ -127,10 +133,10 @@ pingpong-coach/
 | 真实多模态模型的质量/延迟/费用 | 一直跑 mock |
 | 20 分钟连续运行稳定性 | 没跑过 |
 | 跨平台行为 | 沙箱（Linux + Chromium）与本机（Windows 11 + Chrome）都跑过；其余平台没有 |
-| 前后端真实串联 | 后端在浏览器测试里始终是替身，没有一个真实的 API 进程参与过 |
+| 模型输出经**服务端校验**那一段 | 需要走到模型调用之后，而 mock 模式不经过模型调用；`validate.test.ts` 有 21 项单测直接覆盖，但没有端到端用例（见 roadmap A2 的说明） |
 
 > 🔴 **最重要的一句话**：
-> 测试从 172 涨到 394（356 单元 + 38 e2e），但**增量几乎全部落在"代码正确性"上**。
+> 测试从 172 涨到 433（386 单元 + 47 e2e），但**增量几乎全部落在"代码正确性"上**。
 > 关于"这个产品准不准"的证据，**一项目前都没有**。
 > 任何声称"识别准确率 X%"的说法，在当前状态下都是无根据的。
 
@@ -236,7 +242,7 @@ CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
 
 `verify` 现在是 `typecheck → lint → format:check → test → build → check:bundle`，
 CI 的 verify job 跑同一套；`test:e2e` 仍独立（需要浏览器）。
-新增 `scripts/check-bundle.mjs`：主包 gzip 预算 160 KiB，当前 118.7 KiB。
+新增 `scripts/check-bundle.mjs`：主包 gzip 预算 160 KiB，当前约 121 KiB。
 
 ### 🟡 T-2 · 组件级测试 —— 部分完成（2026-09-16）
 
@@ -334,19 +340,26 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 
 ## 11. 速查命令
 
+下面这些**都在 `package.json` 的 `scripts` 里**，逐条核对过。仓库里**没有**
+环境自检脚本，也没有 `scripts/setup.sh` / `setup.ps1` —— 早期文档写过它们，
+但那些文件从未落进仓库，别照着敲。
+
 | 命令 | 作用 |
 | --- | --- |
-| `pnpm preflight` | 环境自检（退出码 0=通过 / 1=阻塞 / 2=警告） |
 | `pnpm verify` | 全量门禁（type → lint → format → test → build → bundle） |
-| `pnpm test` | 只跑单元测试（356 项） |
-| `pnpm test:e2e` | 只跑浏览器测试（38 项，真实 Chromium） |
-| `pnpm check:bundle` | 依赖体积预算（主包 gzip 160 KiB） |
+| `pnpm test` | 只跑单元测试（386 项） |
+| `pnpm test:e2e` | 只跑浏览器测试（47 项，真实 Chromium；会自起 vite + 一个真实 API 进程） |
+| `pnpm check:bundle` | 依赖体积预算（gzip 160 KiB，当前约 121 KiB） |
 | `pnpm lint` / `pnpm lint:fix` | ESLint（含架构边界） |
 | `pnpm format` / `pnpm format:check` | Prettier |
-| `pnpm dev:all` | 同时启动 API + Web |
-| `pnpm models:fetch` | 下载并校验模型（受限网络会失败并说明原因） |
-| `bash scripts/setup.sh` | 一键环境准备（macOS / Linux / WSL） |
-| `.\scripts\setup.ps1` | 一键环境准备（Windows） |
+| `pnpm dev` / `pnpm dev:api` / `pnpm dev:all` | 只前端 / 只后端 / 两个一起 |
+| `pnpm models:fetch` | 下载并校验模型（`-- --write-hash` 回填 sha256） |
+| `pnpm eval:replay` | 回放评测（无真实标注时会明确拒绝输出精度数字） |
+| `pnpm clean` | 清理构建产物 |
+
+环境自检没有脚本，手工等效操作是：
+`node -v`（需 ≥ 22.12.0）、`pnpm -v`（需 10.28.2）、`pnpm store path`（确认存储盘）、
+`curl http://127.0.0.1:8787/api/health`（服务起来后探活）。
 
 ---
 
@@ -354,7 +367,7 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 
 如果让人类评价这个项目的现状，请如实转达：
 
-> 代码骨架完整，工程护栏齐备，**356 项单元测试 + 38 项浏览器测试全部通过**。
+> 代码骨架完整，工程护栏齐备，**386 项单元测试 + 47 项浏览器测试全部通过**。
 > 但**没有一项目前验证了"识别准不准"** —— 真实姿态推理只在本机验证到"链路能跑通、
 > 委托是 GPU"，骨架是否贴合关节从未看过（假摄像头下画面无人，F-006 仍 OPEN），
 > `evaluation/` 里也没有真实素材。

@@ -15,36 +15,46 @@
 
 ---
 
-## 0. 安装位置（重要）
+## 0. 安装位置
 
-本仓库应放在 **D 盘**：
+本仓库放在 **E 盘**：
 
 ```
-D:\Workspace\pingpong-coach\
+E:\workSpace\pingpong-coach\
 ```
 
-### 为什么必须先把缓存挪到 D 盘
+### 关于"别占满 C 盘"
 
-pnpm 和 npm 默认把全局内容寻址存储和缓存放在 `C:\Users\<你>\AppData\Local\` 下。
-本项目依赖体积不小（MediaPipe + Vite + React + Vitest），
-如果你 C 盘紧张，**先执行下面两条命令再安装**：
+网上常见的建议是"先把 pnpm/npm 的全局缓存挪出 C 盘"。**本机已经不需要这么做**，
+实测状态如下（跑 `pnpm store path` 与磁盘属性即可复核）：
+
+| 项 | 实测值 |
+| --- | --- |
+| 仓库位置 | `E:\workSpace\pingpong-coach` |
+| pnpm store | `E:\.pnpm-store\v10`（**已在 E 盘**） |
+| `node_modules` 占用 | 约 **245 MB**，且天然落在仓库目录里（不在 C 盘） |
+| C 盘可用空间 | 约 **41 GB** |
+
+`node_modules` 只有 245 MB 量级 —— 本项目虽然带了 MediaPipe + Vite + React + Vitest，
+但 pnpm 用的是**内容寻址存储 + 硬链接**，同一个包在磁盘上只存一份。
+
+**只有一种情况需要动手**：`pnpm store path` 显示 store 在 `C:\` 下，且 C 盘确实紧张。
+那时候再执行：
 
 ```powershell
-pnpm config set store-dir D:\pnpm-store
-npm  config set cache     D:\npm-cache
+# 把 <你选定的盘> 换成实际想放的盘，例如 E:\
+pnpm config set store-dir <你选定的盘>:\pnpm-store
 ```
 
-验证是否生效：
+验证：
 
 ```powershell
-pnpm config get store-dir   # 应输出 D:\pnpm-store
-npm  config get cache       # 应输出 D:\npm-cache
+pnpm store path    # 应输出刚设置的路径
 ```
 
-如果 `D:\pnpm-store` 和 `D:\npm-cache` 目录不存在，手动建一下即可（pnpm 也会自动创建）。
-
-> 补充：`node_modules` 本身会落在仓库目录里，也就是 `D:\Workspace\pingpong-coach\...`，
-> 因此它天然不占 C 盘。真正会偷偷占 C 盘的是上面那两个**全局缓存目录**。
+> 注意：这是一个**与仓库无关的全局设置**，会影响你机器上所有 pnpm 项目，
+> 不要照抄某一份文档里的盘符 —— 先看自己的 `pnpm store path` 再决定。
+> 另外 `npm config set cache` 对本项目没有意义：这里用 pnpm 装依赖，不经过 npm 的缓存。
 
 ---
 
@@ -69,21 +79,20 @@ npm install -g pnpm@10.28.2
 
 ```powershell
 # 1) 进入仓库
-cd D:\Workspace\pingpong-coach
+cd E:\workSpace\pingpong-coach
 
-# 2) 把缓存挪到 D 盘（只需做一次，见第 0 节）
-pnpm config set store-dir D:\pnpm-store
-npm  config set cache     D:\npm-cache
-
-# 3) 安装依赖
+# 2) 安装依赖
 pnpm install
 
-# 4) 下载姿态模型（约 10~30 MB）
+# 3) 下载姿态模型（约 10~30 MB；会校验 sha256，失败时不静默换版本）
 pnpm models:fetch
 
-# 5) 同时起 API 和 Web
+# 4) 同时起 API 和 Web
 pnpm dev:all
 ```
+
+第 0 节提到的缓存盘设置**本机已经配置好**，首次启动不需要再做。
+只有在 `pnpm store path` 指向 C 盘且 C 盘紧张时才需要处理（见第 0 节）。
 
 启动后：
 
@@ -259,7 +268,9 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 → 看 API 终端日志。一次会话只允许**一个在途模型请求**，且**不自动重试**（避免重复计费）。
 
 **C 盘还是在变小**
-→ 回到第 0 节，确认 `store-dir` 和 `cache` 都指向 D 盘；
+→ 先看 `pnpm store path` 指向哪里。本项目实测 store 在 `E:\.pnpm-store\v10`、
+`node_modules` 约 245 MB，正常情况下不会明显吃 C 盘。
+→ 若 store 确实在 C 盘且空间紧张，按第 0 节把它挪到别的盘；
 另外检查 `C:\Users\<你>\AppData\Local\pnpm` 是否有历史遗留缓存，可手动删除。
 
 ---
