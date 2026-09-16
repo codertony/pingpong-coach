@@ -34,6 +34,26 @@ const OUT_DIR = resolve(
 /** 源视频帧率（这支素材是 30fps）。逐帧喂，与产品在摄像头下的节奏一致。 */
 const SOURCE_FPS = 30;
 
+/** 预期单板时长：联系表分辨率的自检基准（见下）。 */
+const EXPECTED_STROKE_MS = Number(process.env.PPC_EXPECTED_STROKE_MS ?? 800);
+
+/**
+ * 联系表格子宽度：**由验收判据推出来**，不是一个魔数。
+ *
+ * 判据是 IoU ≥ 0.5 ⇒ 两端各偏不超过单板时长的 25%（见 motion-core 的
+ * `boundaryToleranceMs`）。格子取**容差的一半**，这样相邻两格必然跨住真实边界；
+ * 上限 250ms（再粗就标不准），下限 50ms（别把表撑到没边）。
+ *
+ * 之前写死 250ms ⇒ **默认导出的表不满足它自己的自检**（800ms 单板需 ±200ms）。
+ * 一个默认产物过不了自己自检的工具，等于把问题留给用户去发现。
+ */
+const DERIVED_STEP_MS = Math.min(
+  250,
+  Math.max(50, Math.floor(boundaryToleranceMs(EXPECTED_STROKE_MS) / 2)),
+);
+/** 实际使用的格子宽度（可被环境变量覆盖）。 */
+const SHEET_STEP_MS = Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? DERIVED_STEP_MS);
+
 test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => {
   test.skip(!hasVideo, "未提供 PPC_VERIFY_VIDEO（真实挥拍素材），跳过");
 
@@ -353,8 +373,9 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
       },
       {
         videoB64: b64,
-        // 可调：短挥拍要求标注精度更细，0.25s 的格子可能**不够**（见下面的自检）
-        everySec: Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? 250) / 1000,
+        // 格子宽度由验收判据推出（见文件顶部的 DERIVED_STEP_MS），可用
+        // PPC_CONTACT_SHEET_STEP_MS 覆盖；下面的自检会核对它够不够细。
+        everySec: SHEET_STEP_MS / 1000,
         cols: 6,
       },
     );
@@ -376,8 +397,8 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
      * 会得出"够用"的错误结论。所以基准取**预期单板时长**
      * （`PPC_EXPECTED_STROKE_MS`，默认 800ms），并把几个常见时长的容差一并打出来。
      */
-    const stepMs = Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? 250);
-    const expectedMs = Number(process.env.PPC_EXPECTED_STROKE_MS ?? 800);
+    const stepMs = SHEET_STEP_MS;
+    const expectedMs = EXPECTED_STROKE_MS;
     const observedFile = resolve(OUT_DIR, "segmentation-observed.json");
     const detectedDurations: number[] = [];
     if (existsSync(observedFile)) {
