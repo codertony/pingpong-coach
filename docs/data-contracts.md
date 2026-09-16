@@ -96,3 +96,22 @@ PoseFrame → StrokeEvent → FeatureSet → EvidencePacket → CoachFeedback
 - 仓库保存：数据说明、脱敏清单、标注 schema、哈希与取得方式（见 `evaluation/samples.json`）。
 - 没有素材时可以用合成坐标做计算测试，但**不能**据此声称真人识别通过。
 - 每次反馈记录：session/group/focus/request ID、原始证据引用、源时间范围及图像变换、SDK/模型/规则/知识/提示词/schema 版本、采样质量与各段耗时、token 与费用（提供商可返回时）、超时与拒绝判断、用户评价与教练复核。
+
+  ⚠️ **上面是"应该记录什么"的清单，不是"已经记了这些"**。当前界面上的「导出样本」（`ReviewPanel` → `App.tsx` 的 `exportSamples`）实际写入的是：
+
+  | 清单里的项 | 当前导出里 |
+  | --- | --- |
+  | session/group/focus/request ID | ✅ |
+  | 原始证据引用 | ✅（在 `feedback.evidenceRefs` 里）|
+  | 源时间范围 | ✅（`strokes[].startMs/endMs`）|
+  | 图像变换（镜像/旋转/裁剪）| ❌ **没有记录** —— 而镜像开关是用户可切的，导出里看不出这一组是不是镜像过 |
+  | 模型 / 规则版本 | ✅（`modelMode` / `ruleVersion`，取自 `/api/health`）|
+  | SDK / 知识 / 提示词 / schema 版本 | ❌ 未记录 |
+  | 采样质量与各段耗时 | 🟡 质量随特征带出；耗时只有模型那一段（`elapsedMs`），**没有分段耗时** |
+  | token 与费用 | ❌ 未记录 |
+  | 超时与拒绝判断 | ✅（`error` / `feedback.rejectedClaims`）|
+  | 用户评价 | ✅（`userRating`）|
+  | 教练复核 | ❌ 未实现 |
+
+  两处最值得注意：**图像变换没记**（会让导出的样本在镜像与否上无法解释），
+  以及 **token 与费用没记**（而 `acceptance.md` 要求把超时与失败计入总请求数、按费用归因）。
