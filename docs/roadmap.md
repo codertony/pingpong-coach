@@ -34,7 +34,7 @@
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 32 项测试 |
 | 纯计算核心 | `[x]` | motion-core 215 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化、分布谷底判据） |
-| 后端 + Mock 适配器 | `[x]` | api 141 项测试 |
+| 后端 + Mock 适配器 | `[x]` | api 157 项测试 |
 | 前端采集链路 | `[x]` | web 105 项 vitest + 71 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
@@ -90,11 +90,11 @@
 ```
 contracts      32
 motion-core   215
-api           141
+api           157
 web (vitest)  105
 web (Playwright/真 Chrome) 71
 ─────────────────────────────
-合计          564
+合计          580
 ```
 
 ---

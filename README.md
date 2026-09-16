@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**493 项单元测试 + 71 项浏览器测试全部通过**。
+**509 项单元测试 + 71 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
@@ -118,25 +118,40 @@ pnpm dev        # 只起前端
 ## 3. 模型接口配置
 
 默认走 **mock**，无需任何配置即可跑通全链路。
-要接真实模型，给 **API 进程**设置下面三个环境变量：
+
+### 接真实模型：用 `.env`（推荐）
+
+仓库根目录已备好模板，**`.env` 已被 `.gitignore` 忽略，绝不要提交它**：
 
 ```bash
-# 三者齐全才会进入 live 模式（变量名就是这三个，**没有 PPC_ 前缀**）
-MODEL_API_KEY=sk-xxxxxxxx \
-MODEL_BASE_URL=https://api.deepseek.com \
-MODEL_ID=deepseek-flash \
-pnpm dev:api
+cp .env.example .env
+# 然后编辑 .env，把密钥填在 MODEL_API_KEY=
+```
+
+```env
+MODEL_API_KEY=sk-你的密钥
+MODEL_BASE_URL=https://api.deepseek.com
+MODEL_ID=deepseek-flash
+```
+
+```bash
+pnpm dev:api     # 启动时会打印「已从 .env 载入 N 个变量」（只报变量名，不报值）
+```
+
+**也可以**不用文件、直接给 API 进程设环境变量（两者等价，**环境变量优先于 `.env`**）：
+
+```bash
+MODEL_API_KEY=sk-xxx MODEL_BASE_URL=https://api.deepseek.com   MODEL_ID=deepseek-flash pnpm dev:api
 ```
 
 > ⚠️ **两个坑，都实测过**（见 `docs/known-failures.md` F-039）：
 >
-> 1. **仓库没有 `.env` 加载器。** 在根目录放 `.env` **不会生效** ——
->    这里的变量必须真的在进程环境里（上面的写法，或你自己 `export`）。
->    早期版本的本文档让你建 `.env` 并用 `PPC_MODEL_API_KEY` 之类的名字，
->    那些名字**代码里一个都不读**：照着做会**静默地跑成 mock**。
-> 2. **三缺一不会报错，会退回 mock**（不是"启动失败"）。
->    安全性靠**显著标注**保证：`/api/health` 会写 `modelMode: "mock"`，
->    界面上也有 mock 徽标。所以**先看健康检查**确认模式，别靠"没报错"推断。
+> 1. **变量名没有 `PPC_` 前缀**。早期本文档写的是 `PPC_MODEL_API_KEY` 之类，
+>    那些名字**代码里一个都不读** —— 照着做会**静默地跑成 mock**。
+>    （`.env` 加载器当时也不存在，现已补上。）
+> 2. **三缺一不会报错，会退回 mock**。安全性靠**显著标注**保证：
+>    `/api/health` 会写 `modelMode: "mock"`，界面上也有 mock 徽标。
+>    所以**先看健康检查**确认模式，别靠"没报错"推断。
 
 第三方模型的地址要用**它自己的 OpenAI 兼容端点**，不是 Anthropic 端点 ——
 本仓库只讲 `/chat/completions`：
@@ -154,8 +169,16 @@ MODEL_BASE_URL=https://api.deepseek.com
 | `MODEL_ID` | ✅（live 必需）| — |
 | `PORT` | | `8787` |
 | `HOST` | | `127.0.0.1` |
-| `MODEL_TIMEOUT_MS` | | `15000`（按真实模型实测调整，见 F-038）|
-| `MODEL_MAX_TOKENS` | | `2000`（同上；**推理模型**会先花推理 token，太小会导致正文被截断）|
+| `MODEL_TIMEOUT_MS` | | `15000`（实测中位延迟约 3.9s，见 F-038）|
+| `MODEL_MAX_TOKENS` | | `2000`（**推理模型**先花推理 token，太小会把正文截断）|
+| `MODEL_REASONING_EFFORT` | | **不设置**（透传；实测**不设反而更省**，见 `docs/evaluation-log.md`）|
+| `PPC_ENV_FILE` | | —（显式指定 `.env` 路径，指定后只读它）|
+
+`.env` 的查找顺序：先看环境变量 `PPC_ENV_FILE` 指定的路径，其次 apps/api 目录下的 .env，最后是**仓库根目录**的 .env。
+
+**用量与费用**：每次模型调用，服务端会记一条日志（含 `modelId`、`inputTokens`、`outputTokens`、`modelElapsedMs`，
+mock 调用标着 `mock` 不计费）。响应体里**不带**这些数字，所以要看花费请查 API 日志。
+实测一次分析约 **1400 入 / 600 出** tokens（含 3 张关键帧）。
 
 切换后可用健康检查确认当前模式：
 
@@ -165,6 +188,10 @@ curl http://127.0.0.1:8787/api/health
 ```
 
 `modelMode` 会如实反映当前模式。UI 上也会显式标注，**mock 的结果绝不能被当成真实延迟/精度证据**。
+
+**用量与费用**：每次模型调用，服务端会记一条日志（含 `modelId`、`inputTokens`、`outputTokens`、`modelElapsedMs`，
+mock 调用标着 `mock` 不计费）。响应体里**不带**这些数字，所以要看花费请查 API 日志。
+首次实测一次分析约 **1200 入 / 600~800 出** tokens。
 
 ---
 
@@ -257,15 +284,15 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **564 项测试**（493 单元 + 71 浏览器）：
+当前共 **580 项测试**（509 单元 + 71 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 32 | — |
 | `@pingpong/motion-core` | 215 | — |
-| `@pingpong/api` | 141 | — |
+| `@pingpong/api` | 157 | — |
 | `@pingpong/web` | 105 | 71 |
-| **合计** | **493** | **71** |
+| **合计** | **509** | **71** |
 
 **这些测试证明的是什么**：
 

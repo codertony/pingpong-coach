@@ -2112,9 +2112,22 @@ HTTP 200  4165ms   mock=false   rejectedClaims=[]   evidenceRefs 含 kf-1
 5. 顺手修掉 `evaluation-log.md` 里同族的一处：那里写 `PPC_PORT=8791`，
    而代码读 `PORT` —— 照原样敲会起在 8787 上（已加更正说明）。
 
-**没有做、也不建议做的**：给仓库加一个 `.env` 加载器。
-那会引入依赖并扩大"文件被误提交"的面（红线 11 的精神是**密钥只走服务端环境**）。
-环境变量本身够用，文档说清楚就行。
+**后续（用户提出后已改）**：我原先写的是"**不加** `.env` 加载器，
+环境变量够用就行"。用户随后明确要求**密钥走 `.env` 传入**，于是把它实现了
+（`apps/api/src/env-file.ts`，自己解析、**不引依赖**，并接在服务端入口
+`main()` 里 —— 不放 `loadConfig()`，否则开发者本机的 `.env` 会污染测试）：
+
+- 查找顺序：`$PPC_ENV_FILE` 指定的路径 → apps/api 目录下的 .env → 仓库根目录的 .env；
+- **环境变量优先于 `.env`**（否则"临时换个 key 试一下"会静默失效）；
+- **只加载变量名进日志，绝不打印值**（红线 11），并有单测钉住这一点；
+- `.env` 早已在 `.gitignore` 里；另外提交了 `.env.example` 作为模板。
+
+**实测验证**（把真值临时写进 `.env`、起真实服务）：
+`GET /api/health` 在**由 `.env` 指定的端口** 8797 上返回
+`"modelMode":"live","modelId":"deepseek-flash"`，启动日志打印
+`已从 .env 载入 4 个变量` + `applied:["MODEL_API_KEY","MODEL_BASE_URL","MODEL_ID","PORT"]`
+（**只有名字**）。随后真实 HTTP `POST /api/coach/analyze` 返回
+`ok:true, mock:false, serverElapsedMs=3783`，`evidenceRefs` 含 `kf-1/2/3`。
 
 **校验**：这次是靠**实跑**发现的（用真密钥配一遍 → 模式没变 → 才去看变量名）。
 `check:docs` 结构上查不到这一类 —— 它校验命令与路径存在，
