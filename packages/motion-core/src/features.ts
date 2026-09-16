@@ -125,23 +125,37 @@ export function computeElbowAngleRange(
 }
 
 /**
- * 向前挥拍峰值附近的肘角。取区间内中位数，比取单点稳健。
+ * 腕部速度峰值**前后一小段窗**内的肘角中位数。
+ *
+ * 语义（改名后）：窗口以锚点为中心，± `windowMs`。**不是**"向前挥拍峰值附近的肘角" ——
+ * 契约里根本没有那个时刻（见 `FEATURE_IDS.ELBOW_ANGLE_AT_WRIST_PEAK` 的注释）。
+ *
+ * 用一小段窗而不是单帧：单帧的骨架抖动会让读数不稳定。
+ * 但窗口**必须锚在真实事件上**，不能退化成"拿整组区间取中位数"——
+ * 那等于声称一个我们没在锚点处测到的量。
+ *
+ * 窗口内没有可用采样时返回**缺失 + 原因**，不用窗口外的帧冒充。
  */
-export function computeElbowAngleAtForwardPeak(
+export function computeElbowAngleAtWristPeak(
   geometries: FrameGeometry[],
-  intervalMs: [number, number],
+  anchorTimeMs: number,
+  windowMs = 80,
+  intervalMs: [number, number] = [anchorTimeMs, anchorTimeMs],
 ): FeatureValue {
-  const angles = geometries.map((g) => g.elbowAngleDeg);
-  const q = qualityOf(angles);
+  const inWindow = geometries.filter((g) => Math.abs(g.sourceTimeMs - anchorTimeMs) <= windowMs);
+  const angles = inWindow.map((g) => g.elbowAngleDeg);
   const value = median(angles.filter((v): v is number => v != null));
+  const q = qualityOf(angles);
+
   return {
-    id: FEATURE_IDS.ELBOW_ANGLE_AT_FORWARD_PEAK,
+    id: FEATURE_IDS.ELBOW_ANGLE_AT_WRIST_PEAK,
     value,
     unit: "deg",
     coordinateSpace: "image_2d",
     intervalMs,
-    quality: q.quality,
-    reasonIfMissing: value == null ? (q.reason ?? "无可用肘角测量") : q.reason,
+    quality: value == null ? "unusable" : q.quality,
+    reasonIfMissing:
+      value == null ? `腕速峰值前后 ${windowMs}ms 内没有可用肘角采样` : (q.reason ?? null),
   };
 }
 

@@ -732,7 +732,9 @@ function SetupView(props: SetupProps) {
           </div>
           {props.focusId !== "return_to_ready_zone" && (
             <div className="notice warn">
-              首版仅对「回到本组准备区域」做了明确约束。其它关注点当前只输出观察，不做达标判断。
+              首版仅对「回到本组准备区域」做了明确约束。其它关注点会把对应测量
+              （如「肘角伸展模式」的<b>腕速峰值处肘角</b>）算出来并交给模型印证， 但
+              <b>不做达标判断</b> —— 规则未审核时只输出观察。
             </div>
           )}
         </div>

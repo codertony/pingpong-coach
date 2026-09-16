@@ -30,7 +30,16 @@ export type FeatureValue = z.infer<typeof featureValueSchema>;
 export const FEATURE_IDS = {
   /** 肩—肘—腕三点二维夹角。180 度表示伸直。 */
   ELBOW_ANGLE_RANGE: "elbow_angle_range_deg",
-  ELBOW_ANGLE_AT_FORWARD_PEAK: "elbow_angle_at_forward_peak_deg",
+  /**
+   * 腕部速度峰值**那一帧**的肘角（取该帧附近最接近锚点的采样）。
+   *
+   * 为什么不叫 `..._at_forward_peak`：契约里 `StrokeEvent` **没有**"向前挥拍峰值"
+   * 这个时刻 —— 首版只输出 `startMs` / `endMs` / `anchor`。
+   * 叫 forward_peak 会声称一个我们根本没算出来的时刻，违反命名纪律
+   * （与 `return_after_wrist_peak_ms` 不叫 `recovery_after_impact_ms` 同一条）。
+   * 将来若契约里真的有了 forward 相位时间，再考虑改名并提升版本。
+   */
+  ELBOW_ANGLE_AT_WRIST_PEAK: "elbow_angle_at_wrist_peak_deg",
   /** 消除整体平移后肘部相对躯干的移动幅度。 */
   ELBOW_TORSO_DRIFT: "elbow_relative_torso_drift_body_scale",
   /**

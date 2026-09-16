@@ -3,6 +3,7 @@ import type { Keypoint2D, PoseFrame } from "@pingpong/contracts";
 import { FEATURE_IDS, SCHEMA_VERSION } from "@pingpong/contracts";
 import {
   computeElbowAngleRange,
+  computeElbowAngleAtWristPeak,
   computeElbowTorsoDrift,
   computeIntraGroupConsistency,
   computeReturnAfterWristPeak,
@@ -340,5 +341,81 @@ describe("summarizeValues", () => {
     expect(s.count).toBe(0);
     expect(s.mean).toBeNull();
     expect(s.median).toBeNull();
+  });
+});
+
+/**
+ * 腕速峰值处的肘角。
+ *
+ * 这个函数此前**零覆盖**，而且从未被任何产品代码调用 ——
+ * 而「肘角伸展模式」在界面上是**用户可选**的关注点。
+ * 也就是说：用户选了它，产品却静默不算对应指标。
+ * 现在接上了，这些用例守住新语义。
+ *
+ * 核心纪律：**窗口必须锚在真实事件上**。
+ * 如果退化回"拿整个区间取中位数"，就等于声称一个我们在锚点处没测到的量 ——
+ * 下面第一条用例专门挡这个。
+ */
+describe("computeElbowAngleAtWristPeak", () => {
+  const geo = (timeMs: number, angle: number | null) => ({
+    frameId: `f${timeMs}`,
+    sourceTimeMs: timeMs,
+    elbowAngleDeg: angle,
+    elbowRelTorsoBodyScale: null,
+    bodyScalePx: 200,
+  });
+
+  it("只取锚点附近窗口内的采样，远处的值不得混入", () => {
+    const geometries = [
+      geo(0, 100),
+      geo(500, 120),
+      geo(1000, 170), // 锚点处
+      geo(1040, 174),
+      geo(2000, 40), // 远端的极端值：若窗口没生效，它会污染结果
+    ];
+
+    const f = computeElbowAngleAtWristPeak(geometries, 1000, 80);
+
+    // 窗口 ±80ms → 只含 1000 与 1040 两帧
+    expect(f.value).toBeCloseTo((170 + 174) / 2, 5);
+    // 如果实现退化成"整区间中位数"，结果会是 120 —— 用这条钉死
+    expect(f.value).not.toBeCloseTo(120, 1);
+    expect(f.quality).toBe("usable");
+  });
+
+  it("窗口内没有采样时报缺失 + 原因，不用窗口外的帧冒充", () => {
+    const geometries = [geo(0, 100), geo(500, 120), geo(2000, 40)];
+
+    const f = computeElbowAngleAtWristPeak(geometries, 1000, 80);
+
+    expect(f.value).toBeNull();
+    expect(f.quality).toBe("unusable");
+    expect(f.reasonIfMissing).toContain("80ms");
+  });
+
+  it("窗口边界是闭区间（恰好 ±windowMs 的采样算在内）", () => {
+    const geometries = [geo(920, 150), geo(1080, 160)];
+
+    const f = computeElbowAngleAtWristPeak(geometries, 1000, 80);
+
+    expect(f.value).toBeCloseTo(155, 5);
+  });
+
+  it("窗口内有采样但全为 null 时，仍报缺失并说明是采样不可用", () => {
+    const geometries = [geo(980, null), geo(1020, null)];
+
+    const f = computeElbowAngleAtWristPeak(geometries, 1000, 80);
+
+    expect(f.value).toBeNull();
+    expect(f.quality).toBe("unusable");
+    expect(f.reasonIfMissing).not.toBeNull();
+  });
+
+  it("特征是 elbow_angle_at_wrist_peak_deg —— 不是 forward_peak", () => {
+    // 命名纪律：契约里没有"向前挥拍峰值"这个时刻，叫那个名字等于
+    // 声称一个没算出来的量（与 return_after_wrist_peak 不叫 recovery_after_impact 同理）
+    const f = computeElbowAngleAtWristPeak([geo(1000, 170)], 1000, 80);
+    expect(f.id).toBe("elbow_angle_at_wrist_peak_deg");
+    expect(f.id).not.toContain("forward_peak");
   });
 });

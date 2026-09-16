@@ -24,6 +24,7 @@ import {
   StrokeSegmenter,
   assessFrameQuality,
   computeElbowAngleRange,
+  computeElbowAngleAtWristPeak,
   computeElbowTorsoDrift,
   computeIntraGroupConsistency,
   computeReturnAfterWristPeak,
@@ -442,6 +443,41 @@ export class TrainingSession {
 
     features.push(computeElbowAngleRange(geometriesInGroup, interval));
     features.push(computeElbowTorsoDrift(geometriesInGroup, interval));
+
+    /*
+     * 用户选中的关注点是「肘角伸展模式」时，必须真的把**肘角**算出来。
+     *
+     * 为什么单列这一段：先前 `computeElbowAngleAtForwardPeak` 定义了、测过了，
+     * 却**从未被调用** —— 而「肘角伸展模式」在界面里是**可选**的关注点。
+     * 结果是产品静默忽略用户的选择：证据包里 focusId 标着用户选的那个，
+     * 而对应指标根本没算。模型于是被框在一个不存在的指标上。
+     *
+     * 口径：每次挥拍取**腕部速度峰值前后**一小段窗（±80ms）的肘角中位数，
+     * 再对本组取中位数。用一段窗而不是单帧，是因为单帧的骨架抖动会让
+     * "锚点那一帧"变成一个不稳定的读数；而窗口边界锚在真实事件上，
+     * 不是随意的区间。超出窗口没采到就报缺失 —— 不拿窗口外的帧冒充。
+     */
+    if (this.config.focusId === "elbow_extension_pattern") {
+      const perStroke = this.validStrokes
+        .map((s) =>
+          computeElbowAngleAtWristPeak(geometriesInGroup, s.anchor.timeMs, 80, [
+            s.anchor.timeMs,
+            s.anchor.timeMs,
+          ]),
+        )
+        .map((f) => f.value)
+        .filter((v): v is number => v != null);
+
+      // 用中位数代表本组；区间语义保留为整组区间
+      features.push(
+        computeElbowAngleAtWristPeak(
+          geometriesInGroup,
+          median(perStroke) ?? first.anchor.timeMs,
+          80,
+          interval,
+        ),
+      );
+    }
 
     // 每次挥拍各自的返回准备区时间
     const returnTimes = this.validStrokes.map((s) => {
