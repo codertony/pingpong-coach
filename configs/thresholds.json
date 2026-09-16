@@ -1,5 +1,6 @@
 {
   "$comment": "训练预设、阈值与功能开关。修改阈值必须同步更新 docs/acceptance.md 的变更记录。",
+  "$runtimeNotice": "⚠️ 本文件**不被运行时读取**。真正的标定值硬编码在 packages/motion-core/src/rules.ts 的 DEFAULT_THRESHOLDS。本文件是**规范快照**（记录拟定的阈值与版本），改它不会改变程序行为。两边由 packages/motion-core/test/thresholds-consistency.test.ts 守着一致：改了任一边而忘了另一边，测试会红。",
 
   "strokeTypes": {
     "forehand_drive": {
@@ -17,12 +18,20 @@
     "elbow_extension_pattern": {
       "label": "肘角伸展模式",
       "enabled": true,
-      "ruleId": "elbow_extension_pattern_v1"
+      "ruleId": null,
+      "$comment": "尚无已审核规则：只输出观察（红线 4）。原先这里写了 elbow_extension_pattern_v1，但那条规则**从未被实现** —— 是幽灵引用，已改回 null。要有测试守着（packages/motion-core/test/thresholds-consistency.test.ts）。"
     },
     "elbow_relative_torso_drift": {
       "label": "肘相对躯干移动",
       "enabled": true,
-      "ruleId": "elbow_relative_torso_drift_v1"
+      "ruleId": null,
+      "$comment": "同上：尚未实现规则，只输出观察。"
+    },
+    "intra_group_consistency": {
+      "label": "组内一致性",
+      "enabled": true,
+      "ruleId": null,
+      "$comment": "同上。它的特征每次都在算，但当前没有任何规则消费它。"
     }
   },
 

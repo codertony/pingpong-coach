@@ -33,7 +33,7 @@
 | --- | --- | --- |
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
-| 纯计算核心 | `[x]` | motion-core 176 项测试（含准备区标定、手部几何、肘角伸展） |
+| 纯计算核心 | `[x]` | motion-core 180 项测试（含准备区标定、手部几何、肘角伸展） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
 | 前端采集链路 | `[x]` | web 72 项 vitest + 54 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
@@ -60,6 +60,7 @@
 | F-015 | 界面"姿态处理 P95"用的是推理耗时而非端到端延迟，系统性低估用户感受到的延迟 |
 | F-017 | 模型 id 可由 `VITE_MODEL_ID_ASSET` 覆盖、加载路径却写死 —— 会加载 full 权重却上报 lite 的 modelId，等于伪造溯源 |
 | F-018 | 契约 `FOCUS_IDS` 有 `intra_group_consistency` 而界面没提供入口；同时它的特征每次都在算却没有任何出口 —— "算了没人看，想选也选不到" |
+| F-019 | `configs/thresholds.json` 自述是阈值真相源、六个文档也这么引用，但**代码从不读它**；且它声明了两条**从未实现**的 ruleId |
 | F-016 | 用户选了"肘角伸展模式"却拿不到对应反馈：① `computeElbowAngleAtForwardPeak` 定义了却零调用；② 特征名声称了一个契约里不存在的时刻；③ mock 适配器忽略 `focusId`，答非所问 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
@@ -69,12 +70,12 @@
 
 ```
 contracts      30
-motion-core   176
+motion-core   180
 api           135
 web (vitest)   72
 web (Playwright/真 Chrome) 54
 ─────────────────────────────
-合计          467
+合计          471
 ```
 
 ---

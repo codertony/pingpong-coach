@@ -713,6 +713,54 @@ manifest 声明了 `modelId ↔ path` 的对应，而代码里这两件事各写
 
 ---
 
+### F-019 · `configs/thresholds.json` 是**配置幻觉**：文档说改它，代码从不读它
+
+**日期**：2026-09-16
+**分类**：工程（配置与文档的一致性）
+**严重度**：高 —— 照文档做的人会以为改了阈值，其实什么都没改
+
+**现象**：`configs/thresholds.json` 自述是"训练预设、阈值与功能开关"的**真相源**，
+而**六个地方**把它当成改阈值 / 查配置的入口：
+
+| 位置 | 说法 |
+| --- | --- |
+| `AGENTS.md` 文档入口表 | "阈值与功能开关 → `configs/thresholds.json`" |
+| `docs/acceptance.md` 变更记录 | "见 `configs/thresholds.json`" |
+| `README.md` 第 9 节 | "依据实测结果**修正** `configs/thresholds.json` 里的暂定阈值" |
+| `README.md` 目录结构 / `HANDOFF.md` / `evaluation-log.md` | 同上 |
+
+**但代码从不读它**：真正的标定值硬编码在
+`packages/motion-core/src/rules.ts` 的 `DEFAULT_THRESHOLDS`。
+改 JSON 没有任何运行时效果。
+
+**同一文件的第二个问题**：`focuses` 里给 `elbow_extension_pattern` 与
+`elbow_relative_torso_drift` 声明了 `ruleId`（`..._v1`），
+但 `BUILTIN_RULES` 里**只有 `return_to_ready_zone_v1`** ——
+那两条规则**从未被实现**。JSON 让它们看起来已实现。
+
+**怎么发现的**：接着做"同一个事实在两处各写各的"审计。
+前三次（F-017 / `CAMERA_VIEW_OPTIONS` / F-018）都命中了，于是继续查
+"配置 vs 代码"这一类，当场发现。
+
+**修法（刻意选"可验证"而不是"接进运行时"）**：
+
+把 JSON 接进运行时需要跨包路径解析与打包处理，收益不抵复杂度。
+改成**断言两边一致**：
+
+- `packages/motion-core/test/thresholds-consistency.test.ts` 4 项，
+  断言 ① 关键阈值两边相等；② JSON 里的阈值键在 `ThresholdConfig` 里都有对应；
+  ③ **声明的 `ruleId` 必须真实存在于 `BUILTIN_RULES`**（不留幽灵引用）；
+  ④ 启用的关注点必须在契约 `FOCUS_IDS` 里。
+- `thresholds.json` 顶部加 `$runtimeNotice`：**明说它不被运行时读取**，
+  并指出真正的值在哪、由哪条测试守着一致。
+- 四处文档同步改为指向 `rules.ts` 的 `DEFAULT_THRESHOLDS`。
+- 那两条幽灵 `ruleId` 改为 `null` 并注明"尚无已审核规则，只输出观察"。
+
+**为什么选这个修法**：与其写一段注释提醒"记得同步"，
+不如让**改了任一边而忘了另一边时测试当场红**。
+
+---
+
 ## 待补充
 
 真实素材跑起来后，失败片段按上述分类逐条记录到这里，并附回归结果。

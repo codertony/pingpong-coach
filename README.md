@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**413 项单元测试 + 54 项浏览器测试全部通过**。
+**417 项单元测试 + 54 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
@@ -226,15 +226,15 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **467 项测试**（413 单元 + 54 浏览器）：
+当前共 **471 项测试**（417 单元 + 54 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 30 | — |
-| `@pingpong/motion-core` | 176 | — |
+| `@pingpong/motion-core` | 180 | — |
 | `@pingpong/api` | 135 | — |
 | `@pingpong/web` | 72 | 54 |
-| **合计** | **413** | **54** |
+| **合计** | **417** | **54** |
 
 **这些测试证明的是什么**：
 
@@ -290,7 +290,9 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 1. `pnpm models:fetch` 拉模型，真机跑起来看骨架抖动程度
 2. 录 3~5 段真实正手攻球，按 `evaluation/samples.json` 的三层结构标注
 3. 跑 `pnpm eval:replay`，看切分是否命中、特征是否稳定
-4. 依据实测结果**修正** `configs/thresholds.json` 里的暂定阈值
+4. 依据实测结果**修正**暂定阈值 —— 改 `packages/motion-core/src/rules.ts` 的
+   `DEFAULT_THRESHOLDS`，并同步 `configs/thresholds.json`（**那份不被运行时读取**，
+   是规范快照；两边由 `thresholds-consistency.test.ts` 守着一致）
 5. 阈值稳定后，才考虑把知识条目的 `observation_only` 升级为可给出「合格」判定
 
 **不要在没跑过真实数据之前调阈值。** 那样只是把猜测写进配置。
