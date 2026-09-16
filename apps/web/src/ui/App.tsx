@@ -46,6 +46,17 @@ export function App() {
   const [strokesPerGroup, setStrokesPerGroup] = useState(3);
   const [sourceKind, setSourceKind] = useState<"camera" | "video">("camera");
   const [videoFile, setVideoFile] = useState<File | null>(null);
+  /**
+   * 导入视频是否按自拍视角镜像显示。
+   *
+   * 为什么做成开关而不是写死：镜像只与**素材怎么拍的**有关，与来源无关 ——
+   * 手机自拍录的片段需要镜像，别人从对面拍的则不需要，二者的播放质量完全一样，
+   * 程序从像素上分辨不出来。写死任何一边都会把另一半用错，而且错了的表现是
+   * "骨架与人物左右相反"，看上去像识别故障（见 docs/known-failures.md F-013）。
+   *
+   * 摄像头不走这个开关：自拍视角是它的固有性质，没有可选项。
+   */
+  const [mirrorVideo, setMirrorVideo] = useState(true);
   /** 显式选定的摄像头；null = 系统默认 */
   const [videoDeviceId, setVideoDeviceId] = useState<string | null>(null);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
@@ -106,6 +117,16 @@ export function App() {
   }, [refreshCameras]);
 
   const engineReady = engineStatus?.ready === true;
+
+  /**
+   * 预览与叠加层是否镜像 —— **唯一的求值点**。
+   *
+   * F-010 与 F-013 是同一个坑的两半：视频的 class 与 `drawSkeleton` 的 `mirrored`
+   * 必须取同一个值，任何一侧漏掉或算错，骨架就会与人物左右相反。
+   * 之前这两处各写了一遍表达式（都写错了），所以现在只在这里算一次，
+   * 下面所有用到的地方都引用它 —— **不要**再就地重算。
+   */
+  const mirrored = sourceKind === "camera" ? true : mirrorVideo;
 
   /** 初始化姿态引擎（不含摄像头）。 */
   const initEngine = useCallback(async () => {
@@ -251,7 +272,7 @@ export function App() {
         canvas.height = result.imageHeight;
         if (result.detected) {
           drawSkeleton(canvas, result.keypoints2D, handedness, {
-            mirrored: sourceKind === "camera",
+            mirrored,
             minScore: 0.5,
           });
         } else {
@@ -357,6 +378,9 @@ export function App() {
     sourceKind,
     videoFile,
     videoDeviceId,
+    // mirrored 由 sourceKind + mirrorVideo 推导，两个来源都要在依赖里 ——
+    // 少了 mirrorVideo，改了开关不会重建结果回调，镜像仍按旧值绘制。
+    mirrorVideo,
     refreshCameras,
     initEngine,
   ]);
@@ -548,6 +572,8 @@ export function App() {
             sourceKind,
             setSourceKind,
             setVideoFile,
+            mirrorVideo,
+            setMirrorVideo,
             cameras,
             videoDeviceId,
             setVideoDeviceId,
@@ -577,7 +603,7 @@ export function App() {
             onStart: () => void start(),
             onStop: stop,
             handedness,
-            mirrored: sourceKind === "camera",
+            mirrored,
             onSetReadyZoneToWrist: setReadyZoneToWrist,
             onCalibrateReadyZone: calibrateReadyZone,
           }}
@@ -615,6 +641,9 @@ interface SetupProps {
   sourceKind: "camera" | "video";
   setSourceKind: (v: "camera" | "video") => void;
   setVideoFile: (f: File | null) => void;
+  /** 导入视频是否按自拍视角镜像（见 F-013） */
+  mirrorVideo: boolean;
+  setMirrorVideo: (v: boolean) => void;
   cameras: MediaDeviceInfo[];
   videoDeviceId: string | null;
   setVideoDeviceId: (v: string | null) => void;
@@ -753,6 +782,28 @@ function SetupView(props: SetupProps) {
               </div>
             )}
           </div>
+          {props.sourceKind === "video" && (
+            <div className="row" style={{ marginTop: 8 }}>
+              <div className="field">
+                <label htmlFor={`${uid}-mirror`}>预览镜像</label>
+                <select
+                  id={`${uid}-mirror`}
+                  value={props.mirrorVideo ? "yes" : "no"}
+                  onChange={(e) => props.setMirrorVideo(e.target.value === "yes")}
+                >
+                  <option value="yes">镜像（手机自拍录制）</option>
+                  <option value="no">不镜像（他人从对面拍摄）</option>
+                </select>
+              </div>
+            </div>
+          )}
+          {props.sourceKind === "video" && (
+            <div className="small muted" style={{ marginTop: 6 }}>
+              镜像只与<b>素材怎么拍的</b>有关，与文件本身无关 —— 程序从像素上分辨不出来。
+              选错了的表现是<b>骨架与人物左右相反</b>（看起来像识别故障）。
+              摄像头没有这个选项：自拍视角是它的固有性质。
+            </div>
+          )}
           {props.sourceKind === "camera" && (
             <>
               <div className="small muted">

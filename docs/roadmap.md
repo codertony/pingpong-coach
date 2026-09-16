@@ -34,7 +34,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 169 项测试（含准备区标定与手部几何） |
 | 后端 + Mock 适配器 | `[x]` | api 130 项测试 |
-| 前端采集链路 | `[x]` | web 64 项 vitest + 50 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 64 项 vitest + 52 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：verify + e2e 两个 job |
@@ -52,7 +52,7 @@
 | F-007 | 模块 Worker 里加载不了 WASM 运行时，真实推理在本机完全起不来 |
 | F-008 | 采集流从未接到界面上的 `<video>`，练习页只有黑屏 |
 | F-010 | 镜像只做了一半，骨架与人物左右相反（直接违反红线 5 要保护的行为） |
-| F-013 | 导入视频时预览未镜像，骨架与人物左右相反（**仍 OPEN**，取决于素材是自拍还是他人拍摄） |
+| F-013 | 导入视频不镜像导致骨架左右相反 —— 已改为**用户可切换的镜像开关**（程序分辨不出自拍还是他拍） |
 | F-014 | 摄像头中途断开时界面继续显示"采集中 / 等待有效挥拍"，不给任何失败线索 |
 | F-015 | 界面"姿态处理 P95"用的是推理耗时而非端到端延迟，系统性低估用户感受到的延迟 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
@@ -66,9 +66,9 @@ contracts      30
 motion-core   169
 api           130
 web (vitest)   64
-web (Playwright/真 Chrome) 50
+web (Playwright/真 Chrome) 52
 ─────────────────────────────
-合计          443
+合计          445
 ```
 
 ---
