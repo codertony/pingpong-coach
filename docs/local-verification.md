@@ -72,7 +72,7 @@ pnpm verify
 packages/contracts  Tests   32 passed (32)
 packages/motion-core Tests 215 passed (215)
 apps/api            Tests  136 passed (136)
-apps/web            Tests   99 passed (99)
+apps/web            Tests  102 passed (102)
 ...
 ✓ built in ~2s
 ✓ 依赖体积在预算内。
@@ -81,7 +81,7 @@ apps/web            Tests   99 passed (99)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **482**）
+- [ ] 四组测试数字与上面完全一致（总共 **485**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -95,7 +95,46 @@ apps/web            Tests   99 passed (99)
 pnpm test:e2e
 ```
 
-**预期**：`60 passed, 9 skipped`，约 35 秒（跳过的是需要真实素材或摄像头的探针）。
+**预期**：`60 passed, 11 skipped`，约 40 秒（跳过的是需要真实素材、真实摄像头
+或 20 分钟时长的探针）。
+
+### 2.1 可选：用一段素材验证"活链路"（不需要摄像头）
+
+**即使 F-009 让你的摄像头起不来，也能验证整条采集链路** —— Chrome 支持把
+**一个视频文件当成摄像头**，于是 `getUserMedia → 流 → <video> → 调度器 →
+Worker → 叠加层` 这条产品链路会跑在你的素材上：
+
+```bash
+# ① 素材转成 y4m（需要 ffmpeg）
+mkdir -p apps/web/.tmp-fakecam
+ffmpeg -y -i "<你的素材>" -vf "scale=640:360:flags=lanczos,fps=30" \
+  -pix_fmt yuv420p -f yuv4mpegpipe apps/web/.tmp-fakecam/clip.y4m
+
+# ② 跑（带上素材路径）
+PPC_FAKE_CAMERA_Y4M="$PWD/apps/web/.tmp-fakecam/clip.y4m" pnpm test:e2e live-capture
+```
+
+**预期**：`2 passed`，且会打印两条的**出现率**，例如：
+
+```
+[live-capture] 真人画面：骨架出现率 20/20（单帧峰值 194）、准备区出现率 20/20
+[live-capture] 合成图案（无人）：骨架出现率 1/20（单帧峰值 57）、准备区出现率 10/20
+```
+
+同时在 `apps/web/.tmp-fakecam/live-capture.png` 留一张现场图。
+
+⚠️ **这个 y4m 是从你的素材转出来的，含真人画面** —— 必须放在 git 之外
+（`.tmp-*/` 已被 `.gitignore` 忽略）。**不要**把它移到别的目录，更不要提交。
+
+两条用例的分工：第一条要求"骨架在 ≥70% 的采样里出现"，
+第二条（反向对照）要求无人时"<30%" —— 缺了第二条，
+第一条的通过说明不了任何事。
+
+> 为什么用**出现率**而不是"有没有像素"：合成图案上 MediaPipe 会偶发误检，
+> 幅度不比真人小多少（单帧 57~71 vs 真人 135~210），
+> 但**幻觉是零星的、真人是持续的** —— 能分开它们的是时间占比。
+> 上面那两行里第二行还顺带量到了一个**未修的缺陷**（准备区圆 10/20
+> 而骨架只有 1/20），见 `docs/known-failures.md` F-036。
 
 > 端到端测试会**自己起两个进程**：vite（端口 5199）和一个**真实的 API 进程**
 > （端口 8788，mock 模式）。后者是为了让"前端 → 代理 → 真实后端"这条链路
@@ -115,7 +154,7 @@ pnpm test:e2e
 CHROMIUM_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" pnpm test:e2e
 ```
 
-- [ ] 69 项（含若干项按需 skip）
+- [ ] 71 项（含若干项按需 skip：真实素材、真实摄像头、20 分钟 soak 都默认跳过）
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________
