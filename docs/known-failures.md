@@ -945,6 +945,121 @@ manifest 声明了 `modelId ↔ path` 的对应，而代码里这两件事各写
 
 ---
 
+### F-022 · 连续对拉时相邻几板被合并成一次挥拍（少算）
+
+**日期**：2026-09-16
+**分类**：分段（阈值校准）
+**严重度**：高 —— 挥拍数直接决定"本组 3 次"这类计数，少算会让用户以为自己的板数不对；
+且它会让**下游的组特征**（组内一致性、返回准备区时间）建立在错误的样本划分上
+**状态**：**OPEN —— 已量化到"1 次 vs 三遍循环"，但改阈值前必须先有人工标注**
+
+**怎么发现的**：接 `eval:replay` 的观测导出（`e2e/segmentation-eval.e2e.ts`），
+用**产品真实的 `TrainingSession`** 逐帧跑完整段素材（1280×720、8.15s、244 帧、30fps）。
+
+**现象**：整段只闭合了 **1 次**挥拍（窗口 1267 ~ 3167 ms），
+而逐帧相位日志显示，**在这一条 StrokeEvent 内部**：
+
+```
+ready@833 → backswing@1333 → forward@1733 → returning@1867
+          → backswing@1933 → forward@2067 → returning@2367
+          → backswing@2500 → forward@2833 → returning@3033 → ready@3167
+```
+
+`backswing→forward→returning` 循环了**三遍**才回到 `ready`。
+之后（3.3s 起）相位在 `idle ↔ ready` 之间反复横跳，**再没进过 backswing**。
+结束原因是 `stroke_too_long`。
+
+**根因（推测，需标注确认）**：`returnStableMinMs = 120` 要求"回到准备区并稳定驻留 120ms"
+才算一板结束。而真实连续对拉里，两次挥拍之间**手并没有回到准备区停留** ——
+日志里 `returning@1867 → backswing@1933` 只隔了 **66ms**。
+于是状态机把三遍挥拍当成"一次过长的挥拍"。
+阈值本身是**暂定值**，从未在真实素材上校准过（见 `configs/thresholds.json`）。
+
+**为什么没有更早发现**：这套阈值只在 `motion-core` 的单测里跑过，
+而那些测试喂的是**构造数据** —— 构造数据里每板之间必然有稳定的准备区驻留，
+正好绕开了这个真实素材才有的形态。这与 F-020/F-021 同属一类：
+**测试全绿只说明被测的那个场景成立**。
+
+**为什么现在不改**：改阈值需要先知道**改好还是改坏**，那需要真值。
+没有标注时调参只是把猜测从一个值挪到另一个值（README 第 9 节的明确纪律）。
+评估流水线已经接通，缺的只是**人工标注**这一步：
+
+```bash
+# 1. 导出观测与联系表
+PPC_VERIFY_VIDEO=<素材路径> pnpm --filter @pingpong/web test:e2e segmentation-eval
+# 2. 照着 contact-sheet.png 标真值，写进 evaluation/samples.json 的 annotation.strokes
+# 3. 出指标
+pnpm eval:replay --manifest evaluation/samples.json
+```
+
+**样本量的诚实交代**：以上是**一支素材、一个人、一个机位**。
+"连续对拉会合并"这个形态在这段素材上是**直接可见**的（相位日志就是证据），
+但"合并发生的频率有多高"需要多段素材 + 标注才能回答。
+
+**回归**：`e2e/segmentation-eval.e2e.ts` 断言"整段素材必须至少检出一次挥拍" ——
+它挡的是"分段链路在真实数据上完全不动"这类彻底失效。
+**它刻意不断言具体检出次数** —— 那正是 F-022 要测的量，钉一个当前值只会
+把缺陷固化成"预期行为"。
+
+---
+
+### F-023 · 接线审计只扫一层目录 —— `apps/web` 与 `apps/api` 其实**一个文件都没扫到**
+
+**日期**：2026-09-16
+**分类**：工程（门禁本身失效）
+**严重度**：**高 —— 比没有门禁更糟**：它让人以为这一块已经被覆盖了
+**状态**：**已修复**（`scripts/audit-wiring.mjs` 改为递归）
+
+**现象**：往 `apps/web/src/training/` 里塞一个**明显没人用**的导出，`pnpm audit:wiring`
+（`--strict`）**放行**。而脚本自己的注释与 `docs/roadmap.md` 都写着
+"扫描**全部四个包**的运行时导出，找出孤儿导出"。
+
+**根因**：`collectExports(dir)` 用的是 `readdir(dir)`，**只读一层**：
+
+```js
+const files = (await readdir(dir)).filter((f) => f.endsWith(".ts") && !f.endsWith(".d.ts"));
+```
+
+于是：
+
+| 包 | 目录形态 | 实际扫到 |
+| --- | --- | --- |
+| `packages/motion-core/src` | 扁平 | ✅ 全部 |
+| `packages/contracts/src` | 扁平 | ✅ 全部 |
+| `apps/web/src` | **全是子目录**（`vision/` `training/` `ui/` `capture/` …）| ❌ **0 个文件** |
+| `apps/api/src` | 同样有子目录 | ❌ 大部分漏掉 |
+
+**为什么一直没发现**：它在 `motion-core` 上工作得很好 ——
+而 `motion-core` 恰好是**扁平**的，也是我验证"它真能抓东西"时用的那个包。
+**"我验证过它能抓住东西"这件事本身是对的，只是验证的样本全在它唯一能扫到的那一类里。**
+
+**修法**：`collectExports` 改成递归遍历（跳过 `node_modules` / `dist`，排除 `.d.ts`）。
+相对路径保留子目录前缀，否则报告里分不清两个同名文件。
+
+**修好后立刻翻出的 6 个（此前完全不可见的）**：
+
+| 符号 | 处置 | 理由 |
+| --- | --- | --- |
+| `DEFAULT_CACHE_BUDGET_BYTES` | 去掉 `export` | 只在同文件作构造参数默认值 |
+| `toPoseFrame` | 去掉 `export` | 只在同文件调用 |
+| `buildSegmentationConfig` | 去掉 `export` | 同上 |
+| `SEGMENTATION_DEFAULTS` | 去掉 `export` | 同上 |
+| `KEYPOINT_SET_NAME` | **删除** | 连自己文件里都没人用；而且它自称"关键点集名称"，真正的取值在 `initLandmarker` 里按 `handModelAvailable` 算 —— 留着会误导 |
+| `modelOutputSchema` | 加进豁免清单 | 与既有的 `feedbackStatusSchema` 同类：同文件使用 + 供 `z.infer` 取类型 |
+
+**前 5 个的性质**：不是"死代码"，而是**把内部细节错误地声明成了公共 API**。
+对外多暴露一个符号，就多一份"这是给别人用的"的误导，也多一份将来被人依赖的机会。
+
+**回归**：修好后再往 `apps/web/src/training/` 塞一个孤儿导出 —— 门禁**报出该符号并退出 1**；
+清掉之后 `pnpm audit:wiring` 恢复通过。这一步必须做，否则等于用一个"永远通过的门禁"
+替换掉一个"假装通过的门禁"。
+
+**方法论提醒**：这条与 F-020/F-021 同源 —— **测试/门禁全绿只说明被测的那个形态成立**。
+F-020 是"测试与被测代码共用同一个错误假设"，F-021 是"测试在量错的东西"，
+这条是"门禁在扫错的目录"。三者都不是"算错了"，而是**验证动作本身没有落在要验证的对象上**。
+
+---
+
 ## 待补充
 
 真实素材跑起来后，失败片段按上述分类逐条记录到这里，并附回归结果。

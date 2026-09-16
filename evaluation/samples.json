@@ -23,12 +23,35 @@
     }
   },
 
+  "$howToEvaluate": {
+    "$comment": "分段指标怎么来。两步都必须做完，缺任一步 `pnpm eval:replay` 都不会输出任何准确率数字。",
+    "step1_exportObservation": {
+      "command": "PPC_VERIFY_VIDEO=<素材绝对路径> pnpm --filter @pingpong/web test:e2e segmentation-eval",
+      "outputs": [
+        "apps/web/.tmp-eval/segmentation-observed.json —— 逐帧喂入真实 TrainingSession 后检出的挥拍窗口",
+        "apps/web/.tmp-eval/pose-timeline.json —— 每帧的腕部位置与分段相位（排查用）",
+        "apps/web/.tmp-eval/contact-sheet.png —— 每 0.25 秒一格、时间戳烧进画面的联系表"
+      ],
+      "whyRealPipeline": "观测走的是**产品真实的 TrainingSession**（含滤波、质量、准备区自动标定与状态机），不是在 Node 里重算一遍 —— 重算就得把前处理抄一份，而抄出来的那份会漂移。"
+    },
+    "step2_annotate": {
+      "what": "照着 contact-sheet.png 逐次挥拍读时间戳，写进本清单里该样本的 annotation.strokes",
+      "format": { "strokes": [{ "startMs": 1200, "endMs": 2100 }] },
+      "honesty": "标注者是谁必须写进 annotatorId。模型生成的标注只能当**估计**，不能当人工真值 —— 它至少要与真人标注分开报告。"
+    },
+    "step3_run": {
+      "command": "pnpm eval:replay --manifest evaluation/samples.json",
+      "metricDefinition": "命中判据是 temporal IoU ≥ 0.5（见 docs/acceptance.md）；precision 的分母是全部检出，recall 的分母是全部真值，**不剔除任何一项**。"
+    }
+  },
+
   "samples": [],
 
   "notes": [
     "按方案 11.1：先准备 6–10 段约 10–20 秒的练习片段用于 P0/P1。",
     "样本需覆盖：同一目标下的正常执行、目标问题、遮挡/模糊、捡球或走动。",
     "不要为了『有错误样本』而要求用户做夸张或不舒服的动作。",
-    "到 P2 积累约 100–200 次挥拍，至少来自三个练习批次或日期。"
+    "到 P2 积累约 100–200 次挥拍，至少来自三个练习批次或日期。",
+    "每条样本至少要填：id、label、racketSideVisibility、annotation.strokes，以及（评估分段时）observedFile。缺 annotation 的样本会被明确跳过并列入『未计入』，不会混进任何分母。"
   ]
 }

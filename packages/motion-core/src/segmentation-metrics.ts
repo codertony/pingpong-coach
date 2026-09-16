@@ -1,0 +1,158 @@
+/**
+ * 分段评估的匹配与指标计算（纯函数）。
+ *
+ * 为什么放在 motion-core 而不是写在 `scripts/eval-replay.mjs` 里：
+ * 这是**唯一**会把"识别准不准"变成数字的一段代码，它自己必须被测住。
+ * 放在纯计算包里才能直接跑单测；写在脚本里就只能靠人工验算。
+ *
+ * 口径纪律（对应 `docs/acceptance.md` 的两条"容易作弊的口径"）：
+ *
+ * 1. **分母不筛**。precision 的分母是**全部**检出，recall 的分母是**全部**真值，
+ *    包括那些算法"拒绝判断"或"看起来不合理"的。不允许靠多拒绝来抬高指标。
+ * 2. **没有真值就不给数字**。真值为空时 recall 返回 `null` 而不是 `0` 或 `1` ——
+ *    "没标注"与"标了但一个都没命中"是两件完全不同的事，混在一起会误导决策。
+ */
+
+export interface TimeWindow {
+  startMs: number;
+  endMs: number;
+}
+
+/** 判定"命中"的 temporal IoU 门槛。取 0.5 是 `docs/acceptance.md` 里的验收定义。 */
+export const IOU_MATCH_THRESHOLD = 0.5;
+
+/** 区间并集时长。退化区间（end < start）按 0 处理，不产生负长度。 */
+function spanMs(w: TimeWindow): number {
+  const len = w.endMs - w.startMs;
+  return len > 0 ? len : 0;
+}
+
+/** 交叠时长。 */
+function overlapMs(a: TimeWindow, b: TimeWindow): number {
+  const lo = Math.max(a.startMs, b.startMs);
+  const hi = Math.min(a.endMs, b.endMs);
+  const len = hi - lo;
+  return len > 0 ? len : 0;
+}
+
+/**
+ * 两个时间区间的 temporal IoU。
+ *
+ * 定义与 `docs/acceptance.md` 一致：交叠时长 ÷ 并集时长。
+ * 并集为 0（两侧都是零长度区间）时返回 0 —— 不返回 NaN，
+ * 因为零长度的"挥拍"不是命中，而 NaN 会污染下游的求平均。
+ */
+export function temporalIoU(a: TimeWindow, b: TimeWindow): number {
+  const inter = overlapMs(a, b);
+  const union = spanMs(a) + spanMs(b) - inter;
+  if (union <= 0) return 0;
+  return inter / union;
+}
+
+export interface MatchedPair {
+  truth: TimeWindow;
+  detected: TimeWindow;
+  iou: number;
+}
+
+export interface MatchResult {
+  matched: MatchedPair[];
+  /** 真值里没被命中的（漏检） */
+  missed: TimeWindow[];
+  /** 检出里没对上真值的（误检） */
+  spurious: TimeWindow[];
+  /**
+   * 命中数 ÷ 检出总数。
+   *
+   * **任一侧为空都返回 `null`**，而不是 0：
+   * 真值为空时根本**无从判断对错**，返回 0 会被读成"检出的全是错的"；
+   * 检出为空时是 0÷0，同样无从谈起。
+   * 这与红线 1 同一条纪律 —— 缺失就是缺失，不要拿 0 冒充一个测量值。
+   */
+  precision: number | null;
+  /**
+   * 命中数 ÷ 真值总数。
+   *
+   * **真值为空 → `null`**（没标注，不是"全漏了"）。
+   * **检出为空而真值非空 → 0**：那是实打实的全漏，是真信息。
+   */
+  recall: number | null;
+  /** 命中对的边界误差（毫秒），起点与终点分开报 */
+  boundaryErrorMs: {
+    startMean: number | null;
+    startMedian: number | null;
+    endMean: number | null;
+    endMedian: number | null;
+  };
+}
+
+function mean(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  return xs.reduce((a, b) => a + b, 0) / xs.length;
+}
+
+function median(xs: number[]): number | null {
+  if (xs.length === 0) return null;
+  const s = [...xs].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 1 ? s[mid]! : (s[mid - 1]! + s[mid]!) / 2;
+}
+
+/**
+ * 把检出的挥拍与人工标注的真值配对。
+ *
+ * 匹配策略：按 IoU 从高到低**贪心**配对，每侧每个区间最多用一次。
+ * 选贪心而不是"最近起点"之类：贪心直接优化被报告的那个量（IoU），
+ * 且结果确定（不依赖输入顺序，因为排序里带了次序键）。
+ *
+ * **刻意不做的事**：不因为"某个检出明显是噪声"就把它从分母里拿掉。
+ * 剔除是评估者最容易自欺的一步；要剔除必须在报告里另立一行并写明规则。
+ */
+export function matchSegments(
+  detected: readonly TimeWindow[],
+  truth: readonly TimeWindow[],
+  threshold: number = IOU_MATCH_THRESHOLD,
+): MatchResult {
+  const candidates: Array<{ di: number; ti: number; iou: number }> = [];
+  for (let di = 0; di < detected.length; di++) {
+    for (let ti = 0; ti < truth.length; ti++) {
+      const iou = temporalIoU(detected[di]!, truth[ti]!);
+      if (iou >= threshold) candidates.push({ di, ti, iou });
+    }
+  }
+  // 次序键带上 di/ti：IoU 相同时结果也必须确定，否则同一份数据两次跑出不同报告
+  candidates.sort((a, b) => b.iou - a.iou || a.di - b.di || a.ti - b.ti);
+
+  const usedDetected = new Set<number>();
+  const usedTruth = new Set<number>();
+  const matched: MatchedPair[] = [];
+  for (const c of candidates) {
+    if (usedDetected.has(c.di) || usedTruth.has(c.ti)) continue;
+    usedDetected.add(c.di);
+    usedTruth.add(c.ti);
+    matched.push({ detected: detected[c.di]!, truth: truth[c.ti]!, iou: c.iou });
+  }
+
+  const missed = truth.filter((_, ti) => !usedTruth.has(ti));
+  const spurious = detected.filter((_, di) => !usedDetected.has(di));
+
+  const startErrors = matched.map((m) => m.detected.startMs - m.truth.startMs);
+  const endErrors = matched.map((m) => m.detected.endMs - m.truth.endMs);
+
+  return {
+    matched,
+    missed,
+    spurious,
+    // 任一侧为空 → precision 无从谈起，给 null 而不是 0（见接口上的说明）
+    precision:
+      truth.length === 0 || detected.length === 0 ? null : matched.length / detected.length,
+    // 真值为空 → 没标注（null）；检出为空但真值非空 → 全漏，那是 0
+    recall: truth.length === 0 ? null : matched.length / truth.length,
+    boundaryErrorMs: {
+      startMean: mean(startErrors),
+      startMedian: median(startErrors),
+      endMean: mean(endErrors),
+      endMedian: median(endErrors),
+    },
+  };
+}

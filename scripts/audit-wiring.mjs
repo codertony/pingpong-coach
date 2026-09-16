@@ -111,6 +111,7 @@ const ALLOWED_UNWIRED = {
   healthResponseSchema: "供 API 客户端取响应类型",
   analyzeResponseSchema: "供 API 客户端取响应类型",
   apiErrorSchema: "供 API 客户端取错误类型",
+  modelOutputSchema: "被同文件 validateModelOutput 使用，并导出供 z.infer 取 ModelOutput 类型",
 };
 
 /**
@@ -134,15 +135,42 @@ const strict = process.argv.includes("--strict");
  * 只看 `function` / `const` / `class` —— **不看 `interface` / `type`**。
  * 类型的"被使用"发生在编译期，用文本搜使用点没有意义
  * （`Point2D`、`HandGeometry` 这类永远搜不到），混进来只会淹没真信号。
+ *
+ * ⚠️ **必须递归**。这里踩过一个真实的坑：第一版用 `readdir(dir)` 只读**一层**，
+ * 于是 packages 各包的 src（扁平）扫得到，而 `apps/web/src` 与 `apps/api/src`
+ * 全是子目录 —— **一个文件都没扫到**。
+ * 而脚本自己的注释写着"必须扫全部包，只扫 motion-core 会漏掉 apps 里的孤儿导出"，
+ * 文档也这么说：**意图是对的，实现没有做到，两边谁都没发现**。
+ * 直到往 `apps/web/src/training/` 里塞了一个没人用的导出、门禁居然放行，
+ * 才暴露出来（见 known-failures F-023）。
+ *
+ * 这类"门禁看起来在守、实际没守"的问题比没有门禁更糟：
+ * 它会让人以为这一块已经被覆盖了。
  */
 async function collectExports(dir) {
-  const files = (await readdir(dir)).filter((f) => f.endsWith(".ts") && !f.endsWith(".d.ts"));
   const out = new Map();
-  for (const file of files) {
-    const src = await readFile(join(dir, file), "utf8");
-    const re = /^export\s+(?:async\s+)?(?:function|const|class)\s+([A-Za-z_$][\w$]*)/gm;
-    for (const m of src.matchAll(re)) out.set(m[1], file);
+  async function walk(current, prefix) {
+    let entries;
+    try {
+      entries = await readdir(current, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      const full = join(current, e.name);
+      if (e.isDirectory()) {
+        if (e.name === "node_modules" || e.name === "dist") continue;
+        await walk(full, prefix ? `${prefix}/${e.name}` : e.name);
+        continue;
+      }
+      if (!e.name.endsWith(".ts") || e.name.endsWith(".d.ts")) continue;
+      const src = await readFile(full, "utf8");
+      const re = /^export\s+(?:async\s+)?(?:function|const|class)\s+([A-Za-z_$][\w$]*)/gm;
+      const rel = prefix ? `${prefix}/${e.name}` : e.name;
+      for (const m of src.matchAll(re)) out.set(m[1], rel);
+    }
   }
+  await walk(dir, "");
   return out;
 }
 

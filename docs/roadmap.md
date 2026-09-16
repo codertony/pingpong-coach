@@ -33,9 +33,9 @@
 | --- | --- | --- |
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
-| 纯计算核心 | `[x]` | motion-core 180 项测试（含准备区标定、手部几何、肘角伸展） |
+| 纯计算核心 | `[x]` | motion-core 198 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 74 项 vitest + 61 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 74 项 vitest + 63 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -64,6 +64,8 @@
 | F-016 | 用户选了"肘角伸展模式"却拿不到对应反馈：① `computeElbowAngleAtForwardPeak` 定义了却零调用；② 特征名声称了一个契约里不存在的时刻；③ mock 适配器忽略 `focusId`，答非所问 |
 | F-020 | 手部点（归一化）与腕部锚点（像素）不在同一坐标空间，**每一只手、每一帧都被当成"超出容差"静默丢弃**；而 `handDetected` 仍为 `true`，遥测说"检出了手" |
 | F-021 | 手部叠加有两个各自独立、又都静默的缺陷：① `drawHand` 拼的名字（`right_hand_index_mcp`）在契约里不存在 → **从未执行过**；② 通用关键点循环又把手部点按姿态尺寸重画一遍，21 个点糊成一团白 |
+| F-023 | 接线审计只扫**一层**目录 → 「全是子目录」的 `apps/web/src` 与 `apps/api/src` **一个文件都没扫到**，而脚本注释与文档都写着"扫全部四个包"。修好后立刻翻出 6 个此前不可见的导出 |
+| F-022 | 连续对拉时**相邻几板被合并成一次挥拍**（少算，不是多算）。逐帧相位日志显示一次 StrokeEvent 内部走了三遍 `backswing→forward→returning`。阈值从未在真实素材上校准过 —— 但要改它必须先有人工标注，否则只是把猜测换个值 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -72,12 +74,12 @@
 
 ```
 contracts      30
-motion-core   180
+motion-core   198
 api           135
 web (vitest)   74
-web (Playwright/真 Chrome) 61
+web (Playwright/真 Chrome) 63
 ─────────────────────────────
-合计          480
+合计          500
 ```
 
 ---
@@ -130,10 +132,22 @@ web (Playwright/真 Chrome) 61
 
 **两种模式，故意分开**：
 
-| 模式 | 用途 | 行为 |
-| --- | --- | --- |
-| 默认（报告） | 人工过一遍 | 列出所有孤儿导出 + 处置建议，**退出码始终 0** |
-| `--strict`（CI） | 拦门禁 | 孤儿导出不在豁免清单里 → **失败**；清单里有已不存在的符号 → **失败** |
+| 模式 | 怎么跑 | 用途 | 行为 |
+| --- | --- | --- | --- |
+| 报告 | `node scripts/audit-wiring.mjs` | 人工过一遍 | 列出所有孤儿导出 + 处置建议，**退出码始终 0** |
+| 严格 | `pnpm audit:wiring`（= 脚本 + `--strict`） | 拦门禁 | 孤儿导出不在豁免清单里 → **失败**；清单里有已不存在的符号 → **失败** |
+
+> ⚠️ 注意：**`pnpm audit:wiring` 就是严格模式**（`package.json` 里带了 `--strict`），
+> 而 `pnpm verify` 调的正是它。想要只出报告不出红，得直接跑那个 `node` 命令。
+> 这张表原先写成"默认（报告）/ `--strict`（CI）"，容易让人以为 `pnpm audit:wiring`
+> 只报告 —— 那是**文档与实现不一致**（F-023 那一轮一并更正）。
+
+**它曾经只扫一层目录（F-023，已修）**：`collectExports` 原先用 `readdir`，
+于是**扁平的** `packages/*/src` 扫得到，而**全是子目录的** `apps/web/src`
+与 `apps/api/src` **一个文件都没扫到** —— 而脚本注释和本文档都写着"扫全部四个包"。
+修好后立刻翻出 6 个此前不可见的导出（5 个该收起来、1 个该豁免）。
+所以"我验证过它真能抓住东西"这句话，当时的样本**全落在它唯一能扫到的那一类里**。
+详见 [known-failures.md F-023](./known-failures.md)。
 
 **刻意不做的**：不反查"清单里每条是否仍是孤儿"。孤儿判据与
 清单的建立依据（"产品代码零调用"）**不是同一个度量** ——
@@ -289,10 +303,44 @@ PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
 它会打印一张三阶段的表（枚举数 / 产品现在的调用方式 / 逐设备试开）。
 真实摄像头那一行变成 ✅ 就是恢复了。
 
-### B4 · 真实训练素材
+### B4 · 真实训练素材与标注 ✅ 评估流水线已接通，只差人工标注
 
-`evaluation/` 目录是空的。没有真实挥拍素材，就无法评估识别质量，
-也就**无法回答"这个产品到底准不准"**。这是最关键的一步。
+`evaluation/samples.json` 的 `samples` 仍是空的。没有真实挥拍素材与标注，
+就**无法回答"这个产品到底准不准"**。这是最关键的一步。
+
+**这轮我把流水线接通了**（此前 `pnpm eval:replay` **只做清单校验、不算任何指标**，
+而 README 却让你"跑它看切分是否命中" —— 那是句空话，已改）：
+
+| 部件 | 位置 | 作用 |
+| --- | --- | --- |
+| 观测导出 | `apps/web/e2e/segmentation-eval.e2e.ts` | 用**产品真实的 `TrainingSession`** 逐帧跑完整段素材，导出检出的挥拍窗口、逐帧腕部与相位、以及一张带时间戳的联系表 |
+| 指标计算 | `packages/motion-core/src/segmentation-metrics.ts` | temporal IoU 配对、precision / recall、边界误差。18 项单测钉住口径 |
+| 评估入口 | `scripts/eval-replay.ts` | 读清单 → 配对 → 出报告。**缺人工标注就明确拒绝输出任何数字** |
+
+**已经用它量出的第一组事实**（一支 8.15s 业余正手素材，逐帧 244 帧）：
+
+| 项 | 实测 |
+| --- | --- |
+| 人体逐帧检出 | **244 / 244** |
+| 准备区自动标定 | 成功 |
+| **检出的挥拍** | **1 次**（窗口 1267 ~ 3167 ms）|
+| 逐帧相位日志 | 在这**一次** StrokeEvent 内部，`backswing→forward→returning` 循环了**三遍** |
+| 结束原因 | `stroke_too_long` |
+
+⇒ **连续对拉时，相邻几板被并成了一次挥拍**。这不是"多算"而是"少算"，
+会直接让"本组 3 次"这类计数偏低。见 `known-failures.md` F-022。
+
+**你要做的（每段素材约 10 分钟）**：
+
+1. `PPC_VERIFY_VIDEO=<素材路径> pnpm --filter @pingpong/web test:e2e segmentation-eval`
+2. 打开导出的 `contact-sheet.png`，逐次挥拍读时间戳，填进
+   `evaluation/samples.json` 该样本的 `annotation.strokes`（**这一步只有人能做** ——
+   用算法自己的信号去标真值就是循环论证）
+3. `pnpm eval:replay --manifest evaluation/samples.json`
+
+**为什么必须先有这一步**：F-022 说阈值在真实连续对拉上不合适，
+但**改阈值前必须先有指标** —— 否则只是把猜测从一个值挪到另一个值。
+这正是 README 第 9 节"不要在没跑过真实数据之前调阈值"的意思。
 
 ---
 

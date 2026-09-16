@@ -16,6 +16,7 @@ import {
   type TrainingTelemetry,
 } from "../training/training-session.js";
 import { drawSkeleton, drawReadyZone } from "../training/skeleton-overlay.js";
+import { buildTrainingConfig } from "../training/session-config.js";
 import { SpeechChannel, type SpeechStatus } from "../audio/speech-channel.js";
 import { analyzeGroup, fetchHealth } from "../review/api-client.js";
 import { ReviewPanel, type ReviewItem } from "./ReviewPanel.js";
@@ -215,26 +216,13 @@ export function App() {
     }
 
     const session = new TrainingSession(
-      {
+      buildTrainingConfig({
         sessionId: sessionIdRef.current,
-        strokeType: "forehand_drive",
         handedness,
         cameraView,
         focusId,
         strokesPerGroup,
-        segmentation: {
-          strokeType: "forehand_drive",
-          cameraView,
-          handedness,
-          readyZoneRadiusBodyScale: 0.3,
-          readyStableMinMs: 120,
-          backswingMinDisplacementBodyScale: 0.2,
-          forwardMinSpeedBodyScalePerSec: 0.5,
-          returnStableMinMs: 120,
-          maxGapMs: 250,
-          maxStrokeDurationMs: 3000,
-        },
-      },
+      }),
       {
         onStatus: setStatusText,
         onStroke: () => setStrokeCount((n) => n + 1),

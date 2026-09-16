@@ -120,7 +120,7 @@ export interface TrainingTelemetry {
 }
 
 /** 把姿态结果转成 PoseFrame，并做质量评估。 */
-export function toPoseFrame(
+function toPoseFrame(
   result: PoseResult,
   sessionId: string,
   handedness: "left" | "right",

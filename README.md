@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**419 项单元测试 + 61 项浏览器测试全部通过**。
+**437 项单元测试 + 63 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
@@ -162,8 +162,8 @@ pnpm lint           # ESLint（含架构边界约束）
 pnpm lint:fix       # ESLint 自动修复
 pnpm format         # Prettier 格式化
 pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
-pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
-pnpm audit:wiring   # 接线审计：找出"别处都没提过"的孤儿导出（--strict 用于门禁）
+pnpm eval:replay    # 分段回放评估（temporal IoU / precision / recall）。缺人工标注时**明确拒绝输出任何准确率数字**
+pnpm audit:wiring   # 接线审计：找出"别处都没提过"的孤儿导出。**这条就是严格模式**（退出码非 0 即失败）；只出报告请跑 node scripts/audit-wiring.mjs
 pnpm check:docs     # 文档一致性：命令 / 路径 / 测试总数声明是否对得上仓库实际
 pnpm clean          # 清理构建产物
 
@@ -230,15 +230,15 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **480 项测试**（419 单元 + 61 浏览器）：
+当前共 **500 项测试**（437 单元 + 63 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 30 | — |
-| `@pingpong/motion-core` | 180 | — |
+| `@pingpong/motion-core` | 198 | — |
 | `@pingpong/api` | 135 | — |
-| `@pingpong/web` | 74 | 61 |
-| **合计** | **419** | **61** |
+| `@pingpong/web` | 74 | 63 |
+| **合计** | **437** | **63** |
 
 **这些测试证明的是什么**：
 
@@ -311,7 +311,17 @@ PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
 
 1. `pnpm models:fetch` 拉模型，真机跑起来看骨架抖动程度
 2. 录 3~5 段真实正手攻球，按 `evaluation/samples.json` 的三层结构标注
-3. 跑 `pnpm eval:replay`，看切分是否命中、特征是否稳定
+3. 跑分段评估，**两步缺一不可**（`evaluation/samples.json` 的 `$howToEvaluate` 里有完整说明）：
+
+   ```powershell
+   # 3a. 导出观测：用**产品真实的 TrainingSession** 逐帧跑一遍素材
+   $env:PPC_VERIFY_VIDEO="D:\path\to\clip.mp4"
+   pnpm --filter @pingpong/web test:e2e segmentation-eval
+   # 3b. 照着导出的联系表（每 0.25s 一格、时间戳烧在画面上）标真值，再算指标
+   pnpm eval:replay --manifest evaluation/samples.json
+   ```
+
+   **没有人工标注时它会明确拒绝输出任何准确率数字** —— 没真值的指标是编造的。
 4. 依据实测结果**修正**暂定阈值 —— 改 `packages/motion-core/src/rules.ts` 的
    `DEFAULT_THRESHOLDS`，并同步 `configs/thresholds.json`（**那份不被运行时读取**，
    是规范快照；两边由 `thresholds-consistency.test.ts` 守着一致）

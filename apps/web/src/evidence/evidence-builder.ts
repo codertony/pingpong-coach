@@ -23,7 +23,7 @@ export interface KeyframeCandidate {
 }
 
 /** 初始媒体缓存预算 32 MiB */
-export const DEFAULT_CACHE_BUDGET_BYTES = 32 * 1024 * 1024;
+const DEFAULT_CACHE_BUDGET_BYTES = 32 * 1024 * 1024;
 
 /**
  * 有界关键帧缓存。

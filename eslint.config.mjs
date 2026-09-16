@@ -230,9 +230,13 @@ export default tseslint.config(
     },
   },
 
-  // ---------- 脚本（Node ESM）----------
+  // ---------- 脚本（Node）----------
+  // 这些是**给人看的命令行报告工具**，输出就是它的产物，所以放行 console。
+  // 同时覆盖 .ts —— `eval-replay.ts` 必须能 import `@pingpong/motion-core`
+  // 的 TS 源码（指标计算住在那里，且有单测）。只放行 .mjs 会让"想把逻辑放进
+  // 有测试的包"这件事变得别扭，结果是又在脚本里抄一份没有测试的实现。
   {
-    files: ["scripts/**/*.mjs"],
+    files: ["scripts/**/*.mjs", "scripts/**/*.ts"],
     languageOptions: {
       globals: { ...globals.node },
     },

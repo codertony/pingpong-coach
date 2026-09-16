@@ -114,8 +114,6 @@ export interface WorkerErrorMessage {
 
 export type WorkerResponse = WorkerReadyMessage | WorkerResultMessage | WorkerErrorMessage;
 
-export const KEYPOINT_SET_NAME = KEYPOINT_SET_POSE_ONLY;
-
 let landmarker: PoseLandmarker | null = null;
 let handLandmarker: HandLandmarker | null = null;
 
