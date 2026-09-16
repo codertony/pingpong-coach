@@ -34,8 +34,8 @@
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 32 项测试 |
 | 纯计算核心 | `[x]` | motion-core 215 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化、分布谷底判据） |
-| 后端 + Mock 适配器 | `[x]` | api 157 项测试 |
-| 前端采集链路 | `[x]` | web 105 项 vitest + 71 项浏览器测试 |
+| 后端 + Mock 适配器 | `[x]` | api 158 项测试 |
+| 前端采集链路 | `[x]` | web 105 项 vitest + 72 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -81,6 +81,9 @@
 | F-036 | 同一件事实（"这具身体看得清吗"）**两处口径不同**：绘制层要求 `score ≥ 0.5`，而 `TrainingSession.findPoint` 只挡 `visible === false`（= `confidence > 0`），于是置信度 **0.01 与 0.99 等价** ⇒ 体尺度、准备区半径、分段用的腕部都可由**绘制层会拒绝的点**决定。**发现方式**：给新写的"真实摄像头链路"用例加反向对照（合成图案、无人），各采样 20 次 —— 真人 **骨架 20/20**，无人 **骨架 1/20 而准备区圆 10/20**：屏幕在画一个它几乎不肯承认看得见的身体的圈。确定性证据见 `apps/web/test/low-confidence-body.test.ts`（躯干点全 0.05 置信度 → 体尺度照样 150px、半径照样 45px）。**已修复**：体尺度改用**与绘制层同一个常量**（不是另写一个 0.5），`App.tsx` 那处写死的 `minScore: 0.5` 也改成引用同一常量。**修复代价量过了，是 0** —— 先在 `segmentation-eval` 里逐帧导出躯干四点最低置信度，再在唯一那支真实素材上统计：**244 帧最小值 0.985，低于 0.5 的 0 帧**。修完实测：真人 20/20 不变，合成图案的准备区出现率 **10/20 → 0/20**。**已用"改回去"验证**：去掉门槛单测红 2 项、活链路反向对照也红（9/20）。腕部**刻意不套**（内部状态估计，且运动模糊掉置信度是常态而缺该类素材数据），单测里有专门一条钉住这个不对称 |
 | F-038 | **两个出厂默认值在真实模型上都是错的**，用默认配置接真实模型 **100% 拿不到反馈**：① `MODEL_MAX_TOKENS=400` —— 推理模型先把预算花在推理上（实测 `completion_tokens` **含推理** 398~813），正文被腰斩在第 192/387 字符处；② `MODEL_TIMEOUT_MS=4000` —— 实测延迟中位 **3928ms**、max 4753ms，**默认值正落在中位数上**，约一半请求会超时。而截断的表现是"JSON 不合法"，所以第一次失败报的是 `model_invalid_json` —— **把排查引到解析上，真因在预算上**。已按实测改默认值（400→2000、4000→15000，同步 `thresholds.json` 快照 + `config.test.ts` 断言 + `acceptance.md`），并新增错误码 `model_truncated`（文案直接点名 `max_tokens=NNN` 与 `MODEL_MAX_TOKENS`）。**"改回去"验证**：两条用例分别钉住"是 length 就报截断"与"不是 length 不许误报"。**口径坑**：探针第一版把默认值自己又写了一遍，导致测的是探针的默认值 —— 已改成直接用 `loadConfig()` |
 | F-039 | README 教用户配真实模型的**那一节变量名全是错的**（`PPC_MODEL_API_KEY` 等），而代码读的是 `MODEL_API_KEY` 等（无前缀）；且**仓库没有 `.env` 加载器**；且 `PPC_MODEL_MODE`/`PPC_REQUEST_TIMEOUT_MS` 在代码里根本不存在。⇒ 用户照着文档配，得到的是**静默的 mock**。实测四种配法：不设→mock、**用 README 的名字+真密钥→mock**、三缺一→mock（**不报错**）、正确名字→live。**第二处错**：文档说"缺一个就启动失败/直接报错"——**假的**，实际只是退回 mock（可见性在：health 写 `modelMode:"mock"` + 界面徽标）。静默降级 + 文档承诺会报错 = 用户没有任何线索。已改 README（真名字 + 说明无 `.env` 加载器 + 实际行为 + 变量表 + 第三方要用 OpenAI 兼容端点），并修掉 evaluation-log 里同族的 `PPC_PORT`（代码读 `PORT`）。**未加 `.env` 加载器**（会引入依赖并扩大误提交面；环境变量够用） |
+| F-040 | 导入视频时**同一个文件被播了两遍**（离屏那个 `loop=true` 喂分析、界面那个默认 `loop=false` 只显示）⇒ **界面上的视频播完停住了，骨架还在动**（用户报的）。实测暂停后 4 秒：修复前 **3574** 次画布绘制（`clearRect` 31.3 次/秒、间隔中位 33ms），修复后 **26** 次且全部落在暂停后 2ms 内。修法：把**采集元素本身**挂进 `.stage`，只有一个播放实例。回归 `video-playback.e2e.ts`；**改回两路播放该用例立刻红** |
+| F-041 | 加了 `.env` 之后 **`pnpm test:e2e` 跑成 live 并真的打到付费模型**（e2e 自己起的 API 进程读到了仓库根的 `.env`）—— 4 项失败里第一项就是 `modelMode` 不是 mock。**每次跑 e2e 都在花用户的钱**。修法：加载器支持 `PPC_NO_ENV_FILE=1`（一个候选都不返回，显式指定也压过去），playwright 的两个 API webServer 都带上；单测钉住该开关。顺带确认 vite 只暴露 `VITE_*`，dev server 的 HTML/模块里 `sk-` 出现 0 次 |
+| F-042 | 关键帧**图片格式不被提供商接受时整个分析失败**：fixtures 那张 **1×1** JPEG 被 DeepSeek 拒收（400 unsupported image）⇒ `model_unavailable`，**连文本证据一起丢掉**。契约只保证 base64 合法、不保证图片可用；F-031 的削减只按体积丢图、不问能不能用。**未修**：要先定义「什么算合格」（尺寸下限？再解码？），而只有一个数据点 —— 一个样本定门槛就是猜。见 `known-failures.md` F-042 的下一步 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -90,11 +93,11 @@
 ```
 contracts      32
 motion-core   215
-api           157
+api           158
 web (vitest)  105
-web (Playwright/真 Chrome) 71
+web (Playwright/真 Chrome) 72
 ─────────────────────────────
-合计          580
+合计          582
 ```
 
 ---
@@ -110,6 +113,7 @@ web (Playwright/真 Chrome) 71
 | A3 | ✅ 边界与模糊测试 | 已对 api 与 contracts 各加 3 项模糊测试，断言畸形输入绝不 500 / 绝不 throw | 小 |
 | A4 | ✅ 性能基线 | `motion-core` 热路径 4 个函数有 < 10 ms 哨兵；**60fps 持续输入下的丢帧与位图守恒** 3 项；**延迟口径已拆开**：端到端处理延迟（收到帧 → 骨架可用，含排队与跨线程）与 Worker 内推理耗时分别统计，界面上分别显示，`telemetry.test.ts` 4 项钉住两者不互相冒充。**采集段延迟（摄像头曝光 → 浏览器收到）仍需真机**，那不在代码可测范围内 | 中 |
 | A5 | ✅ 错误路径补测 | 畸形请求体、后端不可达、HTTP 500、**摄像头中途断开**（F-014，本轮补 2 项 e2e）；另有 `describeCameraError` 映射单测 | 中 |
+| A6′ | ✅ 密钥守卫 + 费用已知 | `scripts/check-secrets.mjs` 接进 `verify`：扫被跟踪文件里的疑似密钥（**命中只报打码后的前几位**）、并确认 `.env` 仍被忽略；**已用植入假密钥验证会红**。费用：按官方定价与实测 tokens 折算 **一次分析 0.004~0.008 元**（优惠/高峰），成本由**输出**主导而非图片 —— 见 `evaluation-log.md` | 小 |
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 138.9 KiB | 小 |
 | A7 | ✅ Docker 镜像（**已真实构建并跑通**） | `Dockerfile`（三阶段）+ `.dockerignore`。单容器同时提供 API 与前端静态产物。**用本机 Podman 真实 `build` 并起容器验证通过**：镜像 431 MB，容器 `Up`，`/api/health` 200、`/` 200、两个 `.task` 与两个 wasm 资产全 200。**四个坑都是真实构建才暴露的**（代理继承 / husky prepare / tsx 路径 / `.bin` 包装脚本），详见下方 | 中 |
 | A8 | ➖ changesets 发布流程（**不适用**） | 四个包**全部 `private: true`**，根本不发布，没有版本管理需求。原描述"已装但未配置"不准确 —— 实测 `@changesets/*` 并未安装。多包版本发布是"如果将来要开源/发布"才需要的事，现在做属于无的放矢 | 小 |

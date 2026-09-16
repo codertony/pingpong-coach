@@ -139,6 +139,9 @@ export default defineConfig({
       env: {
         PORT: String(API_LIVE_PORT),
         HOST: "127.0.0.1",
+        // 测试**绝不能**继承开发者本机的 .env —— 否则会跑成 live 并真的花钱。
+        // 实测踩到过：加了 .env 之后 e2e 直接打到真实模型上（见 F-041）。
+        PPC_NO_ENV_FILE: "1",
         // 假密钥：测试环境不放任何真实凭据
         MODEL_API_KEY: "test-key-not-a-real-secret",
         MODEL_BASE_URL: `http://127.0.0.1:${FAKE_MODEL_PORT}`,
@@ -163,7 +166,8 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
       cwd: repoRoot,
-      env: { PORT: String(API_PORT), HOST: "127.0.0.1" },
+      // 同上：测试用 mock，不读 .env
+      env: { PORT: String(API_PORT), HOST: "127.0.0.1", PPC_NO_ENV_FILE: "1" },
     },
     {
       command: `pnpm exec vite --port ${PORT} --strictPort --host 127.0.0.1`,

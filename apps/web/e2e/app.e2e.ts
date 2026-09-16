@@ -127,11 +127,16 @@ test.describe("App 整页链路", () => {
  * 这条用例守的正是 F-010/F-013 那个坑的形状：`mirrored` 必须**两侧取同一个值** ——
  * 预览的 class 与绘制层共用同一个表达式，改开关时两边一起变。
  */
+/**
+ * 真实挥拍素材的路径。未提供 `PPC_VERIFY_VIDEO` 时相关用例 skip —— 不伪装成通过。
+ * 素材含个人信息，**不随仓库分发**，必须由使用者自己指定。
+ */
+const VIDEO = process.env.PPC_VERIFY_VIDEO ?? "";
+
 test.describe("导入视频镜像开关（F-013）", () => {
   test("开关切换后，预览的翻转真的随之消失", async ({ page }) => {
     test.setTimeout(120_000);
-    const VIDEO = "D:/Users/tiany/Downloads/微信视频2026-09-16_011828_988.mp4";
-    test.skip(!existsSync(VIDEO), "验证视频不存在，无法进入练习页");
+    test.skip(!VIDEO || !existsSync(VIDEO), "未提供 PPC_VERIFY_VIDEO（真实挥拍素材），跳过");
 
     await page.goto("/");
     await page

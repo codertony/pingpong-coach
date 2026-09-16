@@ -23,6 +23,9 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      // 临时/调试目录（`.gitignore` 里也有）：本地探针脚本常直接用 DOM API，
+      // 被 lint 会报一堆 no-undef，挡住正常门禁。（实测踩过）
+      "**/.tmp-*/**",
       "**/node_modules/**",
       "**/coverage/**",
       "**/*.d.ts",

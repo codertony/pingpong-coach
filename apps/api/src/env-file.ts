@@ -102,8 +102,14 @@ export function applyEnvFile(
  * 两个位置都查，因为启动目录随调用方式而变：`pnpm --filter` 的 cwd 是
  * `apps/api`（所以仓库根的 `.env` 是 `../../.env`），而从仓库根直接跑时
  * 就落在 `./.env`。可用 `PPC_ENV_FILE` 显式指定，指定了就只用它。
+ *
+ * ⚠️ **`PPC_NO_ENV_FILE=1` 时完全不加载** —— 给测试用。原因很硬：
+ * e2e 会自己起 API 进程，如果它读到开发者本机的 `.env`，就会
+ * ① 跑成 live 而不是 mock，测试结果不再确定；② **真的花钱**。
+ * 实测踩到过：加了 `.env` 之后 `pnpm test:e2e` 直接打到了真实模型上。
  */
 export function defaultEnvCandidates(cwd: string = process.cwd()): string[] {
+  if (process.env.PPC_NO_ENV_FILE === "1") return [];
   const explicit = process.env.PPC_ENV_FILE;
   if (explicit != null && explicit.trim() !== "") return [explicit];
   return [resolve(cwd, ".env"), resolve(cwd, "../../.env")];

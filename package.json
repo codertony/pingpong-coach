@@ -19,7 +19,7 @@
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "verify": "pnpm typecheck && pnpm typecheck:scripts && pnpm lint && pnpm format:check && pnpm audit:wiring && pnpm check:docs && pnpm test && pnpm build && pnpm check:bundle",
+    "verify": "pnpm typecheck && pnpm typecheck:scripts && pnpm lint && pnpm format:check && pnpm audit:wiring && pnpm check:docs && pnpm check:secrets && pnpm test && pnpm build && pnpm check:bundle",
     "models:fetch": "node scripts/fetch-models.mjs",
     "check:bundle": "node scripts/check-bundle.mjs",
     "eval:replay": "tsx scripts/eval-replay.ts",
@@ -28,7 +28,8 @@
     "prepare": "husky",
     "audit:wiring": "node scripts/audit-wiring.mjs --strict",
     "check:docs": "node scripts/check-docs.mjs",
-    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json"
+    "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
+    "check:secrets": "node scripts/check-secrets.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

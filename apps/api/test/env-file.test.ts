@@ -128,7 +128,7 @@ describe("defaultEnvCandidates — 查找顺序", () => {
     const prev = process.env.PPC_ENV_FILE;
     delete process.env.PPC_ENV_FILE;
     try {
-      // 用 resolve 构造期望值，避免把 POSIX 路径写死（Windows 上是 E:\...）
+      // 用 resolve 构造期望值，避免把 POSIX 路径写死（Windows 上会带盘符）
       const cwd = "/repo/apps/api";
       const list = defaultEnvCandidates(cwd);
       expect(list).toEqual([resolve(cwd, ".env"), resolve(cwd, "../../.env")]);
@@ -145,6 +145,28 @@ describe("defaultEnvCandidates — 查找顺序", () => {
     } finally {
       if (prev == null) delete process.env.PPC_ENV_FILE;
       else process.env.PPC_ENV_FILE = prev;
+    }
+  });
+
+  /**
+   * 测试必须能**彻底关掉** `.env` 加载。
+   *
+   * 不是为了洁癖：e2e 会自己起 API 进程，若它读到开发者本机的 `.env`，
+   * ① 会跑成 live 而不是 mock（结果不再确定）；② **真的花钱**。
+   * 实测踩到过 —— 加了 `.env` 之后 `pnpm test:e2e` 直接打到了真实模型上。
+   */
+  it("PPC_NO_ENV_FILE=1 时一个候选都不返回（测试用）", () => {
+    const prev = process.env.PPC_NO_ENV_FILE;
+    process.env.PPC_NO_ENV_FILE = "1";
+    try {
+      expect(defaultEnvCandidates("/repo/apps/api")).toEqual([]);
+      // 连 PPC_ENV_FILE 显式指定的也要压过去 —— 测试场景下不该有例外
+      process.env.PPC_ENV_FILE = "/custom/my.env";
+      expect(defaultEnvCandidates("/repo/apps/api")).toEqual([]);
+      delete process.env.PPC_ENV_FILE;
+    } finally {
+      if (prev == null) delete process.env.PPC_NO_ENV_FILE;
+      else process.env.PPC_NO_ENV_FILE = prev;
     }
   });
 });

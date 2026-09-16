@@ -68,6 +68,8 @@ export function App() {
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  /** 导入视频时，采集元素被挂进这个容器（显示与采集同一个元素，见 F-040） */
+  const videoHostRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<PoseEngine | null>(null);
   const schedulerRef = useRef<FrameScheduler | null>(null);
@@ -388,29 +390,47 @@ export function App() {
   ]);
 
   /**
-   * 把采集流接到界面上的 <video>。
+   * 把采集流接到界面上的 `<video>`。
    *
    * 采集用的 video 元素是离屏创建的：点「开始训练」时界面还停在「拍摄检查」页，
    * 练习页的 <video> 尚未挂载，此时直接赋值会落空（元素为 null），
    * 于是切到练习页后只有一块黑屏。等元素真正挂载后再接一次。
+   *
+   * ## 导入视频：**显示与采集必须是同一个元素**（F-040）
+   *
+   * 摄像头那条路是"离屏元素采集 + 界面元素显示同一路 MediaStream"，
+   * 两边共享同一个流，所以天然同步。
+   * **导入视频没有流** —— 原先给它单独 `el.src = handle.video.src`，
+   * 于是同一个文件被**播了两遍**：离屏那个（`loop = true`）喂分析，
+   * 界面上那个（默认 `loop = false`）只负责显示。两者各自计时、互不影响。
+   *
+   * 表现就是用户报的那个：**界面上的视频播完停住了，骨架还在动** ——
+   * 因为喂分析的那个还在循环。所以这里改成：把采集元素**本身**挂进 `.stage`，
+   * 只有一个播放实例，画面与分析永远同一帧。
    */
   useEffect(() => {
-    const el = videoRef.current;
     const handle = captureRef.current;
-    // 同一路采集不重复赋值：给导入视频重新赋 src 会让预览跳回开头
-    if (
-      !el ||
-      !handle ||
-      (el.srcObject === handle.video.srcObject && el.src === handle.video.src)
-    ) {
+    if (!handle) return;
+
+    if (sourceKind === "video") {
+      const host = videoHostRef.current;
+      if (!host) return;
+      // 镜像类名每次同步（切开关时立刻生效）
+      handle.video.className = mirrored ? "mirrored" : "";
+      if (handle.video.parentElement !== host) host.replaceChildren(handle.video);
+      return;
+    }
+
+    const el = videoRef.current;
+    // 同一路采集不重复赋值：重复赋 srcObject 会让预览跳回开头
+    if (!el || (el.srcObject === handle.video.srcObject && el.src === handle.video.src)) {
       return;
     }
     el.srcObject = handle.video.srcObject;
-    if (sourceKind === "video") el.src = handle.video.src;
     void el.play().catch(() => {
       /* 自动播放被拦截时用户可手动点击播放 */
     });
-  }, [tab, running, sourceKind]);
+  }, [tab, running, sourceKind, mirrored]);
 
   /** 一组完成后：发起一次模型分析，并把结果并入复查。 */
   const handleGroup = useCallback(async (packet: EvidencePacket) => {
@@ -591,6 +611,8 @@ export function App() {
         <PracticeView
           {...{
             videoRef,
+            videoHostRef,
+            sourceKind,
             canvasRef,
             running,
             statusText,
@@ -978,6 +1000,10 @@ function SetupView(props: SetupProps) {
 
 interface PracticeProps {
   videoRef: React.RefObject<HTMLVideoElement>;
+  /** 导入视频时采集元素挂这里；摄像头模式不用它（见 F-040） */
+  videoHostRef: React.RefObject<HTMLDivElement>;
+  /** 采集来源：决定预览是渲染 <video> 还是挂采集元素本身 */
+  sourceKind: "camera" | "video";
   canvasRef: React.RefObject<HTMLCanvasElement>;
   running: boolean;
   statusText: string;
@@ -1048,12 +1074,17 @@ function PracticeView(props: PracticeProps) {
             </div>
           </div>
           <div className="stage">
-            <video
-              ref={props.videoRef}
-              className={props.mirrored ? "mirrored" : undefined}
-              playsInline
-              muted
-            />
+            {props.sourceKind === "video" ? (
+              // 导入视频：采集元素被挂进来（唯一播放实例）
+              <div ref={props.videoHostRef} className="stage-host" />
+            ) : (
+              <video
+                ref={props.videoRef}
+                className={props.mirrored ? "mirrored" : undefined}
+                playsInline
+                muted
+              />
+            )}
             <canvas ref={props.canvasRef} />
           </div>
           <div className="spacer" />

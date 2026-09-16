@@ -8,13 +8,12 @@
 
 ---
 
-## 阶段 0 · 解压与安装
+## 阶段 0 · 取得代码与安装
 
-### 0.1 解压
+### 0.1 克隆仓库
 
 ```bash
-cd /e/workSpace          # 本机仓库在 E 盘
-unzip pingpong-coach.zip -d .
+git clone <仓库地址> pingpong-coach
 cd pingpong-coach
 ```
 
@@ -26,7 +25,7 @@ cd pingpong-coach
 ls -a | grep git
 ```
 
-**预期**：输出 `.git` 和 `.github` 两项。若只有 `.github`，说明压缩包丢了 Git 历史，记一笔。
+**预期**：输出 `.git` 和 `.github` 两项。
 
 ### 0.2 装 pnpm（如未装）
 
@@ -71,7 +70,7 @@ pnpm verify
 ```
 packages/contracts  Tests   32 passed (32)
 packages/motion-core Tests 215 passed (215)
-apps/api            Tests  156 passed | 1 skipped (157)
+apps/api            Tests  157 passed | 1 skipped (158)
 apps/web            Tests  105 passed (105)
 ...
 ✓ built in ~2s
@@ -81,7 +80,7 @@ apps/web            Tests  105 passed (105)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **509**）
+- [ ] 四组测试数字与上面完全一致（总共 **510**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -95,7 +94,7 @@ apps/web            Tests  105 passed (105)
 pnpm test:e2e
 ```
 
-**预期**：`60 passed, 11 skipped`，约 40 秒（跳过的是需要真实素材、真实摄像头
+**预期**：`60 passed, 12 skipped`，约 45 秒（跳过的是需要真实素材、真实摄像头
 或 20 分钟时长的探针）。
 
 ### 2.1 可选：用一段素材验证"活链路"（不需要摄像头）
@@ -173,7 +172,7 @@ E2E_STAGE2_PORT=8991 pnpm test:e2e
 live API `E2E_API_LIVE_PORT`(8789)、假模型供应商 `E2E_FAKE_MODEL_PORT`(8790)、
 stage2 转发 `E2E_STAGE2_PORT`(8891)。
 
-- [ ] 71 项（含若干项按需 skip：真实素材、真实摄像头、20 分钟 soak 都默认跳过）
+- [ ] 72 项（含若干项按需 skip：真实素材、真实摄像头、20 分钟 soak 都默认跳过）
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________
@@ -441,7 +440,7 @@ curl http://127.0.0.1:8787/api/health
 
 ```bash
 # ① 逐帧回放，导出观测（在 apps/web 下产出 .tmp-eval/pose-timeline.json）
-PPC_VERIFY_VIDEO="D:\path\to\clip.mp4" pnpm --filter @pingpong/web test:e2e segmentation-eval
+PPC_VERIFY_VIDEO="<素材绝对路径>" pnpm --filter @pingpong/web test:e2e segmentation-eval
 
 # ② 从回放数据里框出准备区半径的可行区间
 pnpm diagnose:thresholds --timeline apps/web/.tmp-eval/pose-timeline.json
