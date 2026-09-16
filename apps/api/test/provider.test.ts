@@ -248,6 +248,50 @@ describe("callModel — live 模式成功路径", () => {
     expect(firstUrl.startsWith("data:image/jpeg;base64,")).toBe(true);
   });
 
+  /**
+   * 推理强度是**推理 token 消耗的旋钮**，也就是 F-038 那个截断的根因所在。
+   * 但各提供商的合法取值不同（DeepSeek 文档示例是 `"high"`），
+   * 所以这里**只透传、不猜值**：不配就一个字段都不多发。
+   */
+  it("未配置 reasoning_effort 时**不带**该字段（不猜提供商要什么）", async () => {
+    let captured: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        captured = JSON.parse(init.body as string);
+        return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await callModel(liveConfig(), makePacket(), [], noAllowed);
+
+    expect(captured).not.toBeNull();
+    expect(Object.hasOwn(captured as unknown as Record<string, unknown>, "reasoning_effort")).toBe(
+      false,
+    );
+  });
+
+  it("配置了 reasoning_effort 时原样透传", async () => {
+    let captured: Record<string, unknown> | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        captured = JSON.parse(init.body as string);
+        return new Response(JSON.stringify({ choices: [{ message: { content: "{}" } }] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await callModel(liveConfig({ modelReasoningEffort: "high" }), makePacket(), [], noAllowed);
+
+    expect((captured as unknown as { reasoning_effort: string }).reasoning_effort).toBe("high");
+  });
+
   it("授权头使用 Bearer，密钥只在服务端请求头里出现", async () => {
     let headers: Record<string, string> = {};
     vi.stubGlobal(

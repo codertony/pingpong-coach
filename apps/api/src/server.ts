@@ -16,6 +16,7 @@ import { existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { RULE_VERSION } from "@pingpong/contracts";
 import { loadConfig, type ServerConfig } from "./config.js";
+import { applyEnvFile, defaultEnvCandidates } from "./env-file.js";
 import { analyze } from "./coach/analyze.js";
 import { RequestDedupe } from "./coach/dedupe.js";
 import { loadKnowledge } from "./coach/knowledge.js";
@@ -55,7 +56,24 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
 
   // POST /api/coach/analyze
   app.post("/api/coach/analyze", async (request, reply) => {
-    const result = await analyze(request.body, { config, dedupe });
+    const result = await analyze(request.body, {
+      config,
+      dedupe,
+      // 真实模型按 token 计费，而响应体里不带用量 —— 不记日志的话
+      // "这次花了多少"在产品里完全不可见。只记日志，不动契约。
+      onModelUsage: (u) => {
+        request.log.info(
+          {
+            modelId: u.modelId,
+            mock: u.mock,
+            inputTokens: u.inputTokens,
+            outputTokens: u.outputTokens,
+            modelElapsedMs: u.elapsedMs,
+          },
+          u.mock ? "模型调用为 mock（不计费）" : "模型调用用量",
+        );
+      },
+    });
     if (result.ok) {
       return reply.status(200).send({
         ok: true,
@@ -93,10 +111,20 @@ export async function buildServer(options: BuildServerOptions = {}): Promise<Fas
 
 /** 直接运行时的入口。 */
 async function main(): Promise<void> {
+  // ⚠️ 必须在 loadConfig() **之前**：配置是从 process.env 读的。
+  // 只放在入口里、不放进 loadConfig()，是为了让测试不受开发者本机 .env 影响。
+  const envFile = applyEnvFile(defaultEnvCandidates());
   const config = loadConfig();
   const app = await buildServer({ config });
   try {
     await app.listen({ port: config.port, host: config.host });
+    if (envFile.path != null) {
+      // 只报**文件名与变量名**，绝不报值（红线 11）
+      app.log.info(
+        { envFile: envFile.path, applied: envFile.appliedNames },
+        `已从 .env 载入 ${envFile.appliedNames.length} 个变量`,
+      );
+    }
     app.log.info(
       `pingpong-coach API 就绪 | 模式=${config.modelMode} | 模型=${config.modelId} | http://${config.host}:${config.port}`,
     );

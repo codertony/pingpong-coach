@@ -78,6 +78,9 @@ export async function callModel(
         model: config.modelId,
         max_tokens: config.modelMaxTokens,
         temperature: 0.2,
+        // 只在**显式配置**时才发送：不同提供商的合法取值不同，猜一个可能 400。
+        // 它是推理 token 消耗的旋钮 —— 也就是 F-038 那个截断的根因所在。
+        ...(config.modelReasoningEffort ? { reasoning_effort: config.modelReasoningEffort } : {}),
         messages: [
           { role: "system", content: system },
           { role: "user", content },

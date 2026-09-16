@@ -23,6 +23,21 @@ export interface AnalyzeDeps {
   dedupe: RequestDedupe;
   /** 注入时钟，便于测试 */
   now?: () => number;
+  /**
+   * 每次**真实模型调用**后的用量回调（可选）。
+   *
+   * 为什么要有它：接真实模型是**按 token 计费**的，而响应体里不带用量，
+   * 于是"这次花了多少"在产品里**完全不可见**。这里不往契约里加字段
+   * （那会动到前端与校验），只开一个口子让服务端把用量**记进日志**。
+   * mock 调用也会回调，但 `mock: true` 标着，避免被当作真实费用。
+   */
+  onModelUsage?: (usage: {
+    modelId: string;
+    mock: boolean;
+    inputTokens: number | null;
+    outputTokens: number | null;
+    elapsedMs: number;
+  }) => void;
 }
 
 export interface AnalyzeSuccess {
@@ -45,6 +60,9 @@ export type AnalyzeResult = AnalyzeSuccess | AnalyzeFailure;
 export async function analyze(body: unknown, deps: AnalyzeDeps): Promise<AnalyzeResult> {
   const { config, dedupe } = deps;
   const now = deps.now ?? (() => Date.now());
+  // 取出来单独持有：真正调模型的那段在一个**嵌套函数**里，
+  // 那里够不到 `deps`（踩过：写成 deps.onModelUsage?.() 会抛 "deps is not defined"）。
+  const onModelUsage = deps.onModelUsage;
 
   // 1) 前端传来的数据必须再次校验
   const parsed = evidencePacketSchema.safeParse(body);
@@ -98,7 +116,7 @@ export async function analyze(body: unknown, deps: AnalyzeDeps): Promise<Analyze
   }
 
   // 6) 构造任务
-  const task = runAnalysis(packet, config, now);
+  const task = runAnalysis(packet, config, now, onModelUsage);
   dedupe.begin(packet.sessionId, packet.requestId, task);
 
   try {
@@ -134,6 +152,7 @@ async function runAnalysis(
   packet: EvidencePacket,
   config: ServerConfig,
   now: () => number,
+  onModelUsage: AnalyzeDeps["onModelUsage"],
 ): Promise<CoachFeedback> {
   const started = now();
 
@@ -148,6 +167,14 @@ async function runAnalysis(
 
   // 一次模型调用，无自动重试
   const result = await callModel(config, packet, entries, allowed);
+
+  onModelUsage?.({
+    modelId: config.modelId,
+    mock: result.mock,
+    inputTokens: result.usage.inputTokens,
+    outputTokens: result.usage.outputTokens,
+    elapsedMs: result.elapsedMs,
+  });
 
   if (result.raw == null) {
     const code = result.error ?? "model_unavailable";

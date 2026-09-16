@@ -23,6 +23,67 @@ function deps(configOverrides: Partial<ServerConfig> = {}) {
   };
 }
 
+describe("analyze — 模型用量可观测（费用）", () => {
+  it("每次模型调用后回调用量，且 mock 也标着 mock（不冒充真实费用）", async () => {
+    const seen: Array<{ mock: boolean; inputTokens: number | null; outputTokens: number | null }> =
+      [];
+    const d = { ...deps(), onModelUsage: (u: (typeof seen)[number]) => seen.push(u) };
+
+    await analyze(makePacket(), d);
+
+    expect(seen).toHaveLength(1);
+    // mock 模式下用量必然是 null —— 它没联网，也就没有真实 token 消耗
+    expect(seen[0]?.mock).toBe(true);
+    expect(seen[0]?.inputTokens).toBeNull();
+  });
+
+  it("live 模式下回调里带真实 token 用量（这才是能算钱的那两个数）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  message: {
+                    content: JSON.stringify({
+                      status: "observation_only",
+                      observation: "本组 1 次挥拍。",
+                      evidenceRefs: ["return_after_wrist_peak_ms"],
+                      cue: null,
+                      nextDrillId: null,
+                      limitations: ["锚点为腕部速度峰值"],
+                    }),
+                  },
+                  finish_reason: "stop",
+                },
+              ],
+              usage: { prompt_tokens: 1181, completion_tokens: 698 },
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    const seen: Array<{ modelId: string; mock: boolean; inputTokens: number | null }> = [];
+    const d = {
+      ...deps({
+        modelMode: "live",
+        modelId: "m",
+        modelBaseUrl: "https://x.invalid",
+        modelApiKey: "k",
+      }),
+      onModelUsage: (u: (typeof seen)[number]) => seen.push(u),
+    };
+
+    await analyze(makePacket(), d);
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ mock: false, inputTokens: 1181, outputTokens: 698 });
+  });
+});
+
 describe("analyze — 输入校验", () => {
   it("合法证据包返回 ok:true 与反馈", async () => {
     const res = await analyze(makePacket(), deps());

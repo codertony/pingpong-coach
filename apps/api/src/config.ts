@@ -20,6 +20,15 @@ export interface ServerConfig {
   modelTimeoutMs: number;
   /** 模型输出 token 预算，初始约 400（方案 9.2） */
   modelMaxTokens: number;
+  /**
+   * 推理强度透传给提供商（`reasoning_effort`）；`null` = **不发送该字段**。
+   *
+   * 为什么要开这个口子：`F-038` 的截断根因是**推理模型把预算花在推理上**，
+   * 而推理强度正是那个量的旋钮。不同提供商的合法取值不同
+   * （DeepSeek 文档示例用 `"high"`），所以**只做透传、不做校验、不给默认值** ——
+   * 猜一个值发出去可能直接 400。不设就与现在行为完全一致。
+   */
+  modelReasoningEffort?: string | null;
   /** 证据包请求总大小上限，初始 2 MiB */
   maxRequestBytes: number;
   /** 已完成响应复用的保留时长 */
@@ -62,6 +71,8 @@ export function loadConfig(): ServerConfig {
     // 的 latency 快照与 `apps/api/test/config.test.ts` 一起改，否则就是悄悄放宽。
     modelTimeoutMs: envInt("MODEL_TIMEOUT_MS", 15_000),
     modelMaxTokens: envInt("MODEL_MAX_TOKENS", 2000),
+    // 空字符串 = 不发送（与"没配"同义），避免把 "" 当成一个值发给提供商
+    modelReasoningEffort: (process.env.MODEL_REASONING_EFFORT ?? "").trim() || null,
     maxRequestBytes: envInt("MAX_REQUEST_BYTES", 2 * 1024 * 1024),
     dedupeTtlMs: envInt("DEDUPE_TTL_MS", 30_000),
   };
