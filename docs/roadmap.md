@@ -19,8 +19,9 @@
 | **B 类 · 环境依赖** | 需要访问我网络里被墙的资源，或需要真实硬件 | **我做不完**，给你可执行步骤，你跑完把结论告诉我 |
 | **C 类 · 主观判断** | 需要"人觉得对不对" —— 文案是否自然、建议是否像教练说的、交互是否顺手 | **必须你判断**，我只能保证逻辑自洽 |
 
-**关键结论**：A 类我已经清空；B 类只剩 1 项（F-006 模型下载）；C 类**必须**由你走一遍，
-因为它是这个产品唯一无法用断言表达的部分。
+**关键结论**：**A 类已全部清空**（见第三节，A1–A9 逐条有结论）。
+剩余全部落在 B 类（需要真实设备/素材）与 C 类（需要人判断）——
+它们**无法用断言替代**，不是"没做完的代码工作"。
 
 ---
 
@@ -37,7 +38,7 @@
 | 前端采集链路 | `[x]` | web 64 项 vitest + 54 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
-| CI 流水线 | `[x]` | `.github/workflows/ci.yml`：verify + e2e 两个 job |
+| CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
 | 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → test → build → check:bundle |
 
 ### 已修复的真实缺陷（不是测试写错）

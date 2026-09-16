@@ -188,7 +188,7 @@ pingpong-coach/
 ├─ scripts/                 # fetch-models、eval-replay、check-bundle
 ├─ docs/                    # spec / acceptance / data-contracts / decisions / 评测日志 / 已知失败
 │                           # + roadmap（功能待办与分工）/ local-verification（本机验证清单）
-├─ .github/workflows/       # CI：verify + e2e 两个 job
+├─ .github/workflows/       # CI：verify + e2e + docker 三个 job
 ├─ eslint.config.mjs        # 架构护栏：依赖方向 + 红线约束（违规即报错）
 ├─ .husky/                  # 提交前门禁（lint-staged）
 ├─ Dockerfile               # 单容器镜像（三阶段；已实测构建并跑通）

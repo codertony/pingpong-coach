@@ -4,6 +4,12 @@
 # 把 lint 放在测试之前，是因为架构越界比测试失败更值得先拦下 ——
 # 它能防止代码在错误的方向上"测试全绿"。
 #
+# 三个 job 的分工：
+# - verify：与本地 `pnpm verify` 逐条对齐；
+# - e2e：真实 Chromium 跑浏览器测试。会自起 5 个进程，含一个 live 模式 API
+#   实例指向本地假供应商 —— 用来覆盖"模型输出经服务端校验"（红线 8）那条路径；
+# - docker：只验证镜像**能构建出来**，不起容器。拦住"Dockerfile 被改坏却无人察觉"。
+#
 # 需要说明的边界：本工作流运行在 GitHub 托管的 Ubuntu 上，没有摄像头，
 # 也无法在 CI 里做真实动作识别质量验证。它只能证明
 # 「代码契约与工程纪律成立」，不能证明「识别准确」。
@@ -88,8 +94,31 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
+      - name: 构建前端产物
+        # 集成测试会起第二个 API 实例（live 模式），它要托管 `apps/web/dist`
+        # 并提供 SPA 回退。不先构建的话那条链路在 CI 上没有产物可用。
+        run: pnpm build
+
       - name: 安装 Playwright 浏览器
         run: pnpm --filter @pingpong/web exec playwright install --with-deps chromium
 
       - name: 浏览器测试
         run: pnpm test:e2e
+
+  docker:
+    name: 镜像构建（Dockerfile）
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      # 只做**构建**验证，不起容器 —— 目的是拦住"Dockerfile 被改坏却没人发现"。
+      # 构建会在镜像内跑 pnpm install / models:fetch（校验 sha256）/ build，
+      # 所以这一步同时验证了依赖、模型来源与构建产物三者都还成立。
+      #
+      # 说明：这一步会真实下载约 22 MB 模型。受限网络下会失败 ——
+      # 那时应当显式跳过（或加 --build-arg SKIP_MODELS=1），而不是删掉这个 job。
+      - name: 构建镜像
+        run: docker build -t pingpong-coach:ci .
