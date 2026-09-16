@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import type { CoachFeedback, EvidencePacket, HealthResponse } from "@pingpong/contracts";
-import { DEFAULT_THRESHOLDS, type LocalVerdict } from "@pingpong/motion-core";
+import {
+  DEFAULT_QUALITY_CONFIG,
+  DEFAULT_THRESHOLDS,
+  type LocalVerdict,
+} from "@pingpong/motion-core";
 import { PoseEngine, type EngineStatus } from "../vision/pose-engine.js";
 import { FrameScheduler, SourceEpochTracker } from "../capture/frame-scheduler.js";
 import {
@@ -262,7 +266,10 @@ export function App() {
         if (result.detected) {
           drawSkeleton(canvas, result.keypoints2D, handedness, {
             mirrored,
-            minScore: 0.5,
+            // 与 TrainingSession 里"体尺度/准备区"同一个门槛（F-036）：
+            // 同一个事实（这具身体看得清吗）只允许有一个定义。
+            // 写死 0.5 会让两处各漂各的 —— 本项目已经栽过好几次。
+            minScore: DEFAULT_QUALITY_CONFIG.minScore,
           });
         } else {
           canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);

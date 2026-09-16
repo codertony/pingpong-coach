@@ -146,7 +146,13 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
           const kp = res.landmarks?.[0];
           const detectedPose = kp != null;
 
-          const keypoints2D = [];
+          const keypoints2D: Array<{
+            name: string;
+            xPx: number;
+            yPx: number;
+            score: number | null;
+            visible: boolean;
+          }> = [];
           if (kp) {
             for (const [idx, name] of Object.entries(IDX_TO_NAME)) {
               const p = kp[Number(idx)];
@@ -202,6 +208,15 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
             // 不记的话只能从半径反推，而反推依赖"半径是按当前配置算的"这个前提 ——
             // 配置一改，反推就错（见 F-032）。
             bodyScalePx: session.telemetry.bodyScalePx,
+            // 躯干四点的**最低置信度** —— 决定 F-036 能不能修的那个量。
+            // 体尺度是拿肩中点与髋中点算的，而这条路径**不看置信度**
+            // （`findPoint` 只挡 `visible === false`）；绘制层却要求 ≥0.5。
+            // 记下它，就能用真实素材回答"给体尺度套 0.5 门槛会掉多少帧"。
+            torsoMinScore: (() => {
+              const names = ["left_shoulder", "right_shoulder", "left_hip", "right_hip"];
+              const scores = names.map((n) => keypoints2D.find((k) => k.name === n)?.score ?? null);
+              return scores.some((s) => s == null) ? null : Math.min(...(scores as number[]));
+            })(),
           });
         }
 

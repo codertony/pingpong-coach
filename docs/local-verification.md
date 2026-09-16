@@ -72,7 +72,7 @@ pnpm verify
 packages/contracts  Tests   32 passed (32)
 packages/motion-core Tests 215 passed (215)
 apps/api            Tests  136 passed (136)
-apps/web            Tests  102 passed (102)
+apps/web            Tests  105 passed (105)
 ...
 ✓ built in ~2s
 ✓ 依赖体积在预算内。
@@ -81,7 +81,7 @@ apps/web            Tests  102 passed (102)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **485**）
+- [ ] 四组测试数字与上面完全一致（总共 **488**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -117,8 +117,8 @@ PPC_FAKE_CAMERA_Y4M="$PWD/apps/web/.tmp-fakecam/clip.y4m" pnpm test:e2e live-cap
 **预期**：`2 passed`，且会打印两条的**出现率**，例如：
 
 ```
-[live-capture] 真人画面：骨架出现率 20/20（单帧峰值 194）、准备区出现率 20/20
-[live-capture] 合成图案（无人）：骨架出现率 1/20（单帧峰值 57）、准备区出现率 10/20
+[live-capture] 真人画面：骨架出现率 20/20（单帧峰值 198）、准备区出现率 20/20
+[live-capture] 合成图案（无人）：骨架出现率 0/20（单帧峰值 0）、准备区出现率 0/20
 ```
 
 同时在 `apps/web/.tmp-fakecam/live-capture.png` 留一张现场图。
@@ -131,10 +131,11 @@ PPC_FAKE_CAMERA_Y4M="$PWD/apps/web/.tmp-fakecam/clip.y4m" pnpm test:e2e live-cap
 第一条的通过说明不了任何事。
 
 > 为什么用**出现率**而不是"有没有像素"：合成图案上 MediaPipe 会偶发误检，
-> 幅度不比真人小多少（单帧 57~71 vs 真人 135~210），
+> 幅度还不小（单帧能到 57~71，而真人单帧 135~211），
 > 但**幻觉是零星的、真人是持续的** —— 能分开它们的是时间占比。
-> 上面那两行里第二行还顺带量到了一个**未修的缺陷**（准备区圆 10/20
-> 而骨架只有 1/20），见 `docs/known-failures.md` F-036。
+> 这条反向对照还顺带量出并修掉了一个真实缺陷（F-036：同一件事实
+> 两处口径不同，当时准备区圆 10/20 而骨架只有 1/20），见
+> `docs/known-failures.md` F-036。
 
 > 端到端测试会**自己起两个进程**：vite（端口 5199）和一个**真实的 API 进程**
 > （端口 8788，mock 模式）。后者是为了让"前端 → 代理 → 真实后端"这条链路
@@ -147,12 +148,30 @@ PPC_FAKE_CAMERA_Y4M="$PWD/apps/web/.tmp-fakecam/clip.y4m" pnpm test:e2e live-cap
 3. 都没有才回退 Playwright 自带的。
 
 如果你机器上装了 Chrome/Edge，通常会直接用，**不需要额外下载**。
-如果它坚持要下载而且网络装不上，指定一下：
+**如果它坚持要下载而且网络装不上**，指定一下：
 
 ```bash
 # Windows Git Bash 示例
 CHROMIUM_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" pnpm test:e2e
 ```
+
+### 2.0 端口被占用怎么办（本机实测会撞）
+
+e2e 会起 5 个进程，端口**可以由环境变量覆盖**。实测你这台机器上
+**8891 已经被 `LZTray` / `verge-mihomo`（代理类常驻软件）占着**，
+而它正好是 e2e 第 5 个进程（stage2 转发）的默认端口 ——
+症状是 `Process from config.webServer was not able to start` 加一句
+`EADDRINUSE 127.0.0.1:8891`。
+
+**不要**为了跑测试去关掉你的代理软件，换个端口就行：
+
+```bash
+E2E_STAGE2_PORT=8991 pnpm test:e2e
+```
+
+各端口与对应的覆盖变量：vite `E2E_PORT`(5199)、API `E2E_API_PORT`(8788)、
+live API `E2E_API_LIVE_PORT`(8789)、假模型供应商 `E2E_FAKE_MODEL_PORT`(8790)、
+stage2 转发 `E2E_STAGE2_PORT`(8891)。
 
 - [ ] 71 项（含若干项按需 skip：真实素材、真实摄像头、20 分钟 soak 都默认跳过）
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）

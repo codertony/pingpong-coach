@@ -168,6 +168,42 @@ function findPoint(kps: Keypoint2D[], name: string): { x: number; y: number } | 
 }
 
 /**
+ * 找关键点，**并且要求它达到置信度门槛**。
+ *
+ * ## 为什么需要它（F-036）
+ *
+ * `findPoint` 只挡 `visible === false`，而 `visible` 的定义是
+ * **`confidence > 0`** —— 于是置信度 0.01 的点与 0.99 的点对它**等价**。
+ * 而绘制层要求 `score ≥ minScore`，低于门槛一个点都不画。
+ * 同一件事实（"这具身体看得清吗"）于是有了**两套口径**。
+ *
+ * 实测的后果（合成图案、画面无人）：**准备区圆画出来 10/20 次，
+ * 而骨架只出现 1/20 次** —— 屏幕在画一个它几乎不肯承认看得见的身体的约束圈。
+ *
+ * ## 门槛从哪来
+ *
+ * 用**绘制层同一个常量**（`DEFAULT_QUALITY_CONFIG.minScore`），
+ * 而不是再写一个 0.5 —— 同一个事实只有一个定义，是这条修复的重点。
+ *
+ * ## `score === null` 怎么办
+ *
+ * **不判为不可靠**。`null` 的意思是"未知"而不是"低"（红线 1 的同一条精神）：
+ * 手部模型的关键点置信度就恒为 `null`（见 `pose.worker.ts` 的注释）。
+ * 把"未知"当成"不可靠"会静默地把一整条链路掐掉 —— 本项目栽过这个跟头。
+ */
+function findPointAboveScore(
+  kps: Keypoint2D[],
+  name: string,
+  minScore: number,
+): { x: number; y: number } | null {
+  const point = findPoint(kps, name);
+  if (!point) return null;
+  const score = kps.find((k) => k.name === name)?.score;
+  if (score != null && score < minScore) return null;
+  return point;
+}
+
+/**
  * 训练会话。
  * 用法：创建 → pushPoseResult(逐帧) → closeGroup() 触发一次分析。
  */
@@ -391,15 +427,40 @@ export class TrainingSession {
     this.geometries.push(geom);
     if (this.geometries.length > 600) this.geometries.shift();
 
-    // 腕部滤波：因果、单向，不偷看未来帧
+    /**
+     * 腕部滤波：因果、单向，不偷看未来帧。
+     *
+     * ⚠️ **这里刻意不套置信度门槛**（与上方体尺度相反，见 F-036）。
+     * 理由是这两条路的**承诺对象不同**：
+     *
+     * - 体尺度 → 画在屏幕上的准备区半径 + 证据包里的"本组约束"，
+     *   即**对用户的承诺**，所以必须与绘制层同口径；
+     * - 腕部 → **内部状态估计**。低置信度的点仍是信息，而它已经有
+     *   两层兜底：因果滤波降噪，以及"逐帧质量分级 + 本组可判门槛"
+     *   （`minUsableFrameRatio`）。整组都不可靠时会被标成不可判，
+     *   而不会伪装成有效结论。
+     *
+     * 还有一条更硬的理由：**手部/腕部在运动模糊下掉置信度是已知的常态**
+     * （见 F-006 的记录），而这里没有那种素材的实测数据 ——
+     * 在真实数据之前调这个口径，就是把猜测从一个值挪到另一个值。
+     */
     const rawWrist = findPoint(result.keypoints2D, `${this.config.handedness}_wrist`);
     const filteredWrist = rawWrist ? this.wristFilter.push(rawWrist, result.sourceTimeMs) : null;
 
-    // 躯干参考与体尺度
-    const lShoulder = findPoint(result.keypoints2D, "left_shoulder");
-    const rShoulder = findPoint(result.keypoints2D, "right_shoulder");
-    const lHip = findPoint(result.keypoints2D, "left_hip");
-    const rHip = findPoint(result.keypoints2D, "right_hip");
+    // 躯干参考与体尺度。
+    //
+    // ⚠️ 这里用**带置信度门槛**的查找（F-036）：体尺度会变成画在屏幕上的
+    // 准备区半径、也会进证据包当作"本组的明确约束"—— 那是**对用户的承诺**，
+    // 不能建立在一个绘制层会拒绝承认的身体上。门槛与绘制层同一个常量。
+    //
+    // 腕部**刻意不用**这个门槛（见下方 `rawWrist` 的注释）：那条路走的是内部
+    // 状态估计，且已经有质量分级与"本组是否可判"两层兜底；严格与宽松的
+    // 分界是"要不要对用户做出承诺"，不是"路径长短"。
+    const minKeypointScore = DEFAULT_QUALITY_CONFIG.minScore;
+    const lShoulder = findPointAboveScore(result.keypoints2D, "left_shoulder", minKeypointScore);
+    const rShoulder = findPointAboveScore(result.keypoints2D, "right_shoulder", minKeypointScore);
+    const lHip = findPointAboveScore(result.keypoints2D, "left_hip", minKeypointScore);
+    const rHip = findPointAboveScore(result.keypoints2D, "right_hip", minKeypointScore);
 
     let bodyScalePx: number | null = null;
     if (lShoulder && rShoulder && lHip && rHip) {
