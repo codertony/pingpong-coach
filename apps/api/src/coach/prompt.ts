@@ -5,7 +5,7 @@
  * 服务端必须实际检查 ID、schema、目标匹配和参考审核状态。
  */
 
-import type { EvidencePacket } from "@pingpong/contracts";
+import type { EvidencePacket, PhaseEvent } from "@pingpong/contracts";
 import type { AllowedOutputs, KnowledgeEntry } from "./knowledge.js";
 
 /** 系统提示词。逐条对应方案 9.4 的约束。 */
@@ -137,6 +137,14 @@ function renderPerStroke(packet: EvidencePacket): string {
     .join("\n");
 }
 
+/** 事件类型的中文说法。给模型看的是意思，不是我们的字段名。 */
+const EVENT_LABEL: Record<PhaseEvent["eventType"], string> = {
+  backswing_start: "引拍开始",
+  forward_start: "前挥开始",
+  return_start: "还原开始",
+  stroke_closed: "本板闭合",
+};
+
 function renderStrokes(packet: EvidencePacket): string {
   if (packet.strokes.length === 0) return "（本组无有效挥拍）";
   return packet.strokes
@@ -147,6 +155,15 @@ function renderStrokes(packet: EvidencePacket): string {
         s.complete ? "完整" : "不完整",
       ];
       if (s.reasons.length > 0) parts.push(`问题=${s.reasons.join(",")}`);
+      /*
+       * 这一板的**过程**（R4）。没有它，模型只能对首尾两端讲话 ——
+       * "引拍拖太久""前挥来得太晚"这类话都无从说起，因为没人告诉它分段在哪。
+       */
+      parts.push(
+        s.phaseEvents.length > 0
+          ? `过程=${s.phaseEvents.map((e) => `${EVENT_LABEL[e.eventType]}@${e.timeMs}ms`).join(" → ")}`
+          : "过程=（未记录到阶段转变）",
+      );
       return parts.join(" | ");
     })
     .join("\n");
@@ -170,6 +187,7 @@ export function buildPrompt(
 参考片段：${packet.referenceId ?? "无（不得输出技术动作「合格」）"}
 
 # 本组挥拍
+（"过程"里的时刻来自分段状态机的**阶段转变**，不是击球时刻；本组**没有**触球与随挥事件）
 ${renderStrokes(packet)}
 
 # 逐板测量值（每一板各自的数 —— 要讲"哪一板"就用这里的）

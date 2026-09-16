@@ -178,6 +178,7 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
         anchor: { type: "wrist_speed_peak", timeMs: 50 },
         impactTimeMs: null,
         complete: true,
+        phaseEvents: [],
         evidenceFrameIds: ["f-1"],
         reasons: [],
       },

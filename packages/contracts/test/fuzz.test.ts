@@ -97,6 +97,7 @@ function validPacket() {
         anchor: { type: "wrist_speed_peak", timeMs: 400 },
         impactTimeMs: null,
         complete: true,
+        phaseEvents: [],
         evidenceFrameIds: ["f-1"],
         reasons: [],
       },

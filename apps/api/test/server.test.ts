@@ -31,6 +31,7 @@ const PACKET_BODY = {
       anchor: { type: "wrist_speed_peak", timeMs: 400 },
       impactTimeMs: null,
       complete: true,
+      phaseEvents: [],
       evidenceFrameIds: ["f_1"],
       reasons: [],
     },

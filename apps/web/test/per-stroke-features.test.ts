@@ -97,3 +97,30 @@ describe("逐板测量值", () => {
     }
   });
 });
+
+/**
+ * 阶段事件（R4）：这一板的**过程**随证据包一起走。
+ *
+ * 上面测的是"逐板的数"，这里测的是"逐板的**分段**" —— 两者合起来，
+ * 模型才有素材回答"哪一板、哪个阶段、从何时开始"。
+ */
+describe("阶段事件", () => {
+  it("每一板都带**有序**的阶段事件，且落在该板自己的起止范围内", () => {
+    const p = run(3);
+    for (const s of p.strokes) {
+      expect(s.phaseEvents.length, `${s.strokeId} 没有阶段事件 —— 过程又丢了`).toBeGreaterThan(0);
+      const times = s.phaseEvents.map((e) => e.timeMs);
+      expect([...times].sort((a, b) => a - b)).toEqual(times);
+      expect(times[0]!).toBeGreaterThanOrEqual(s.startMs);
+      expect(times[times.length - 1]!).toBeLessThanOrEqual(s.endMs!);
+    }
+  });
+
+  it("完整走完的一板以 `stroke_closed` 收尾（过程与结论对得上）", () => {
+    const p = run(3);
+    for (const s of p.strokes) {
+      expect(s.complete).toBe(true);
+      expect(s.phaseEvents[s.phaseEvents.length - 1]!.eventType).toBe("stroke_closed");
+    }
+  });
+});

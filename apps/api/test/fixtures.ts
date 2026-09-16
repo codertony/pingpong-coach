@@ -19,6 +19,12 @@ export function makeStroke(overrides: Partial<StrokeEvent> = {}): StrokeEvent {
     anchor: { type: "wrist_speed_peak", timeMs: 1520 },
     impactTimeMs: null,
     complete: true,
+    phaseEvents: [
+      { eventType: "backswing_start", timeMs: 1100, supportFrameIds: ["f-1"] },
+      { eventType: "forward_start", timeMs: 1400, supportFrameIds: ["f-2"] },
+      { eventType: "return_start", timeMs: 1700, supportFrameIds: ["f-3"] },
+      { eventType: "stroke_closed", timeMs: 1900, supportFrameIds: ["f-3"] },
+    ],
     // 这一栏是**姿态帧**的 frameId（与下面的 keyframes[].frameId 对齐），
     // 不是关键帧的 id —— 原先这里写的是 ["kf-1","kf-2","kf-3"]（那是关键帧的 id），
     // 与契约里"keyframes[].frameId 必须与 strokes[].evidenceFrameIds 对齐"不符。

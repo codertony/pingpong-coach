@@ -64,6 +64,12 @@ const baseStroke = {
   anchor: { type: "wrist_speed_peak" as const, timeMs: 200 },
   impactTimeMs: null,
   complete: true,
+  phaseEvents: [
+    { eventType: "backswing_start", timeMs: 50, supportFrameIds: ["f1"] },
+    { eventType: "forward_start", timeMs: 200, supportFrameIds: ["f1"] },
+    { eventType: "return_start", timeMs: 350, supportFrameIds: ["f1"] },
+    { eventType: "stroke_closed", timeMs: 500, supportFrameIds: ["f1"] },
+  ],
   evidenceFrameIds: ["f1"],
   reasons: [],
 };
@@ -191,6 +197,27 @@ describe("EvidencePacket", () => {
       perStrokeFeatures: [...packet.perStrokeFeatures, { strokeId: "st-not-real", features: [] }],
     };
     expect(evidencePacketSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it("阶段事件**乱序**时被拒绝 —— 顺序错了等于把过程讲反了", () => {
+    const outOfOrder = {
+      ...packet,
+      strokes: [
+        {
+          ...baseStroke,
+          phaseEvents: [
+            { eventType: "forward_start" as const, timeMs: 400, supportFrameIds: ["f1"] },
+            { eventType: "backswing_start" as const, timeMs: 100, supportFrameIds: ["f1"] },
+          ],
+        },
+      ],
+    };
+    expect(evidencePacketSchema.safeParse(outOfOrder).success).toBe(false);
+  });
+
+  it("**没有阶段事件**不判为不合法（事件可以为空：能力边界写在 limitations 里）", () => {
+    const noEvents = { ...packet, strokes: [{ ...baseStroke, phaseEvents: [] }] };
+    expect(evidencePacketSchema.safeParse(noEvents).success).toBe(true);
   });
 
   it("逐板的 strokeId 写错时被拒绝（数量对得上也不行）", () => {

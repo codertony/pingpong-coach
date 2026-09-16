@@ -11,7 +11,20 @@
  * - 低质量或非练习动作不凑进有效挥拍数量。
  */
 
-import type { SegmentationConfig, StrokeEvent, StrokePhase } from "@pingpong/contracts";
+import type { PhaseEvent, SegmentationConfig, StrokeEvent, StrokePhase } from "@pingpong/contracts";
+
+/**
+ * 阶段 → 事件类型的映射。
+ *
+ * **只映射分段器真实产生的转变**：`idle` / `ready` / `aborted` 不入事件序列 ——
+ * 它们要么发生在两次挥拍之间，要么是异常结束，都不是"这一板的一件事"。
+ * 没有触球、没有随挥末端：现在检不出来，就不假装有（红线 2）。
+ */
+const PHASE_TO_EVENT: Partial<Record<StrokePhase, PhaseEvent["eventType"]>> = {
+  backswing: "backswing_start",
+  forward: "forward_start",
+  returning: "return_start",
+};
 
 /**
  * 分段阈值的**默认值**（不含 `strokeType` / `cameraView` / `handedness` ——
@@ -77,6 +90,14 @@ export class StrokeSegmenter {
   private readonly config: SegmentationConfig;
   private phase: StrokePhase = "idle";
   private phaseSinceMs = 0;
+
+  /**
+   * 本板的阶段事件（R4）。在 `enterPhase` 里记，在闭合/异常结束时挂到 `StrokeEvent` 上。
+   *
+   * 每次 `beginStroke` **重新赋一个空数组**（而不是 `length = 0`）：已经发出去的
+   * `StrokeEvent` 持有这个数组的引用，清空同一个数组会把**已经交出去的证据**也改掉。
+   */
+  private strokeEvents: PhaseEvent[] = [];
 
   // 当前进行中的挥拍
   private currentStrokeId: string | null = null;
@@ -210,7 +231,7 @@ export class StrokeSegmenter {
       case "ready": {
         if (distBodyScale <= this.config.readyZoneRadiusBodyScale) {
           if (this.phase !== "ready") {
-            this.enterPhase("ready", sample.sourceTimeMs);
+            this.enterPhase("ready", sample.sourceTimeMs, sample.frameId);
             this.zoneDwellMs = 0;
           } else {
             // 连续驻留：只有与上一采样连续在区内才累加，中断即清零。
@@ -232,9 +253,9 @@ export class StrokeSegmenter {
             this.zoneDwellMs = 0;
             if (this.currentStrokeId != null) {
               this.backswingMaxDistBodyScale = distBodyScale;
-              this.enterPhase("backswing", sample.sourceTimeMs);
+              this.enterPhase("backswing", sample.sourceTimeMs, sample.frameId);
             } else {
-              this.enterPhase("idle", sample.sourceTimeMs);
+              this.enterPhase("idle", sample.sourceTimeMs, sample.frameId);
             }
           } else {
             // 缓冲区：驻留计时中断，但不切换阶段
@@ -259,7 +280,7 @@ export class StrokeSegmenter {
         const closingIn = distBodyScale < this.lastDistBodyScale - 0.01;
         const fastEnough = speed >= this.config.forwardMinSpeedBodyScalePerSec;
         if (confirmedBackswing && closingIn && fastEnough) {
-          this.enterPhase("forward", sample.sourceTimeMs);
+          this.enterPhase("forward", sample.sourceTimeMs, sample.frameId);
         }
         break;
       }
@@ -269,7 +290,7 @@ export class StrokeSegmenter {
         this.collectFrame(sample);
         if (distBodyScale <= this.config.readyZoneRadiusBodyScale) {
           // 进入还原观察期，从这里开始累计驻留时间
-          this.enterPhase("returning", sample.sourceTimeMs);
+          this.enterPhase("returning", sample.sourceTimeMs, sample.frameId);
           this.zoneDwellMs = 0;
         }
         break;
@@ -294,7 +315,7 @@ export class StrokeSegmenter {
           // 不在 forward / returning 之间来回弹跳。
           this.zoneDwellMs = 0;
           this.backswingMaxDistBodyScale = distBodyScale;
-          this.enterPhase("backswing", sample.sourceTimeMs);
+          this.enterPhase("backswing", sample.sourceTimeMs, sample.frameId);
         } else {
           // 处于区内与离开阈值之间的缓冲区：驻留计时中断，但不切换阶段（有界滞后）
           this.zoneDwellMs = 0;
@@ -303,7 +324,7 @@ export class StrokeSegmenter {
       }
 
       case "aborted":
-        this.enterPhase("idle", sample.sourceTimeMs);
+        this.enterPhase("idle", sample.sourceTimeMs, sample.frameId);
         break;
     }
 
@@ -386,6 +407,7 @@ export class StrokeSegmenter {
     this.strokeStartMs = sample.sourceTimeMs;
     this.strokeFrames = [sample.frameId];
     this.strokeReasons = [];
+    this.strokeEvents = [];
     this.peakSpeedBodyScalePerSec = -1;
     this.peakTimeMs = null;
     this.peakFrameId = null;
@@ -402,9 +424,28 @@ export class StrokeSegmenter {
     if (!this.strokeReasons.includes(reason)) this.strokeReasons.push(reason);
   }
 
-  private enterPhase(phase: StrokePhase, timeMs: number): void {
+  /**
+   * 切换阶段。**阶段转变就是事件**，所以记录也在这里做 —— 一处记录，
+   * 不靠在每个调用点各写一遍（那正是"同一件事写在好几处"的老毛病）。
+   *
+   * @param supportFrameId 触发这次转变的帧；拿不到时传 null（异常结束路径）
+   */
+  private enterPhase(phase: StrokePhase, timeMs: number, supportFrameId: string | null): void {
     this.phase = phase;
     this.phaseSinceMs = timeMs;
+
+    // 只记**属于某一次挥拍**的转变：idle / ready / aborted 要么在两次挥拍之间，
+    // 要么是异常结束，都不是"这一板发生的一件事"。
+    if (this.currentStrokeId != null) {
+      const eventType = PHASE_TO_EVENT[phase];
+      if (eventType != null) {
+        this.strokeEvents.push({
+          eventType,
+          timeMs,
+          supportFrameIds: supportFrameId ? [supportFrameId] : [],
+        });
+      }
+    }
   }
 
   private phaseElapsed(nowMs: number): number {
@@ -417,6 +458,12 @@ export class StrokeSegmenter {
   private completeStroke(sample: SegmentationSample): StrokeEvent {
     const strokeId = this.currentStrokeId!;
     const anchorTime = this.peakTimeMs ?? this.strokeStartMs;
+    // 闭合本身也是一件事：在区内稳定驻留够久，这一板才算数
+    this.strokeEvents.push({
+      eventType: "stroke_closed",
+      timeMs: sample.sourceTimeMs,
+      supportFrameIds: [sample.frameId],
+    });
     const event: StrokeEvent = {
       strokeId,
       startMs: this.strokeStartMs,
@@ -425,6 +472,7 @@ export class StrokeSegmenter {
       // 未可靠识别球拍接触球 → 始终为 null
       impactTimeMs: null,
       complete: true,
+      phaseEvents: this.strokeEvents,
       evidenceFrameIds: dedupe([
         ...this.strokeFrames,
         ...(this.peakFrameId ? [this.peakFrameId] : []),
@@ -433,7 +481,7 @@ export class StrokeSegmenter {
     };
     this.cleanupStroke();
     // 回到准备区重新开始驻留计时，使连续挥拍能各自独立成立。
-    this.enterPhase("ready", sample.sourceTimeMs);
+    this.enterPhase("ready", sample.sourceTimeMs, sample.frameId);
     this.zoneDwellMs = 0;
     return event;
   }
@@ -444,7 +492,7 @@ export class StrokeSegmenter {
    */
   private abortCurrent(reason: string): StrokeEvent | null {
     if (this.currentStrokeId == null) {
-      this.enterPhase("idle", this.lastSampleAtMs ?? 0);
+      this.enterPhase("idle", this.lastSampleAtMs ?? 0, null);
       return null;
     }
     this.noteProblem(reason);
@@ -460,11 +508,14 @@ export class StrokeSegmenter {
       anchor: { type: "wrist_speed_peak", timeMs: anchorTime },
       impactTimeMs: null,
       complete: false,
+      // 异常结束也如实带上**已经发生过的**那些转变：这一板走到哪一步就停在哪一步，
+      // 不补一个"闭合" —— 它没有闭合。
+      phaseEvents: this.strokeEvents,
       evidenceFrameIds: [...this.strokeFrames],
       reasons: [...this.strokeReasons],
     };
     this.cleanupStroke();
-    this.enterPhase("idle", this.lastSampleAtMs ?? 0);
+    this.enterPhase("idle", this.lastSampleAtMs ?? 0, null);
     return event;
   }
 

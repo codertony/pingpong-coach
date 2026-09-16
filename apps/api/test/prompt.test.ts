@@ -295,3 +295,27 @@ describe("逐板测量值段", () => {
     expect(p.user).toContain("缺失不等于 0");
   });
 });
+
+/**
+ * 阶段事件（R4）：把这一板的**过程**渲染给模型。
+ *
+ * 在此之前模型只能对首尾两端讲话 —— "引拍拖太久""前挥来得太晚"这类话
+ * 都无从说起，因为没人告诉它分段在哪。
+ */
+describe("阶段事件段", () => {
+  it("把过程逐段渲染出来，并说明它**不是**击球时刻", () => {
+    const p = buildPrompt(makePacket(), [], noAllowed);
+    expect(p.user).toContain("引拍开始@1100ms");
+    expect(p.user).toContain("前挥开始@1400ms");
+    expect(p.user).toContain("本板闭合@1900ms");
+    // 口径必须跟着事件一起给：否则模型会把"前挥开始"当成击球
+    expect(p.user).toContain("不是击球时刻");
+    expect(p.user).toContain("没有");
+  });
+
+  it("没有事件时明确写「未记录到阶段转变」，不假装有过程", () => {
+    const packet = makePacket({ strokes: [{ ...makeStroke(), phaseEvents: [] }] });
+    const { user } = buildPrompt(packet, [], noAllowed);
+    expect(user).toContain("未记录到阶段转变");
+  });
+});

@@ -287,3 +287,119 @@ describe("StrokeSegmenter", () => {
     expect(next.event?.complete).toBe(true);
   });
 });
+
+/**
+ * 阶段事件（R4）：这一板的**过程**，而不只是首尾两端。
+ *
+ * 在此之前证据里只有"从 1200ms 到 1900ms"和几个标量 —— 模型没法说
+ * "引拍拖太久""前挥来得太晚"，因为**没人告诉它这一板分几段、每段从何时开始**。
+ * 而分段器本来就知道：它每一步都在切换阶段，那些时刻只是从来没被送出去。
+ */
+describe("StrokeSegmenter — 阶段事件", () => {
+  it("一次干净挥拍产出四个事件，顺序是 引拍→前挥→还原→闭合", () => {
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+    const { event } = feedFullStroke(seg, 0);
+
+    expect(event!.phaseEvents.map((e) => e.eventType)).toEqual([
+      "backswing_start",
+      "forward_start",
+      "return_start",
+      "stroke_closed",
+    ]);
+  });
+
+  it("事件按时间**递增**，且落在这一板的时间范围内", () => {
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+    const { event } = feedFullStroke(seg, 0);
+
+    const times = event!.phaseEvents.map((e) => e.timeMs);
+    expect(
+      [...times].sort((a, b) => a - b),
+      "事件顺序乱了就等于把过程讲反了",
+    ).toEqual(times);
+    expect(times[0]!).toBeGreaterThanOrEqual(event!.startMs);
+    expect(times[times.length - 1]!).toBeLessThanOrEqual(event!.endMs!);
+  });
+
+  it("每个事件都带**支撑帧** —— 拿到时刻之后能回到那一帧去看", () => {
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+    const { event } = feedFullStroke(seg, 0);
+
+    for (const e of event!.phaseEvents) {
+      expect(e.supportFrameIds.length, `${e.eventType} 没有支撑帧，事件不可核查`).toBeGreaterThan(
+        0,
+      );
+    }
+  });
+
+  it("事件类型**只有这四种** —— 没有触球、没有随挥（红线 2：检不出来就不假装有）", () => {
+    const allowed = ["backswing_start", "forward_start", "return_start", "stroke_closed"];
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+    const { event } = feedFullStroke(seg, 0);
+
+    for (const e of event!.phaseEvents) expect(allowed).toContain(e.eventType);
+  });
+
+  it("**连续两次挥拍不互相串**：第二板的事件里不含第一板的时刻", () => {
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+    const first = feedFullStroke(seg, 0);
+    const second = feedFullStroke(seg, first.endTimeMs + 40);
+
+    expect(second.event).not.toBeNull();
+    const firstEnd = first.event!.endMs!;
+    for (const e of second.event!.phaseEvents) {
+      expect(e.timeMs, "第二板带上了第一板的事件 —— 事件数组没有被真正重置").toBeGreaterThan(
+        firstEnd,
+      );
+    }
+  });
+
+  it("异常结束的那一板**没有** stroke_closed（它确实没闭合），但带上已经发生的转变", () => {
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+
+    let t = 0;
+    for (let i = 0; i < 4; i++, t += 40) seg.push(sample(t, 0));
+    /*
+     * ⚠️ 偏移必须**大于离开阈值**才会真的切到 backswing。
+     *
+     * 准备区半径 0.3 体尺度，离开阈值是它的 1.2 倍 = 0.36 ——
+     * 0.15 / 0.3 都还在**有界滞后的缓冲区里**，阶段仍停在 `ready`，
+     * 于是根本没有"引拍"这次转变可记。（第一版就是这么写的，测试红了才发现：
+     * 那不是代码错，是我把"在区外"当成了"已离开"。）
+     */
+    let aborted = null;
+    for (const d of [0.45, 0.5]) {
+      aborted = seg.push(sample(t, d)) ?? aborted;
+      t += 40;
+    }
+    const overflow = seg.push(sample(t + 500, 0.5)); // 间断 500ms > maxGapMs
+
+    expect(overflow!.complete).toBe(false);
+    const types = overflow!.phaseEvents.map((e) => e.eventType);
+    expect(types, "没闭合却报了闭合").not.toContain("stroke_closed");
+    expect(types, "已经拉开的引拍应当被记下来").toContain("backswing_start");
+  });
+
+  it("**没离开过准备区**时没有引拍事件 —— 缓冲区里不算「开始引拍」", () => {
+    // 这条是上一条的反向对照：偏移停在滞后缓冲区内（< 1.2×半径）时，
+    // 阶段一直停在 ready，就不该凭空冒出一个 backswing_start。
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+
+    let t = 0;
+    for (let i = 0; i < 4; i++, t += 40) seg.push(sample(t, 0));
+    for (const d of [0.15, 0.3]) {
+      seg.push(sample(t, d));
+      t += 40;
+    }
+    const overflow = seg.push(sample(t + 500, 0.3));
+
+    expect(overflow!.phaseEvents.map((e) => e.eventType)).not.toContain("backswing_start");
+  });
+});

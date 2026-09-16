@@ -53,6 +53,7 @@ export const TINY_PACKET = {
       anchor: { type: "wrist_speed_peak", timeMs: 520 },
       impactTimeMs: null,
       complete: true,
+      phaseEvents: [],
       evidenceFrameIds: ["f-1"],
       reasons: [],
     },
