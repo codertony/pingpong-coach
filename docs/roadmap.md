@@ -35,7 +35,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 207 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 75 项 vitest + 65 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 76 项 vitest + 65 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -70,6 +70,7 @@
 | F-026 | `thresholds.json` 的 **segmentation 块从来没被校过**（F-019 的残留子集）：一致性测试**一个字都没提它**；真值住在 `apps/web` 而检查在 `motion-core`（方向不允许依赖，够不着）；且 `SegmentationConfig` 有 7 个数值字段、快照只有 6 个（**漏了 `maxGapMs`**）。**它漏掉的正是 F-022 说要优先标定的那几个值** |
 | F-027 | 同一文件的另外三个块：`quality` **一个字都没被校**（有 `DEFAULT_QUALITY_CONFIG` 可对）；`evidenceBudget` 的 **`maxImageLongEdgePx: 960` 代码里没有任何地方读它**（关键帧没被降采样），其余四个值散在别的包 / 名字不同 / 藏在函数默认值里；`latency` 只是目标值。修法是两分：能校的补双向校验，**不能校的强制在文件里写明「未被校验」** —— 挨着已校验块的块会继承"看起来有人守"的印象 |
 | F-022 | 连续对拉时**相邻几板被合并成一次挥拍**（少算）。已用**合成数据（已知真值）**量化：① 合并的实际交叉点在 **~200ms 墙上时间**，而不是名义上的 `returnStableMinMs=120`（每板白吃一帧 + 必须连续在区内）；② 回位落点只要**在区外**，检出从"数得少"直接掉到 **0 板**（`beginStroke` 开不了头），中间没有过渡；③ 合并只会少算不会多算。真实回位距离 0.29~0.40 正压在半径 0.30 上，这就是 8.15s 只闭合 2 次的原因。**该先校准准备区半径**，但最终取值仍需人工标注 |
+| F-028 | **关键帧缓存从来没有任何产品代码写入** → 证据包里**一张图都没有**，"多模态调用"实际是纯文本。全仓库搜 `cache.add(`：9 处**全在测试里**；产品里唯一的实例只被调过 `clear()`。契约里 `keyframes` 没有 `.min(1)`，所以空包合法、全线无报错；调用方还把算出来的 `missing` 直接丢掉 → **完全静默**。本轮只做"让失败可见"（提示 + 遥测 `keyframesMissing` + 回归）；**图片链路未实现**，因为它要改模型输入路径，而本机没有真实模型 Key 可验证 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -80,10 +81,10 @@
 contracts      30
 motion-core   207
 api           135
-web (vitest)   75
+web (vitest)   76
 web (Playwright/真 Chrome) 65
 ─────────────────────────────
-合计          512
+合计          513
 ```
 
 ---

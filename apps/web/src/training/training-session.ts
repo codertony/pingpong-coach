@@ -117,6 +117,13 @@ export interface TrainingTelemetry {
    * 界面必须如实标注：用户要知道这个约束是程序猜的，还是自己设的。
    */
   readyZoneAutoCalibrated: boolean;
+  /**
+   * 最近一组里**取不到图**的关键帧张数；`null` 表示还没成组。
+   *
+   * 存在的理由：图片链路目前是断的（F-028），而原先这件事完全静默。
+   * 把它做成可观测，界面与测试才能如实说出"这组证据里没有图片"。
+   */
+  keyframesMissing: number | null;
 }
 
 /** 把姿态结果转成 PoseFrame，并做质量评估。 */
@@ -177,6 +184,8 @@ export class TrainingSession {
   private wristSamples: Array<{ x: number; y: number; tMs: number }> = [];
   /** 当前准备区是否由自动标定得出（用于界面如实标注） */
   private autoCalibrated = false;
+  /** 最近一组的关键帧取图情况，供遥测如实展示（F-028） */
+  private lastGroupKeyframes: { included: number; missing: number } | null = null;
   private poseLatencies: number[] = [];
   /** Worker 内推理耗时，单独留一份用于区分"模型慢"与"链路慢" */
   private poseInferenceLatencies: number[] = [];
@@ -535,11 +544,25 @@ export class TrainingSession {
     );
 
     // 关键帧必须与姿态帧通过 frameId 对齐
-    const { keyframes } = buildKeyframes(
+    const { keyframes, missing } = buildKeyframes(
       candidates.map((c) => c.frameId),
       this.keyframeCache,
       this.posesByFrameId,
     );
+    this.lastGroupKeyframes = { included: keyframes.length, missing: missing.length };
+
+    // ⚠️ 图片链路目前**是断的**（F-028）：`KeyframeCache.add()` 在整个 apps/web 里
+    // 没有任何调用方，缓存永远是空的，于是每一张关键帧都落到 `missing` 里、
+    // `keyframes` 恒为空数组 —— 模型收到的是**纯文本**。
+    // 契约里 `keyframes` 没有 `.min(1)`，所以这个包在服务端是合法的、一路通行。
+    // 原先 `missing` 被直接丢弃，整件事**完全静默**；这里把它报出来。
+    if (missing.length > 0) {
+      this.callbacks.onStatus(
+        keyframes.length === 0
+          ? `本组证据不含图片：${missing.length} 张关键帧全部取不到（图片链路未接通）—— 模型只会看到文本`
+          : `本组有 ${missing.length} 张关键帧取不到图（其中 ${keyframes.length} 张正常）`,
+      );
+    }
 
     this.lastRequestId = `${this.groupId}_${Date.now()}`;
     const packet: EvidencePacket = {
@@ -635,6 +658,7 @@ export class TrainingSession {
       readyZoneRadiusPx: zoneRadius,
       wristToZoneRatio,
       readyZoneAutoCalibrated: this.autoCalibrated,
+      keyframesMissing: this.lastGroupKeyframes?.missing ?? null,
     };
   }
 

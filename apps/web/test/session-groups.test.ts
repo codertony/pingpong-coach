@@ -99,6 +99,7 @@ function runCycles(
   strokes: number;
   groups: number;
   frames: number;
+  statuses: string[];
 } {
   // 用回调直接计数，不依赖快照窗口
   let strokes = 0;
@@ -158,7 +159,7 @@ function runCycles(
     }
   }
   counting.dispose();
-  return { strokes, groups, frames };
+  return { strokes, groups, frames, statuses };
 }
 
 describe("成组之后仍能继续检出挥拍", () => {
@@ -172,5 +173,22 @@ describe("成组之后仍能继续检出挥拍", () => {
       `连喂 30 轮只出了 ${r.strokes} 次挥拍 —— 停在第一组了（共 ${r.frames} 帧）`,
     ).toBeGreaterThanOrEqual(20);
     expect(r.groups, `只成了 ${r.groups} 组 —— 第二组之后没有继续`).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe("关键帧取不到图时必须报出来（F-028）", () => {
+  it("成组时若一张关键帧都拿不到，界面必须收到明确提示", () => {
+    const r = runCycles(3);
+    expect(r.groups, "没成组就测不到这一条").toBeGreaterThanOrEqual(1);
+
+    // 背景：`KeyframeCache.add()` 在整个 apps/web 里**没有任何调用方**，
+    // 缓存永远是空的，所以每一张关键帧都取不到图、`keyframes` 恒为 []
+    // —— 模型收到的是纯文本。原实现把 `missing` 直接丢掉，整件事完全静默。
+    //
+    // 这条断言守的是"不静默"：只要取不到，就必须有提示。
+    // ⚠️ 将来 F-028 修好（缓存被真正填充）之后，这里应当改成断言
+    // **没有**这条警告，并且 `telemetry.keyframesMissing === 0`。
+    const warned = r.statuses.some((s) => s.includes("关键帧") && s.includes("取不到"));
+    expect(warned, "关键帧全部取不到，却没有任何提示 —— 这正是 F-028 的静默形态").toBe(true);
   });
 });
