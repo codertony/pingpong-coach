@@ -85,41 +85,48 @@ web (Playwright/真 Chrome) 54
 | A4 | ✅ 性能基线 | `motion-core` 热路径 4 个函数有 < 10 ms 哨兵；**60fps 持续输入下的丢帧与位图守恒** 3 项；**延迟口径已拆开**：端到端处理延迟（收到帧 → 骨架可用，含排队与跨线程）与 Worker 内推理耗时分别统计，界面上分别显示，`telemetry.test.ts` 4 项钉住两者不互相冒充。**采集段延迟（摄像头曝光 → 浏览器收到）仍需真机**，那不在代码可测范围内 | 中 |
 | A5 | ✅ 错误路径补测 | 畸形请求体、后端不可达、HTTP 500、**摄像头中途断开**（F-014，本轮补 2 项 e2e）；另有 `describeCameraError` 映射单测 | 中 |
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 135.7 KiB | 小 |
-| A7 | 🟡 Docker 镜像（**写了，但未真实构建**） | 新增 `Dockerfile`（三阶段：构建 / 生产依赖 / 运行）与 `.dockerignore`。单容器同时提供 API 与前端静态产物 —— `apps/api` 本身就托管 `apps/web/dist`，不需要额外 nginx。**本机没有 docker，从未跑过 `docker build`**，所以镜像**未经验证**；能验证的部分都验了（见下） | 中 |
+| A7 | ✅ Docker 镜像（**已真实构建并跑通**） | `Dockerfile`（三阶段）+ `.dockerignore`。单容器同时提供 API 与前端静态产物。**用本机 Podman 真实 `build` 并起容器验证通过**：镜像 431 MB，容器 `Up`，`/api/health` 200、`/` 200、两个 `.task` 与两个 wasm 资产全 200。**四个坑都是真实构建才暴露的**（代理继承 / husky prepare / tsx 路径 / `.bin` 包装脚本），详见下方 | 中 |
 | A8 | ➖ changesets 发布流程（**不适用**） | 四个包**全部 `private: true`**，根本不发布，没有版本管理需求。原描述"已装但未配置"不准确 —— 实测 `@changesets/*` 并未安装。多包版本发布是"如果将来要开源/发布"才需要的事，现在做属于无的放矢 | 小 |
 | A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度另查出并修掉一个真实缺陷**：交互控件与装饰线原先共用一个边框色，表单控件边框对自身背景只有 **1.21:1**，深色主题下很难看出输入框边界 —— 拆出 `--border-control` 提到 3.18:1，并用 `contrast.test.ts` 6 项钉住 | 小 |
 
-**A 类现状**：清单里的 A1–A9 全部有明确结论 —— 完成、或确认不适用、
-或（A7）只剩"本机没有 docker 因而没真实构建过"这一条环境限制。
-A4 里"采集段延迟"必须有真机摄像头，不属于代码可测范围。
+**A 类现状**：清单里的 **A1–A9 全部完成或确认不适用**，没有遗留项。
+（A4 里"采集段延迟"需要真机摄像头才能测，但那是 B 类，不是代码正确性问题。）
 
 > 教训（写在这里给下一个人）：A7、A2、A4 我都先判过"做不了"，后来都做成了。
 > 三次的共同点是把**某个工具或某条路的限制**当成了**事情本身的限制**：
 > "vite 代理改写做不到" → 那就别用 vite 代理；"没有 docker" →
-> 镜像的每个环节都能用等价命令验证；"延迟需要真设备" →
+> **其实机器上装着 Podman，我只是没往下查**；"延迟需要真设备" →
 > 但延迟里属于本机的那一段（处理链路）本来就能测，只是原来的口径把它漏掉了。
 > 下次说"做不了"之前，先问一句：**是这件事做不了，还是我选的这条路走不通？**
 
-### A7 的验证边界：哪些验了、哪些没验
+### A7 的四个坑：只有真实构建才会暴露
 
-本机没有 `docker`，所以**镜像本身从未构建过**，不能当成已验证。但镜像依赖的
-每一环都用能在本机执行的等价命令逐条验过：
+我先前把 A7 记成"本机没有 docker，无法执行"。**那个判断错在查得太窄** ——
+本机没装 `docker`，但**装着 Podman**（5.7.1，WSL machine 常驻运行）。
+换成 `podman build` 之后真跑了一遍，四个问题**全部只在真实构建里暴露**：
 
-| 验证项 | 方式 | 结果 |
-| --- | --- | --- |
-| 运行时环境变量是否够用 | 按 Dockerfile 的 `ENV` 起服务（`KNOWLEDGE_DIR` / `WEB_DIST` 用绝对路径） | ✅ `/api/health` 200 |
-| API 能否托管前端产物 | 同上，请求 `/` | ✅ 200（`fastifyStatic` + SPA 回退生效） |
-| 模型资产是否可服务 | 请求 `/models/pose_landmarker_full.task` | ✅ 200 |
-| wasm 运行时是否可服务 | 请求 `/wasm/vision_wasm_internal.js` | ✅ 200 |
-| 知识文件能否被读到 | `POST /api/coach/analyze` | ✅ 返回受校验的反馈 |
-| `tsx` 在 `--prod` 下是否还在 | 见下 | ✅ 已修 |
+| # | 现象 | 根因 | 修法 |
+| --- | --- | --- | --- |
+| 1 | `corepack` 拉 pnpm 失败：`ECONNREFUSED 127.0.0.1:17890` | 宿主有自己的本地代理，构建环境把它注入了容器；而**容器里的 `127.0.0.1` 是容器自己**，不是宿主 | 在 builder / prod-deps 两阶段显式清空 `HTTP(S)_PROXY`；容器本身能直连 registry（实测 npmjs 与 npmmirror 都 200） |
+| 2 | `prod-deps` 阶段 `sh: husky: not found` → `ELIFECYCLE` | 根的 `prepare` 脚本调 husky，而 `--prod` 不装 devDependencies | `pnpm install --prod --ignore-scripts`。husky 只给本地 git 钩子用，镜像里无意义 |
+| 3 | 启动报 `Cannot find module '/app/node_modules/.bin/tsx'` | `tsx` 声明在 `apps/api` 的 dependencies 里，pnpm 装在 `apps/api/node_modules/`，**不在根** | CMD 路径改为 `apps/api/node_modules/...` |
+| 4 | 启动报 `SyntaxError: missing ) after argument list`，指向 `.bin/tsx` | `.bin/` 下是**给 shell 用的包装脚本**（`#!/bin/sh`），交给 `node` 跑会被当成 JS 解析 | 直接指向真实入口 `tsx/dist/cli.mjs`，绕开 `.bin` |
 
-**顺带修掉一个真问题**：`tsx` 原先列在 `apps/api` 的 `devDependencies` 里，
-而它是 `start` 脚本实际使用的**运行时启动器**。`pnpm install --prod` 会把它剪掉，
-生产镜像里服务根本起不来。已移到 `dependencies`。
+**一条值得记住的推论**：坑 4 是"在 Windows 宿主上装依赖、把 `node_modules` 复制进
+Linux 镜像"这个做法的症状。它在**纯 JS 依赖**（本项目全部是）下能跑通 ——
+容器实测正常服务。但若将来引入**原生模块**（node-gyp / 预编译二进制），
+宿主装的版本与镜像平台不匹配，会在运行期报错。那时应当改成
+**在容器内 `pnpm install`**（例如用 `pnpm deploy` 产出可移植的依赖树），
+而不是继续复制宿主产物。
 
-**没验的**：镜像构建本身、镜像体积、容器内非 root 用户的文件权限、
-`HEALTHCHECK` 在编排里的行为。这些都要有 docker 才能验，**不要当成已验证**。
+**验证方式（可复现）**：
+
+```bash
+podman build -t pingpong-coach:verify .
+podman run -d --name ppc -p 8899:8787 pingpong-coach:verify
+curl -s http://127.0.0.1:8899/api/health        # → {"ok":true,...,"modelMode":"mock",...}
+curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8899/   # → 200
+```
 
 ### A2 的红线 8 用例：先判断"不值得"，重审后做成了
 
@@ -157,7 +164,7 @@ A4 里"采集段延迟"必须有真机摄像头，不属于代码可测范围。
 | ✅ 导入视频循环播放修复（F-011） | 媒体时间回绕导致 `detectForVideo` 的 `Packet timestamp mismatch`，推理静默全死。Worker 内做时间戳单调化。实测同一视频 20 秒内识别数 1 → 8 |
 | ✅ 准备区自动标定（F-012） | 准备区原写死在画面坐标，手不在那里时状态机**完全静默不触发**。新增 `motion-core/readiness.ts` 按**局部速度加权**从实际腕部位置标定；估计器经真实素材对照选出（落点法 1 次 vs 速度加权 8 次） |
 | ✅ 分段失败可视化 | 练习页显示分段阶段、`腕部距准备区 X 倍半径`、体尺度/持腕是否测到，并在画面上标注准备区。**这类失败以前完全静默**，是本次最值钱的改动 |
-| ✅ 手部 21 点接入 | 新增 `hand_landmarker.task` + `motion-core/hand.ts` + `hand-assignment.ts`。**换清晰图片实测能检出**（左右手分 0.93–0.99）。过程中修掉一个真缺陷：手部模型的 `visibility` **恒为 0**，我原先把它当可见性用 → 所有手部点被标成不可见 → 几何永远算不出、绘制永远不画（**手部能力等于没接**）。现按模型分别适配，回归见 `hand-model.e2e.ts`。**仍未验证**：真实挥拍视频里的稳定性（现有素材手部占比太小） |
+| ✅ 手部 21 点接入 | 新增 `hand_landmarker.task` + `motion-core/hand.ts` + `hand-assignment.ts`。**换清晰图片实测能检出**（左右手分 0.93–0.99）。过程中修掉一个真缺陷：手部模型的 `visibility` **恒为 0**，我原先把它当可见性用 → 所有手部点被标成不可见 → 几何永远算不出、绘制永远不画（**手部能力等于没接**）。现按模型分别适配，回归见 `hand-model.e2e.ts`。**仍未验证**：真实挥拍视频里的稳定性（现有素材**挥拍时手被运动模糊糊掉**，实测放大 3 倍仍检不出） |
 | ✅ 门禁稳定性 | `motion-core` / `contracts` / `api` 的 test 补 `--fileParallelism=false`，消除 Windows 上 vitest ssr 缓存 EBUSY 造成的**偶发假红** |
 
 ---

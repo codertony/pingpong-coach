@@ -163,6 +163,10 @@ pnpm format         # Prettier 格式化
 pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
 pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
 pnpm clean          # 清理构建产物
+
+# 容器（Dockerfile 在本仓库根目录，已实测构建并跑通）
+podman build -t pingpong-coach .
+podman run -d -p 8787:8787 pingpong-coach   # → http://127.0.0.1:8787
 ```
 
 ---
@@ -186,7 +190,9 @@ pingpong-coach/
 │                           # + roadmap（功能待办与分工）/ local-verification（本机验证清单）
 ├─ .github/workflows/       # CI：verify + e2e 两个 job
 ├─ eslint.config.mjs        # 架构护栏：依赖方向 + 红线约束（违规即报错）
-└─ .husky/                  # 提交前门禁（lint-staged）
+├─ .husky/                  # 提交前门禁（lint-staged）
+├─ Dockerfile               # 单容器镜像（三阶段；已实测构建并跑通）
+└─ .dockerignore
 ```
 
 ---

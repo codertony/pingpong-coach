@@ -26,6 +26,17 @@
 # ── 构建阶段：装依赖 → 全量构建 → 拉模型资产 ──────────────────────
 FROM node:22-bookworm-slim AS builder
 
+# 清掉可能从宿主继承的代理变量。
+#
+# 为什么必须做（实测踩过）：本机跑着一个本地代理（127.0.0.1:17890），
+# 构建环境把它注入了容器。而**容器里的 127.0.0.1 是容器自己**，不是宿主 ——
+# 于是 corepack 下载 pnpm 时 `ECONNREFUSED 127.0.0.1:17890`，构建直接失败。
+#
+# 容器本身能直连 registry（实测 npmjs 与 npmmirror 都 200），所以清掉即可。
+# 若你的环境**必须**经代理才能出网，别改这里 —— 改用
+# `--build-arg` 或 podman/docker 的 `--network=host` 让代理地址可达。
+ENV HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= NO_PROXY= no_proxy=
+
 # corepack 按 packageManager 字段启用正确的 pnpm 版本，不靠手工 pin
 RUN corepack enable
 
@@ -38,8 +49,10 @@ COPY apps/web/package.json      apps/web/
 COPY packages/contracts/package.json  packages/contracts/
 COPY packages/motion-core/package.json packages/motion-core/
 
+# `--ignore-scripts`：根的 `prepare` 会调 husky，而构建上下文里没有 .git，
+# husky 当场报 `.git can't be found`。它只给本地 git 钩子用，镜像里无意义。
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+    pnpm install --frozen-lockfile --ignore-scripts
 
 # 再复制源码并构建。
 # `pnpm build` = 各包 tsc --noEmit + vite build；
@@ -56,6 +69,8 @@ RUN pnpm build
 
 # ── 生产依赖阶段：只装运行时需要的包 ────────────────────────────
 FROM node:22-bookworm-slim AS prod-deps
+# 同上：清掉宿主注入的代理，容器里 127.0.0.1 不是宿主
+ENV HTTP_PROXY= HTTPS_PROXY= http_proxy= https_proxy= NO_PROXY= no_proxy=
 RUN corepack enable
 WORKDIR /app
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
@@ -63,8 +78,11 @@ COPY apps/api/package.json      apps/api/
 COPY apps/web/package.json      apps/web/
 COPY packages/contracts/package.json  packages/contracts/
 COPY packages/motion-core/package.json packages/motion-core/
+# `--ignore-scripts` 不是可选项：根的 `prepare` 脚本会调 husky，
+# 而 `--prod` 没装 devDependencies → `sh: husky: not found` → 构建失败（实测）。
+# husky 只给本地 git 钩子用，镜像里毫无意义。
 RUN --mount=type=cache,id=pnpm-store,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile --prod
+    pnpm install --frozen-lockfile --prod --ignore-scripts
 
 # ── 运行阶段 ────────────────────────────────────────────────────
 FROM node:22-bookworm-slim AS runner
@@ -109,5 +127,12 @@ USER node
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8787)+'/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
-# 与 package.json 的 `start` 等价，只是不经 pnpm 转发（少一层进程）
-CMD ["node", "node_modules/.bin/tsx", "apps/api/src/server.ts"]
+# 与 package.json 的 `start` 等价，只是不经 pnpm 转发（少一层进程）。
+#
+# **必须直接指向 tsx 的真实入口，不能用 `node_modules/.bin/tsx`** ——
+# `.bin/` 下是给 shell 用的包装脚本（`#!/bin/sh`），交给 `node` 跑会被
+# 当成 JS 解析，报 `SyntaxError: missing ) after argument list`（实测）。
+#
+# 路径也必须是 **apps/api 下的**：`tsx` 声明在 apps/api 的 dependencies 里，
+# pnpm 把它装在 `apps/api/node_modules/`，写成根的路径会 MODULE_NOT_FOUND（实测）。
+CMD ["node", "apps/api/node_modules/tsx/dist/cli.mjs", "apps/api/src/server.ts"]
