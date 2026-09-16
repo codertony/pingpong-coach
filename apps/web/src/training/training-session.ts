@@ -300,6 +300,9 @@ export class TrainingSession {
   pushPoseResult(result: PoseResult): void {
     this.framesProcessed++;
     // 端到端延迟：收到帧 → 结果可用。含排队与跨线程往返。
+    // 端到端延迟 = 主线程盖的两个时刻之差（收到帧 → 骨架可用）。
+    // ⚠️ 两个时刻必须**同源**：`inferredAtMonoMs` 由 PoseEngine 在主线程盖章，
+    // 不能用 Worker 报的那个（不同源，实测差约 155ms，会算出负延迟，见 F-024）。
     this.poseLatencies.push(result.inferredAtMonoMs - result.receivedAtMonoMs);
     if (this.poseLatencies.length > 500) this.poseLatencies.shift();
     this.poseInferenceLatencies.push(result.inferenceMs);

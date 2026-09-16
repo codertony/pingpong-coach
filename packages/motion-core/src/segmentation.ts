@@ -174,7 +174,6 @@ export class StrokeSegmenter {
     // 因果速度：只用当前与上一采样，不偷看未来帧
     const speed = this.updatePeak(sample, norm, prevTime);
 
-    const elapsedInStroke = sample.sourceTimeMs - this.strokeStartMs;
     const dtMs = sample.sourceTimeMs - this.lastSampleTimeMs;
 
     switch (this.phase) {
@@ -283,11 +282,22 @@ export class StrokeSegmenter {
     this.lastDistBodyScale = distBodyScale;
     this.lastSampleTimeMs = sample.sourceTimeMs;
 
-    // 单次挥拍超时即异常结束
-    if (this.currentStrokeId != null && elapsedInStroke > this.config.maxStrokeDurationMs) {
-      return this.abortCurrent("stroke_too_long");
+    // 单次挥拍超时即异常结束。
+    //
+    // ⚠️ `elapsedInStroke` 必须在这里**当场算**，不能用 switch 之前算好的那份（F-025）。
+    // 原因：`beginStroke` 是在上面的 switch **里面**被调用的，它会把
+    // `strokeStartMs` 设成本帧时间；而 `cleanupStroke` 会把它清零。
+    // 若用 switch 之前的值，那么"本帧刚刚开启的这一次挥拍"会被拿去减
+    // **上一笔**的 `strokeStartMs`（清算后是 0）—— 于是
+    // `elapsed = sourceTimeMs - 0 = sourceTimeMs`，一旦会话跑过
+    // `maxStrokeDurationMs`（默认 3s），每一次挥拍都会在**刚开启的那一帧**
+    // 被判超时并丢弃。表现是：前 3 秒正常，之后再也记不到任何挥拍。
+    if (this.currentStrokeId != null) {
+      const elapsedInStroke = sample.sourceTimeMs - this.strokeStartMs;
+      if (elapsedInStroke > this.config.maxStrokeDurationMs) {
+        return this.abortCurrent("stroke_too_long");
+      }
     }
-
     return null;
   }
 

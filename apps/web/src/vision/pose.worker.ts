@@ -92,8 +92,15 @@ export interface WorkerResultMessage {
   sourceEpoch: number;
   sourceTimeMs: number;
   receivedAtMonoMs: number;
-  /** 推理完成时间（单调时钟），用于计算姿态处理耗时 */
+  /**
+   * 推理完成时刻，**Worker 自己的时钟**。
+   *
+   * ⚠️ 不要拿它跟主线程的 `receivedAtMonoMs` 相减算延迟 —— 两者不同源
+   * （实测基线差约 155ms），差出来会是负数。
+   * `PoseEngine` 会在主线程收到结果时**重新盖章**，用那个值算延迟（F-024）。
+   */
   inferredAtMonoMs: number;
+  /** Worker 内部的推理耗时，**不含**排队与跨线程往返（F-015） */
   inferenceMs: number;
   imageWidth: number;
   imageHeight: number;

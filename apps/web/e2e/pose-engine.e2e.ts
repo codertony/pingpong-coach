@@ -416,6 +416,88 @@ test.describe("PoseEngine — detect 与迟到结果", () => {
     // 第二次应被 inFlight 去重丢弃。
     expect(seen).toEqual(["f1"]);
   });
+
+  test("用主线程时钟重新盖章：Worker 报的时刻不与主线程相减（F-024）", async ({ page }) => {
+    await injectFakeWorker(page);
+    await loadEngine(page);
+
+    const out = await page.evaluate(async () => {
+      const { PoseEngine } = window.__fixture;
+      const engine = new PoseEngine({
+        modelId: "m",
+        modelAssetPath: "/m.task",
+        wasmBasePath: "/wasm",
+        preferredDelegate: "CPU",
+      });
+      const Fake = (window as unknown as { __FakeWorker: { last: () => unknown } }).__FakeWorker;
+      const p = engine.init();
+      const w = Fake.last() as { emit: (m: unknown) => void };
+
+      w.emit({
+        type: "ready",
+        delegate: "CPU",
+        downgraded: false,
+        modelId: "m",
+        keypointSet: "blaze33",
+        initMs: 10,
+      });
+      await p;
+
+      // 故意让"Worker"报一个**完全不同的时钟**下的时刻。
+      // 真实的 Worker 时钟与主线程差约 155ms；这里夸张到 10^7 便于断言，
+      // 但**机制完全相同** —— 原实现会把这个值原样透传出去。
+      const FOREIGN_CLOCK = 10_000_000;
+
+      const got: Array<{ inferred: number; workerReported: number | undefined }> = [];
+      engine.onResult((r: { inferredAtMonoMs: number; workerInferredAtMonoMs?: number }) => {
+        got.push({ inferred: r.inferredAtMonoMs, workerReported: r.workerInferredAtMonoMs });
+      });
+
+      const bmp = await window.__fixture.makeRealBitmap(8, 8);
+      const submittedAt = performance.now();
+      engine.detect({
+        frameId: "clock1",
+        sourceEpoch: 0,
+        sourceTimeMs: 0,
+        receivedAtMonoMs: submittedAt,
+        bitmap: bmp,
+      });
+      w.emit({
+        type: "result",
+        frameId: "clock1",
+        sourceEpoch: 0,
+        sourceTimeMs: 0,
+        receivedAtMonoMs: submittedAt,
+        inferredAtMonoMs: FOREIGN_CLOCK,
+        inferenceMs: 5,
+        imageWidth: 8,
+        imageHeight: 8,
+        keypoints2D: [],
+        detected: true,
+      });
+
+      return { got, submittedAt, now: performance.now() };
+    });
+
+    expect(out.got).toHaveLength(1);
+    const r = out.got[0]!;
+
+    // ① 交出去的时刻必须是**主线程时钟**上的：介于提交时刻与现在之间。
+    //    原实现会等于 10^7，直接落在这个区间之外。
+    expect(
+      r.inferred,
+      `inferredAtMonoMs 不是主线程时钟上的时刻（收到 ${r.inferred}，` +
+        `而主线程区间是 ${out.submittedAt.toFixed(1)} ~ ${out.now.toFixed(1)}）—— ` +
+        `Worker 的时刻被原样透传了，延迟会因此算出负值`,
+    ).toBeGreaterThanOrEqual(out.submittedAt);
+    expect(r.inferred).toBeLessThanOrEqual(out.now);
+
+    // ② Worker 报的原值不能丢 —— 排查时要能看到它
+    expect(r.workerReported).toBe(10_000_000);
+
+    // ③ 于是"端到端延迟"必然是非负的。这正是 F-024 的症状。
+    expect(r.inferred - out.submittedAt).toBeGreaterThanOrEqual(0);
+  });
 });
 
 test.describe("PoseEngine — dispose", () => {

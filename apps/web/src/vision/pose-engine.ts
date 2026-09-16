@@ -28,8 +28,25 @@ export interface PoseResult {
   sourceEpoch: number;
   sourceTimeMs: number;
   receivedAtMonoMs: number;
+  /**
+   * 骨架结果在**主线程**可用的时刻（单调时钟）。
+   *
+   * ⚠️ 这个值由**引擎在主线程**盖，不是 Worker 报的那个（见 F-024）。
+   * 延迟只能由**同一只时钟**的两个时刻相减得到；Worker 的
+   * `performance.now()` 与主线程不同源（实测差 ~155ms），拿它们相减会得到
+   * 负延迟。想核对 Worker 自己报的时刻，看 `workerInferredAtMonoMs`。
+   */
   inferredAtMonoMs: number;
-  /** 姿态处理耗时：收到帧 → 骨架结果可用 */
+  /**
+   * Worker 自己盖章的完成时刻（**Worker 时钟**）。
+   * 只用于诊断/交叉核对，**不要**拿它算延迟。
+   */
+  workerInferredAtMonoMs?: number;
+  /**
+   * Worker **内部**的推理耗时（`inferenceMs`）。
+   * 它**不含**排队与跨线程往返 —— 端到端延迟要用
+   * `inferredAtMonoMs - receivedAtMonoMs`，两者不要互相冒充（F-015）。
+   */
   inferenceMs: number;
   imageWidth: number;
   imageHeight: number;
@@ -117,6 +134,14 @@ export class PoseEngine {
           if (!this.inFlight.delete(msg.frameId)) return; // 迟到结果直接丢弃
           const result: PoseResult = {
             ...msg,
+            // ⚠️ **在主线程重新盖章**（F-024）。Worker 消息里的
+            // `inferredAtMonoMs` 用的是 Worker 自己的时钟 —— 与主线程不同源，
+            // 实测两者基线差约 155ms。原样透传会让
+            // `inferredAtMonoMs − receivedAtMonoMs` 变成负数，
+            // 界面上那个"姿态处理 P95"因此系统性失真。
+            // Worker 报的原值保留在 `workerInferredAtMonoMs` 里供核对。
+            inferredAtMonoMs: performance.now(),
+            workerInferredAtMonoMs: msg.inferredAtMonoMs,
             // 集合名称来自 ready 时的引擎状态，而不是逐帧消息 ——
             // 集合在会话中途不会变，逐帧传只是重复。
             keypointSet: this.status.keypointSet ?? KEYPOINT_SET_POSE_ONLY,

@@ -33,9 +33,9 @@
 | --- | --- | --- |
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
-| 纯计算核心 | `[x]` | motion-core 198 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配） |
+| 纯计算核心 | `[x]` | motion-core 199 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 74 项 vitest + 63 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 75 项 vitest + 65 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -65,6 +65,8 @@
 | F-020 | 手部点（归一化）与腕部锚点（像素）不在同一坐标空间，**每一只手、每一帧都被当成"超出容差"静默丢弃**；而 `handDetected` 仍为 `true`，遥测说"检出了手" |
 | F-021 | 手部叠加有两个各自独立、又都静默的缺陷：① `drawHand` 拼的名字（`right_hand_index_mcp`）在契约里不存在 → **从未执行过**；② 通用关键点循环又把手部点按姿态尺寸重画一遍，21 个点糊成一团白 |
 | F-023 | 接线审计只扫**一层**目录 → 「全是子目录」的 `apps/web/src` 与 `apps/api/src` **一个文件都没扫到**，而脚本注释与文档都写着"扫全部四个包"。修好后立刻翻出 6 个此前不可见的导出 |
+| F-024 | 端到端延迟遥测把 **Worker 时钟**与**主线程时钟**相减（实测基线差约 155ms）→ 样本大量为负、界面上的"姿态处理 P95"读到 **0**。既有遥测测试用**同一只时钟**构造两个时刻，所以永远看不见这个前提 |
+| F-025 | **会话跑过 3 秒后完全停止计数**：超时判定用的是状态机切换**之前**算好的 `elapsedInStroke`，而 `beginStroke` 在切换**里面**——于是新开的挥拍被拿去减上一笔清零后的 `strokeStartMs`（=0），`elapsed` 恒等于 `sourceTimeMs`，**每一笔都在开启那一帧被判超时丢弃**。连喂 30 轮合成挥拍：修复前 4 次/1 组 → 修复后 **30 次/10 组**；真实素材 1 次 → 2 次 |
 | F-022 | 连续对拉时**相邻几板被合并成一次挥拍**（少算，不是多算）。逐帧相位日志显示一次 StrokeEvent 内部走了三遍 `backswing→forward→returning`。阈值从未在真实素材上校准过 —— 但要改它必须先有人工标注，否则只是把猜测换个值 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
@@ -74,12 +76,12 @@
 
 ```
 contracts      30
-motion-core   198
+motion-core   199
 api           135
-web (vitest)   74
-web (Playwright/真 Chrome) 63
+web (vitest)   75
+web (Playwright/真 Chrome) 65
 ─────────────────────────────
-合计          500
+合计          504
 ```
 
 ---
@@ -267,12 +269,26 @@ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8899/   # → 200
 **你要做的**：`pnpm dev:all`，打开练习页，站到镜头前看骨架。
 **预计**：10 分钟。详见 [known-failures.md F-006](./known-failures.md)。
 
-### B2 · 真机浏览器兼容性
+### B2 · 真机浏览器兼容性 🟡 已在你的机器上量过一轮
 
-我在沙箱用的是 Chromium 144。你的 Chrome/Edge 版本、显卡驱动、GPU 委托成败都可能不同。
+原先只能在沙箱里说"我用的是 Chromium 144，你的可能不同"。现在**环境就是你本机**，
+所以这一项已经有一轮实测（见 `docs/evaluation-log.md` 2026-09-16 的环境表）：
 
-- 需要确认 `/api/health` 与页面状态栏报告的是 `GPU` 还是 `CPU`；
-- 若为 `CPU`，记录降级原因（这是真实用户体验数据，不是 bug）。
+| 项 | 实测 |
+| --- | --- |
+| 操作系统 | Windows 11 家庭中文版 build 26200 |
+| 浏览器 | 真实 **Chrome 153.0.8010.36**（Playwright 解析到系统 Chrome，不是自带的 Chromium） |
+| Node / pnpm | v22.20.0 / 10.28.2 |
+| 委托方式 | **GPU**（未降级），关键点集 `blaze_33+hand_21` |
+| 覆盖到的路径 | 真实 Canvas 像素、真实 Worker 跨线程、真实 `ImageBitmap` 句柄、MediaPipe GPU 推理、vite 代理 + 真实 Fastify 串联 |
+
+**仍然没验的**（不要被上表盖过去）：
+
+- 你平时用的是 **Edge** 的话，那是另一个引擎版本，需要单独看一次；
+- **GPU 委托失败时的降级路径** —— 本机 GPU 一次就成功，这条路径没被真实经历过；
+- 摄像头采集本身（卡在 F-009，见 B3）。
+
+若哪天页面状态栏显示 `CPU`，把降级原因记下来 —— 那是真实用户体验数据，不是 bug。
 
 ### B3 · 摄像头采集的客观质量 🟡 卡在设备本身，不在代码
 
@@ -294,13 +310,14 @@ curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8899/   # → 200
 时间是 **今天 01:10 ~ 01:11**，与上一轮"用相同约束打开成功 1280×720@30"对得上。
 18 小时前能用，现在不能。
 
-**你要做的（2 分钟）**：把 USB 摄像头**换个口重新插**（或断电重连），然后跑探针：
+**你要做的**：让摄像头恢复可启动 —— 物理重插，或用管理员权限重启该设备
+（两条路的完整命令见 [known-failures.md F-009](./known-failures.md)，
+这里不重复抄一份以免两处漂移）。然后重跑探针：
 
 ```bash
 PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
 ```
 
-它会打印一张三阶段的表（枚举数 / 产品现在的调用方式 / 逐设备试开）。
 真实摄像头那一行变成 ✅ 就是恢复了。
 
 ### B4 · 真实训练素材与标注 ✅ 评估流水线已接通，只差人工标注
@@ -323,7 +340,7 @@ PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
 | --- | --- |
 | 人体逐帧检出 | **244 / 244** |
 | 准备区自动标定 | 成功 |
-| **检出的挥拍** | **1 次**（窗口 1267 ~ 3167 ms）|
+| **检出的挥拍** | 修复 F-025 **前 1 次**；修复后 **2 次**（1267 ~ 3167、3333 ~ 5533 ms）|
 | 逐帧相位日志 | 在这**一次** StrokeEvent 内部，`backswing→forward→returning` 循环了**三遍** |
 | 结束原因 | `stroke_too_long` |
 

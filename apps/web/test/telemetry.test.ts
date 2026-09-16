@@ -10,6 +10,11 @@
  *
  * 这里用**构造的** receivedAtMonoMs / inferredAtMonoMs / inferenceMs
  * 把两者拆开，钉住"端到端 ≥ 推理本身"以及"两者各自独立统计"。
+ *
+ * ⚠️ **这组测试覆盖不到的一件事**：两个时刻必须**同源**（都在主线程盖章）。
+ * 这里两者都是构造出来的，天然同源，所以"Worker 时钟与主线程时钟不同源"
+ * 这个前提在本文件里**永远不成立** —— 那正是 F-024 溜过去的原因。
+ * 那一层由 `e2e/pose-engine.e2e.ts` 的"用主线程时钟重新盖章"一项守着。
  */
 
 import { describe, expect, it } from "vitest";

@@ -74,6 +74,35 @@ function feedFullStroke(
 }
 
 describe("StrokeSegmenter", () => {
+  it("会话跑过 maxStrokeDurationMs 之后，挥拍仍能一笔一笔正常闭合（F-025）", () => {
+    // 这一条守的是一个**致命**缺陷：超时判定原先用的 `elapsedInStroke`
+    // 是在状态机切换**之前**算好的，而 `beginStroke` 是在切换**里面**调用的。
+    // 于是"本帧刚开启的挥拍"会被拿去减上一笔清算后的 `strokeStartMs`（= 0），
+    // 得到 `elapsed = sourceTimeMs`；一旦会话跑过 3 秒，
+    // **每一次挥拍都会在开启的那一帧被判超时丢掉** —— 前 3 秒正常，之后永远记不到。
+    //
+    // 为什么此前没人发现：既有用例都只喂**一到两笔**挥拍，时间跨度不到 3 秒，
+    // 恰好绕开了触发条件。
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+
+    const events = [];
+    let t = 0;
+    // 连做 8 笔，时间基线必然越过 maxStrokeDurationMs（3000ms）
+    for (let i = 0; i < 8; i++) {
+      const { event, endTimeMs } = feedFullStroke(seg, t);
+      if (event) events.push(event);
+      t = endTimeMs + 40;
+    }
+
+    expect(t, "测试自身没跑过 3 秒，就测不到这个缺陷").toBeGreaterThan(CONFIG.maxStrokeDurationMs);
+    const complete = events.filter((e) => e.complete);
+    expect(
+      complete.length,
+      `8 笔里只闭合了 ${complete.length} 笔 —— 时间越过 3 秒后挥拍开始被当场丢弃`,
+    ).toBeGreaterThanOrEqual(6);
+  });
+
   it("未设定准备区前不产生任何事件", () => {
     const seg = new StrokeSegmenter(CONFIG);
     for (let t = 0; t < 400; t += 40) {
