@@ -32,9 +32,9 @@
 | --- | --- | --- |
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
-| 纯计算核心 | `[x]` | motion-core 169 项测试（含准备区标定与手部几何） |
+| 纯计算核心 | `[x]` | motion-core 171 项测试（含准备区标定与手部几何） |
 | 后端 + Mock 适配器 | `[x]` | api 130 项测试 |
-| 前端采集链路 | `[x]` | web 64 项 vitest + 53 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 64 项 vitest + 54 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：verify + e2e 两个 job |
@@ -63,12 +63,12 @@
 
 ```
 contracts      30
-motion-core   169
+motion-core   171
 api           130
 web (vitest)   64
-web (Playwright/真 Chrome) 53
+web (Playwright/真 Chrome) 54
 ─────────────────────────────
-合计          446
+合计          449
 ```
 
 ---
@@ -157,7 +157,7 @@ A4 里"采集段延迟"必须有真机摄像头，不属于代码可测范围。
 | ✅ 导入视频循环播放修复（F-011） | 媒体时间回绕导致 `detectForVideo` 的 `Packet timestamp mismatch`，推理静默全死。Worker 内做时间戳单调化。实测同一视频 20 秒内识别数 1 → 8 |
 | ✅ 准备区自动标定（F-012） | 准备区原写死在画面坐标，手不在那里时状态机**完全静默不触发**。新增 `motion-core/readiness.ts` 按**局部速度加权**从实际腕部位置标定；估计器经真实素材对照选出（落点法 1 次 vs 速度加权 8 次） |
 | ✅ 分段失败可视化 | 练习页显示分段阶段、`腕部距准备区 X 倍半径`、体尺度/持腕是否测到，并在画面上标注准备区。**这类失败以前完全静默**，是本次最值钱的改动 |
-| ✅ 手部 21 点接入 | 新增 `hand_landmarker.task` + `motion-core/hand.ts` + `hand-assignment.ts`。**代码链路已验证（模型加载、GPU 委托、界面如实标注），真实素材可用性未验证** —— 现有测试视频里手只占画面宽 5% 且被运动模糊糊掉，模型不响应。详见 known-failures.md |
+| ✅ 手部 21 点接入 | 新增 `hand_landmarker.task` + `motion-core/hand.ts` + `hand-assignment.ts`。**换清晰图片实测能检出**（左右手分 0.93–0.99）。过程中修掉一个真缺陷：手部模型的 `visibility` **恒为 0**，我原先把它当可见性用 → 所有手部点被标成不可见 → 几何永远算不出、绘制永远不画（**手部能力等于没接**）。现按模型分别适配，回归见 `hand-model.e2e.ts`。**仍未验证**：真实挥拍视频里的稳定性（现有素材手部占比太小） |
 | ✅ 门禁稳定性 | `motion-core` / `contracts` / `api` 的 test 补 `--fileParallelism=false`，消除 Windows 上 vitest ssr 缓存 EBUSY 造成的**偶发假红** |
 
 ---

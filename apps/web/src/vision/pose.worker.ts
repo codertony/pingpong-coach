@@ -218,12 +218,25 @@ async function initLandmarker(msg: WorkerInitMessage): Promise<WorkerReadyMessag
   };
 }
 
-/** 归一化坐标 → 原始画面像素；缺失点保持缺失（不补零）。 */
+/**
+ * 归一化坐标 → 原始画面像素。
+ *
+ * `confidence` 语义必须**按模型分别传**，这是个实测踩出来的坑：
+ *
+ * - 姿态模型（BlazePose）的 `visibility` **是有效的**，能反映遮挡；
+ * - 手部模型的 `visibility` **恒为 0** —— 即使检出置信度 0.97 的手，
+ *   21 个点的 `visibility` 也全是 0。把它当可见性用，会让所有手部点
+ *   被标成 `visible: false`，下游的几何计算与绘制**永远拿不到点**。
+ *
+ * 所以手部点传 `undefined`（表示"该模型没给这个信息"），
+ * 而不是把 0 当成"不可见"。缺失信息与"确认为不可见"必须可区分。
+ */
 function toPixel(
   name: string,
   lm: { x: number; y: number; visibility?: number } | undefined,
   width: number,
   height: number,
+  confidence: number | undefined,
 ): Keypoint2D {
   if (!lm) {
     return {
@@ -238,9 +251,34 @@ function toPixel(
     name: name as Keypoint2D["name"],
     xPx: lm.x * width,
     yPx: lm.y * height,
-    score: lm.visibility ?? null,
-    visible: lm.visibility == null ? null : lm.visibility > 0,
+    score: confidence ?? null,
+    // 没给置信度 → visible 记 null（未知），**不是** false（不可见）
+    visible: confidence == null ? null : confidence > 0,
   };
+}
+
+/** 姿态模型的点：`visibility` 是有效的遮挡指标，照常用。 */
+function poseToPixel(
+  name: string,
+  lm: { x: number; y: number; visibility?: number } | undefined,
+  width: number,
+  height: number,
+): Keypoint2D {
+  return toPixel(name, lm, width, height, lm?.visibility);
+}
+
+/**
+ * 手部模型的点：**不要读 `visibility`**（实测恒为 0），置信度留 null。
+ *
+ * 检出与否由"这只手是否出现在结果里"决定 —— 结果里有的手就是被检出的。
+ */
+function handToPixel(
+  name: string,
+  lm: { x: number; y: number; visibility?: number } | undefined,
+  width: number,
+  height: number,
+): Keypoint2D {
+  return toPixel(name, lm, width, height, undefined);
 }
 
 /**
@@ -267,7 +305,7 @@ function projectHands(
     const lm = assigned[side];
     if (!lm) continue;
     const names = HAND_NAMES_BY_SIDE[side];
-    out[side] = lm.map((p, i) => toPixel(names[i]!, p, width, height));
+    out[side] = lm.map((p, i) => handToPixel(names[i]!, p, width, height));
   }
   return out;
 }
@@ -322,7 +360,7 @@ function detect(msg: WorkerDetectMessage): WorkerResultMessage {
     for (const [indexStr, name] of Object.entries(BLAZE33_TO_SEMANTIC)) {
       const index = Number(indexStr);
       // 缺失点保持缺失（toPixel 负责），不补零
-      keypoints2D.push(toPixel(name, landmarks[index], width, height));
+      keypoints2D.push(poseToPixel(name, landmarks[index], width, height));
     }
     const toWrist = (idx: number) => {
       const lm = landmarks[idx];
@@ -356,7 +394,7 @@ function detect(msg: WorkerDetectMessage): WorkerResultMessage {
           keypoints2D.push(...pts);
         } else {
           // 没有这只手 → 显式记为缺失，而不是悄悄不产出
-          for (const name of names) keypoints2D.push(toPixel(name, undefined, width, height));
+          for (const name of names) keypoints2D.push(handToPixel(name, undefined, width, height));
         }
       }
     } catch (err) {

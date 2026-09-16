@@ -168,3 +168,33 @@ describe("输出形状不得包含拍面类结论（红线 3）", () => {
     expect(keys).toContain("thumbSpreadDeg");
   });
 });
+
+describe("手部点与可见性（实测踩过的坑）", () => {
+  /**
+   * 手部模型的 `visibility` **恒为 0**，即使检出置信度 0.97 的手。
+   * 实测（真实图片、真实模型）：21 个点的 visibility 全是 0，
+   * 而 `handedness[0][0].score` 是 0.97。
+   *
+   * 所以适配层**不能**把 visibility 当可见性用 —— 那会让所有手部点变成
+   * `visible: false`，几何永远算不出、绘制永远不画。正确做法是记 `null`（未知），
+   * 因为"模型没给这个信息"与"确认为不可见"是两回事。
+   *
+   * 这里用 `visible: null` 构造输入，断言几何**照样算得出来** ——
+   * 这正是 `visible: false` 时会失败的路径。
+   */
+  it("visible 为 null（模型未提供可见性）时，几何仍应算出，不能当成不可见", () => {
+    const pts = straightRightHand().map((k) => ({ ...k, visible: null, score: null }));
+    const g = extractHandGeometry(pts, "right");
+
+    expect(g.reasonIfMissing).toBeNull();
+    expect(g.fingerFlexionDeg.index).not.toBeNull();
+    expect(g.visiblePointCount).toBe(HAND_SUFFIXES.length);
+  });
+
+  it("visible 为 false 时才算不可见（两者必须可区分）", () => {
+    const pts = straightRightHand().map((k) => ({ ...k, visible: false }));
+    const g = extractHandGeometry(pts, "right");
+    // 明确不可见 → 判为缺失，这是对的
+    expect(g.reasonIfMissing).not.toBeNull();
+  });
+});
