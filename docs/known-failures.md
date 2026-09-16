@@ -1356,6 +1356,16 @@ elapsedInStroke = sourceTimeMs − 0 = sourceTimeMs
 | **`quality`** | `DEFAULT_QUALITY_CONFIG` | ❌ **一个字都没提**（grep 计数 0）|
 | **`evidenceBudget`** | 见下表 | ❌ 无法逐值对应 |
 | **`latency`** | 无（只是目标值）| ❌ 无法对应 |
+| **`featureFlags`** | **无 —— 六个开关代码里一次都没读过** | ❌ 无法对应 |
+| **`budgets`** | `mediaCacheBytes` 对应 apps/web 的常量；另一个无 | ❌ 无法逐值对应 |
+
+**`featureFlags` 是这几个里最要命的**（后续补查发现）：六个开关
+（`enableSpeech`、`enableVideoReplay`、`enableFullVideoRecording`、
+`enableAutoStrokeClassification`、`enableServerPersistence`、`enableLocalRealtimeCues`）
+在 `apps/` 与 `packages/` 里 **grep 零引用**。它们**看起来就是"翻一下就生效"的开关**，
+而实际上改它们不会改变任何行为 —— 真正控制这些功能的地方在各自的实现里
+（语音由界面的开关控制、录制由采集层选项控制）。
+一个照着这个块去关功能的人会以为关掉了，其实没有。
 
 **`evidenceBudget` 五个值逐个追的结果**：
 
@@ -1377,9 +1387,9 @@ elapsedInStroke = sourceTimeMs − 0 = sourceTimeMs
 **修法（分工不同，所以两种做法）**：
 
 1. **能校的**：`quality` 块补上**双向**校验（每个值两边一致 + JSON 不许多出代码没有的键）。
-2. **不能校的**：`evidenceBudget` 与 `latency` 各写一条 `$comment`，
-   逐字写明 **「未被校验」** 并说清原因（值在别的包 / 名字不同 / 压根没实现）。
-   并由测试**强制要求**这条说明存在 —— 没有它，读者会以为这两个块
+2. **不能校的**：`evidenceBudget`、`latency`、`featureFlags`、`budgets` 各写一条 `$comment`，
+   逐字写明 **「未被校验」** 并说清原因（值在别的包 / 名字不同 / 压根没实现 / 代码从不读）。
+   并由测试**强制要求**这条说明存在 —— 没有它，读者会以为这几个块
    和 `quality` / `segmentation` 一样有测试守着。
 3. 文件顶部的 `$runtimeNotice` 改为列出**三处**代码真值
    （`DEFAULT_THRESHOLDS` / `DEFAULT_SEGMENTATION` / `DEFAULT_QUALITY_CONFIG`），

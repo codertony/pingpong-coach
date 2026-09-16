@@ -147,14 +147,18 @@ describe("configs/thresholds.json 与代码一致", () => {
   });
 
   it("未接入代码的配置块必须自己声明清楚（不许看着像有人守）", () => {
-    // `evidenceBudget` 与 `latency` 目前**没有**与代码逐值对应的常量：
-    // 前者的四个值名字对不上或压根没实现，后者只是目标值。
+    // 这四个块目前**没有**与代码逐值对应的常量（或被别的东西取代）：
+    // `evidenceBudget` / `latency` / `featureFlags` / `budgets`。
     // 与其假装它们被守住了，不如要求它们**显式写明**这一点。
-    for (const block of ["evidenceBudget", "latency"]) {
-      const b = cfg.thresholds[block] as Record<string, unknown>;
+    //
+    // `featureFlags` 那六个开关尤其要命：名字看起来是"翻一下就生效"的开关，
+    // 而 grep 实测代码里**一次都没读到过它们** —— 翻了什么都不会发生。
+    for (const block of ["evidenceBudget", "latency", "featureFlags", "budgets"]) {
+      const b = cfg.thresholds[block] ?? cfg[block];
+      expect(b, `configs/thresholds.json 里找不到 ${block}`).toBeDefined();
       expect(
         typeof b.$comment === "string" && b.$comment.includes("未被校验"),
-        `thresholds.${block} 缺少说明。它目前不与任何代码常量对应，` +
+        `${block} 缺少说明。它目前不与任何代码常量逐值对应，` +
           `必须用 $comment 写明「未被校验」，否则读者会以为它和 quality/segmentation 一样有测试守着。`,
       ).toBe(true);
     }

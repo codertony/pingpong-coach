@@ -1,6 +1,6 @@
 {
   "$comment": "训练预设、阈值与功能开关。修改阈值必须同步更新 docs/acceptance.md 的变更记录。",
-  "$runtimeNotice": "⚠️ 本文件**不被运行时读取**。真正的标定值在 packages/motion-core 里，分三处：规则阈值见 src/rules.ts 的 DEFAULT_THRESHOLDS、分段阈值见 src/segmentation.ts 的 DEFAULT_SEGMENTATION、质量阈值见 src/quality.ts 的 DEFAULT_QUALITY_CONFIG。本文件是**规范快照**，改它不会改变程序行为。前三块（quality / segmentation / rules）由 packages/motion-core/test/thresholds-consistency.test.ts **双向**守着与代码一致；`evidenceBudget` 与 `latency` **未被校验**（各自的 $comment 里写明了原因）。",
+  "$runtimeNotice": "⚠️ 本文件**不被运行时读取**。真正的标定值在 packages/motion-core 里，分三处：规则阈值见 src/rules.ts 的 DEFAULT_THRESHOLDS、分段阈值见 src/segmentation.ts 的 DEFAULT_SEGMENTATION、质量阈值见 src/quality.ts 的 DEFAULT_QUALITY_CONFIG。本文件是**规范快照**，改它不会改变程序行为。**逐值守着与代码一致的只有前三块**（thresholds 下的 quality / segmentation / rules），由 packages/motion-core/test/thresholds-consistency.test.ts **双向**校验；**其余四块（evidenceBudget / latency / featureFlags / budgets）都未被校验**，各自在 $comment 里写明了原因 —— 把「未被校验」写在文件里是刻意的：挨着已校验块的块会继承「看起来有人守」的印象。",
   "strokeTypes": {
     "forehand_drive": {
       "label": "定点正手攻球",
@@ -73,6 +73,7 @@
     }
   },
   "featureFlags": {
+    "$comment": "⚠️ **这些值未被校验**：grep 实测（2026-09-16），这六个开关在 apps/ 与 packages/ 里**一次都没被读过**。它们看起来像\"翻一下就生效\"的开关，实际上改它们不会改变任何行为 —— 真正控制这些功能的地方在各自的实现里（例如语音由界面上的开关控制、录制由采集层的选项控制）。见 known-failures F-027。",
     "enableLocalRealtimeCues": true,
     "enableSpeech": true,
     "enableVideoReplay": false,
@@ -81,6 +82,7 @@
     "enableServerPersistence": false
   },
   "budgets": {
+    "$comment": "⚠️ **这些值未被校验**（见 known-failures F-027）。`mediaCacheBytes` 与 apps/web 的 `DEFAULT_CACHE_BUDGET_BYTES`（32 MiB）数值一致，但那在**另一个包**里、且没有任何测试比对过两边；`sessionModelCallsPer20Min` 在代码里没有任何地方读它。",
     "sessionModelCallsPer20Min": 60,
     "mediaCacheBytes": 33554432
   }
