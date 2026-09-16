@@ -163,6 +163,7 @@ pnpm format         # Prettier 格式化
 pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
 pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
 pnpm audit:wiring   # 接线审计：找出"别处都没提过"的孤儿导出（--strict 用于门禁）
+pnpm check:docs     # 文档一致性：命令 / 路径 / 测试总数声明是否对得上仓库实际
 pnpm clean          # 清理构建产物
 
 # 容器（Dockerfile 在本仓库根目录，已实测构建并跑通）
@@ -218,7 +219,7 @@ pingpong-coach/
 ## 7. 测试与验证
 
 ```powershell
-pnpm verify         # 一把梭：typecheck → lint → format:check → audit:wiring → test → build → check:bundle
+pnpm verify         # 一把梭：typecheck → lint → format:check → audit:wiring → check:docs → test → build → check:bundle
 pnpm test           # 只跑单元测试
 pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome）
 ```

@@ -67,6 +67,9 @@ jobs:
         # 零调用的函数测试全绿也说明不了任何事（见 docs/known-failures.md F-016）。
         run: pnpm audit:wiring
 
+      - name: 文档一致性（命令 / 路径 / 测试总数声明）
+        run: pnpm check:docs
+
       - name: 单元测试
         run: pnpm test
 

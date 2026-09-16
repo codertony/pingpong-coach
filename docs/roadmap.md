@@ -39,7 +39,8 @@
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
-| 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → **audit:wiring** → test → build → check:bundle |
+| 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → **audit:wiring** → **check:docs** → test → build → check:bundle |
+| 文档一致性 | `[x]` | `scripts/check-docs.mjs`：文档里写的 `pnpm <script>` 必须存在、引用的仓库内路径必须存在、各文档声明的测试总数必须一致。**这类漂移手工同步一定会漏** —— 本轮开发里同一类问题修了 5 次 |
 | 接线审计 | `[x]` | `scripts/audit-wiring.mjs`：扫**全部四个包**的运行时导出，找出"别处一句话都没提"的孤儿导出。**这是本仓库最容易出、测试又最难发现的一类缺陷** —— 见下方说明 |
 
 ### 已修复的真实缺陷（不是测试写错）
