@@ -64,15 +64,15 @@ pnpm install
 pnpm verify
 ```
 
-这一条命令串起了 typecheck → lint → format:check → 全部单测 → 构建 → 依赖体积预算。
+这一条命令串起了 typecheck → lint → format:check → 接线审计 → 文档一致性 → 全部单测 → 构建 → 依赖体积预算。
 
 **预期输出**（关键行，数字必须一致）：
 
 ```
 packages/contracts  Tests   32 passed (32)
-packages/motion-core Tests 207 passed (207)
+packages/motion-core Tests 215 passed (215)
 apps/api            Tests  136 passed (136)
-apps/web            Tests   98 passed (98)
+apps/web            Tests   99 passed (99)
 ...
 ✓ built in ~2s
 ✓ 依赖体积在预算内。
@@ -81,7 +81,7 @@ apps/web            Tests   98 passed (98)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **473**）
+- [ ] 四组测试数字与上面完全一致（总共 **482**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -327,6 +327,34 @@ pnpm dev
 
 **素材放在哪**：`evaluation/` 目录下，建议 `evaluation/raw/`。
 
+### 拿到素材后：跑回放评测与阈值诊断
+
+有了至少一段素材，就能把「准备区半径该调到多少」从开放问题缩小到一个区间。
+两步，都用真实素材：
+
+```bash
+# ① 逐帧回放，导出观测（在 apps/web 下产出 .tmp-eval/pose-timeline.json）
+PPC_VERIFY_VIDEO="D:\path\to\clip.mp4" pnpm --filter @pingpong/web test:e2e segmentation-eval
+
+# ② 从回放数据里框出准备区半径的可行区间
+pnpm diagnose:thresholds --timeline apps/web/.tmp-eval/pose-timeline.json
+```
+
+**① 会输出什么（事实，不是评价）**：逐帧人体检出数、闭合了几次挥拍 / 几组、
+以及一段距离直方图。它**不会**输出准确率 —— 没有人工标注就没有真值，
+`pnpm eval:replay` 在缺标注时会明确拒绝输出数字。
+
+**② 会输出什么**：腕部到准备区中心的距离分布，若有**两个足够大的峰**，
+就取两峰之间的谷底当分界，给出「可行区间」；若分布是单峰（对拉时常见），
+它会**明说"没找到显著的谷底"并拒绝给建议值**。这是刻意的：
+谷底不显著时硬给一个数，等于换个方式猜。
+
+⚠️ **它不改任何阈值**。改阈值要按 `docs/acceptance.md` 记录理由与版本，
+且**样本量只有一两段素材时不足以定值** —— 这时该做的是人工标注，不是调参。
+
+- [ ] 已跑通回放评测（`pose-timeline.json` 有内容）
+- [ ] 已跑阈值诊断，并把输出贴回来
+
 ---
 
 ## 阶段 6 · 反馈回来给我
@@ -350,12 +378,15 @@ pnpm dev
 
 | 命令 | 作用 |
 | --- | --- |
-| `pnpm verify` | 全量门禁（类型 + lint + 格式 + 测试 + 构建） |
+| `pnpm verify` | 全量门禁（类型 + lint + 格式 + 接线审计 + 文档一致性 + 测试 + 构建 + 体积预算） |
 | `pnpm test` | 只跑单测 |
 | `pnpm test:e2e` | 只跑浏览器测试 |
 | `pnpm lint:fix` | 自动修 lint |
 | `pnpm format` | 自动格式化 |
 | `pnpm build` | 构建全部 |
+| `pnpm models:fetch` | 下载并校验姿态模型权重 |
+| `pnpm eval:replay` | 回放评测（缺人工标注时拒绝输出精度数字） |
+| `pnpm diagnose:thresholds` | 阈值诊断：框出准备区半径的可行区间（见阶段 5） |
 | `pnpm --filter @pingpong/web dev` | 只起前端 |
 | `pnpm --filter @pingpong/api dev` | 只起后端 |
 

@@ -107,14 +107,14 @@ pingpong-coach/
 
 | 项 | 证据 |
 | --- | --- |
-| 数据契约正确性与内部一致性 | contracts 30 项测试 |
-| 几何/滤波/切分/特征/规则/准备区标定/手部几何 | motion-core 207 项测试 |
-| 后端全链路（含 mock） | api 135 项测试 |
-| 前端采集/证据/播报/组件渲染/配色对比度 | web 74 项 vitest（含 jsdom + Testing Library 渲染测试） |
-| **浏览器真实行为** | **web 53 项 Playwright（真实 Chromium）** |
+| 数据契约正确性与内部一致性 | contracts 32 项测试 |
+| 几何/滤波/切分/特征/规则/准备区标定/手部几何/分布判据 | motion-core 215 项测试 |
+| 后端全链路（含 mock） | api 136 项测试 |
+| 前端采集/证据/播报/组件渲染/配色对比度 | web 99 项 vitest（含 jsdom + Testing Library 渲染测试） |
+| **浏览器真实行为** | **web 69 项 Playwright（真实 Chromium）** |
 | 架构依赖方向 | ESLint boundaries + no-restricted-imports，**四条违规路径逐一验证会报错** |
 | 畸形输入不 500、不 throw | api fuzz 3 项 + contracts fuzz 3 项 |
-| 依赖体积不超预算 | `pnpm check:bundle`：合计 gzip 135.7 KiB / 预算 160 KiB |
+| 依赖体积不超预算 | `pnpm check:bundle`：合计 gzip 138.9 KiB / 预算 160 KiB |
 | 12 条红线中的可测部分 | 分散在上面各处，见第 5 节 |
 
 浏览器测试覆盖的是 jsdom **做不到**的部分：真实 Canvas 像素、真实 Worker 跨线程、
@@ -124,19 +124,19 @@ pingpong-coach/
 
 | 项 | 为什么未验证 |
 | --- | --- |
-| **骨架是否贴合关节** | 🔴 假摄像头驱动下画面无人，`detected` 恒为 `false`，叠加层一次都没画过 → **F-006 仍 OPEN** |
+| **骨架是否贴合关节** | 🟡 **已在一支真实素材上目视确认贴合**（7 个采样帧，含持拍侧手臂局部放大；逐帧检出 244/244）。但**只有一个人、一个机位**，且判定者是看图模型 → **你自己机位上仍未验，F-006 保持 OPEN** |
 | GPU 委托**失败**时的降级是否平滑 | 本机 GPU 直接成功（初始化 174 ms）；降级路径只验证过"能连续实例化"，没经历过真实失败 |
 | 真实摄像头下的姿态稳定性 | 本机浏览器枚举不到任何摄像头 → **F-009 OPEN**，从未在真实画面上跑过 |
 | 真实挥拍的分段准确率 | `evaluation/` 为空 |
 | 二维肘角在真实动作上的 MAE | 只验证过构造数据 |
-| 端到端延迟 | 同上；只有单帧热路径的性能哨兵（每帧 < 10 ms 上限），不是延迟测量 |
+| 端到端延迟 | 🟡 **已实测**：真实素材上引擎往返中位 **23~26 ms**（单帧热路径哨兵也在，每帧 < 10 ms 上限）。**但不是用户可感知的完整链路延迟** |
 | 真实多模态模型的质量/延迟/费用 | 一直跑 mock |
-| 20 分钟连续运行稳定性 | 没跑过 |
+| 20 分钟连续运行稳定性 | 🟡 **已实测一次**（`PPC_SOAK=1`，合成帧）：队列无积压（最大 1）、吞吐 30→30 fps 不衰减、堆 5.8→7.0 MiB 无增长趋势。**非真人连续练习** |
 | 跨平台行为 | 沙箱（Linux + Chromium）与本机（Windows 11 + Chrome）都跑过；其余平台没有 |
 | 模型输出经**服务端校验**那一段 | 需要走到模型调用之后，而 mock 模式不经过模型调用；`validate.test.ts` 有 21 项单测直接覆盖，但没有端到端用例（见 roadmap A2 的说明） |
 
 > 🔴 **最重要的一句话**：
-> 测试从 172 涨到 542（473 单元 + 69 e2e），但**增量几乎全部落在"代码正确性"上**。
+> 测试从 172 涨到 551（482 单元 + 69 e2e），但**增量几乎全部落在"代码正确性"上**。
 > 关于"这个产品准不准"的证据，**一项目前都没有**。
 > 任何声称"识别准确率 X%"的说法，在当前状态下都是无根据的。
 
@@ -172,7 +172,7 @@ pingpong-coach/
 ### 提交前门禁
 
 ```bash
-pnpm verify      # typecheck → lint → format:check → test → build → check:bundle
+pnpm verify      # typecheck → lint → format:check → audit:wiring → check:docs → test → build → check:bundle
 ```
 
 CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
@@ -240,9 +240,9 @@ CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
 
 ### ✅ T-1 · 让本地门禁与 CI 一致 —— 已完成（2026-09-16）
 
-`verify` 现在是 `typecheck → lint → format:check → test → build → check:bundle`，
+`verify` 现在是 `typecheck → lint → format:check → audit:wiring → check:docs → test → build → check:bundle`，
 CI 的 verify job 跑同一套；`test:e2e` 仍独立（需要浏览器）。
-新增 `scripts/check-bundle.mjs`：主包 gzip 预算 160 KiB，当前约 121 KiB。
+新增 `scripts/check-bundle.mjs`：主包 gzip 预算 160 KiB，当前约 138.9 KiB。
 
 ### 🟡 T-2 · 组件级测试 —— 部分完成（2026-09-16）
 
@@ -327,7 +327,7 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 | 别做 | 为什么 |
 | --- | --- |
 | ❌ 因为沙箱下不到模型，就删掉 F-006 或改成"已解决" | 那是掩盖问题，不是解决问题 |
-| ❌ 声称"测试全绿所以识别准确" | 542 项测试（473 单元 + 69 e2e）里没有一项验证识别准确率 |
+| ❌ 声称"测试全绿所以识别准确" | 551 项测试（482 单元 + 69 e2e）里没有一项验证识别准确率 |
 | ❌ 把合成数据的测试结果当真实动作的质量证据 | `AGENTS.md` 明确禁止 |
 | ❌ 给模型调用加自动重试 | 违反红线 12，有测试守着 |
 | ❌ 在未审核规则上输出"达标"结论 | 违反红线 4，这是安全约束不是功能 |
@@ -346,15 +346,16 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 
 | 命令 | 作用 |
 | --- | --- |
-| `pnpm verify` | 全量门禁（type → lint → format → test → build → bundle） |
-| `pnpm test` | 只跑单元测试（389 项） |
-| `pnpm test:e2e` | 只跑浏览器测试（65 项，真实 Chromium；会自起 vite + 一个真实 API 进程） |
-| `pnpm check:bundle` | 依赖体积预算（gzip 160 KiB，当前约 121 KiB） |
+| `pnpm verify` | 全量门禁（type → lint → format → **audit:wiring** → **check:docs** → test → build → bundle） |
+| `pnpm test` | 只跑单元测试（482 项） |
+| `pnpm test:e2e` | 只跑浏览器测试（69 项，真实 Chromium；会自起 vite + 一个真实 API 进程） |
+| `pnpm check:bundle` | 依赖体积预算（gzip 160 KiB，当前约 138.9 KiB） |
 | `pnpm lint` / `pnpm lint:fix` | ESLint（含架构边界） |
 | `pnpm format` / `pnpm format:check` | Prettier |
 | `pnpm dev` / `pnpm dev:api` / `pnpm dev:all` | 只前端 / 只后端 / 两个一起 |
 | `pnpm models:fetch` | 下载并校验模型（`-- --write-hash` 回填 sha256） |
 | `pnpm eval:replay` | 回放评测（无真实标注时会明确拒绝输出精度数字） |
+| `pnpm diagnose:thresholds` | 阈值诊断：从回放数据里框出**准备区半径的可行区间**。不给准确率、不自动调参；谷底不显著时**明说不给建议值**（见下方说明） |
 | `pnpm clean` | 清理构建产物 |
 
 环境自检没有脚本，手工等效操作是：
@@ -367,10 +368,11 @@ T-6 是分水岭 —— 在它完成之前，**任何关于识别质量的讨论
 
 如果让人类评价这个项目的现状，请如实转达：
 
-> 代码骨架完整，工程护栏齐备，**473 项单元测试 + 69 项浏览器测试全部通过**。
-> 但**没有一项目前验证了"识别准不准"** —— 真实姿态推理只在本机验证到"链路能跑通、
-> 委托是 GPU"，骨架是否贴合关节从未看过（假摄像头下画面无人，F-006 仍 OPEN），
-> `evaluation/` 里也没有真实素材。
+> 代码骨架完整，工程护栏齐备，**482 项单元测试 + 69 项浏览器测试全部通过**。
+> 但**没有一项目前验证了"识别准不准"** —— 真实姿态推理在本机验证到"链路能跑通、
+> 委托是 GPU"，骨架贴合**只在一支真实素材上目视确认过一次**（一个人、一个机位，
+> 且判定者是看图模型）；**你自己机位上仍未验（F-006 OPEN）**，摄像头从未在真实画面上跑过
+> （F-009 OPEN），`evaluation/` 里也没有真实素材的标注。
 >
 > 下一步的关键动作不是写更多代码，而是**由人在真实设备上完成 T-6 和 T-7**。
 > 在那之前，所有性能与准确率数字都只是拟定目标。
