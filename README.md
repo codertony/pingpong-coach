@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**405 项单元测试 + 54 项浏览器测试全部通过**。
+**409 项单元测试 + 54 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
@@ -156,7 +156,7 @@ pnpm build          # 全量构建
 pnpm typecheck      # 全量类型检查（strict + noUncheckedIndexedAccess）
 pnpm test           # 全量单元测试
 pnpm test:e2e       # 真实浏览器端到端测试
-pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 接线审计 + 测试 + 构建 + 体积预算）
+pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 接线审计 + 文档一致性 + 测试 + 构建 + 体积预算）
 pnpm lint           # ESLint（含架构边界约束）
 pnpm lint:fix       # ESLint 自动修复
 pnpm format         # Prettier 格式化
@@ -226,15 +226,15 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **459 项测试**（405 单元 + 54 浏览器）：
+当前共 **463 项测试**（409 单元 + 54 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 30 | — |
 | `@pingpong/motion-core` | 176 | — |
 | `@pingpong/api` | 135 | — |
-| `@pingpong/web` | 64 | 54 |
-| **合计** | **405** | **54** |
+| `@pingpong/web` | 68 | 54 |
+| **合计** | **409** | **54** |
 
 **这些测试证明的是什么**：
 

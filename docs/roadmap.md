@@ -35,7 +35,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 176 项测试（含准备区标定、手部几何、肘角伸展） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 64 项 vitest + 54 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 68 项 vitest + 54 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -58,6 +58,7 @@
 | F-013 | 导入视频不镜像导致骨架左右相反 —— 已改为**用户可切换的镜像开关**（程序分辨不出自拍还是他拍） |
 | F-014 | 摄像头中途断开时界面继续显示"采集中 / 等待有效挥拍"，不给任何失败线索 |
 | F-015 | 界面"姿态处理 P95"用的是推理耗时而非端到端延迟，系统性低估用户感受到的延迟 |
+| F-017 | 模型 id 可由 `VITE_MODEL_ID_ASSET` 覆盖、加载路径却写死 —— 会加载 full 权重却上报 lite 的 modelId，等于伪造溯源 |
 | F-016 | 用户选了"肘角伸展模式"却拿不到对应反馈：① `computeElbowAngleAtForwardPeak` 定义了却零调用；② 特征名声称了一个契约里不存在的时刻；③ mock 适配器忽略 `focusId`，答非所问 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
@@ -69,10 +70,10 @@
 contracts      30
 motion-core   176
 api           135
-web (vitest)   64
+web (vitest)   68
 web (Playwright/真 Chrome) 54
 ─────────────────────────────
-合计          459
+合计          463
 ```
 
 ---

@@ -642,6 +642,39 @@ E0915 ... gl_graph_runner_internal_image.cc:68] Adding Image to stream image_in 
 
 ---
 
+### F-017 · 模型 id 可由环境变量覆盖，加载路径却写死 —— 会伪造溯源
+
+**日期**：2026-09-16
+**分类**：工程（模型资产一致性）
+**严重度**：中 —— 不会崩，但**上报的 modelId 与实际加载的权重可能不一致**
+
+**现象**：`model-asset.ts` 里
+
+- `modelId` 取 `import.meta.env.VITE_MODEL_ID_ASSET ?? "pose_landmarker_full"`
+- `modelAssetPath` **硬编码** `"/models/pose_landmarker_full.task"`
+
+这个环境变量的用途是在**同一素材**上比较 full 与 lite
+（见 `models/manifest.json` 里 lite 的 `role: speed-comparison`）。
+但设了它只会改 id、**不改加载路径** —— 于是会**加载 full 权重、却上报 lite 的 modelId**。
+
+**为什么这比读错一个数字严重**：`modelId` 是写进 `PoseFrame`、
+用于**评估与费用归因**的。对不上等于伪造溯源 —— 而本项目对"如实标注"的要求
+（红线 10 的 mock 标记、F-014 的界面不撒谎）都是同一个原则。
+
+**怎么发现的**：接着做"机械可查的重复真相源"审计时，顺着刚加的
+`check:docs`（文档一致性）思路去查**代码内部**的一致性 ——
+manifest 声明了 `modelId ↔ path` 的对应，而代码里这两件事各写各的。
+
+**修法**：路径**由 id 推导**（`POSE_MODEL_PATHS` 映射表），
+且未知 id **当场抛错**而不是静默退回默认模型 —— 静默退回同样会造成
+"上报 id ≠ 实际权重"。
+
+**回归**：`apps/web/test/model-asset.test.ts` 4 项，断言
+① manifest 每个 modelId 都声明了路径；② 前端映射表的 id↔路径与 manifest 一致；
+③ 路径必须来自映射表（不是写死）；④ 未知 id 会明确抛错。
+
+---
+
 ## 待补充
 
 真实素材跑起来后，失败片段按上述分类逐条记录到这里，并附回归结果。
