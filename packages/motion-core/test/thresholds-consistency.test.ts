@@ -32,6 +32,7 @@ import { describe, expect, it } from "vitest";
 import { FOCUS_IDS, segmentationConfigSchema } from "@pingpong/contracts";
 import { BUILTIN_RULES, DEFAULT_THRESHOLDS } from "../src/rules.js";
 import { DEFAULT_SEGMENTATION } from "../src/segmentation.js";
+import { DEFAULT_QUALITY_CONFIG } from "../src/quality.js";
 
 const repoRoot = resolve(__dirname, "../../..");
 const cfg = JSON.parse(readFileSync(resolve(repoRoot, "configs/thresholds.json"), "utf8"));
@@ -120,6 +121,41 @@ describe("configs/thresholds.json 与代码一致", () => {
       expect(
         codeKeys.has(k),
         `SegmentationConfig 有 ${k}，但 DEFAULT_SEGMENTATION 没给默认值`,
+      ).toBe(true);
+    }
+  });
+
+  // ── 质量阈值（F-027）──
+  //
+  // 与 segmentation 同一形态：JSON 里有这个块，代码里有 `DEFAULT_QUALITY_CONFIG`，
+  // 而本文件此前**一个字都没提 quality**（grep 计数为 0）。
+  // 既然两个块挨着，就一起守 —— 只守一个块会给人"这个文件在管配置一致性"的错觉。
+  it("quality 块的每个值都与代码的 DEFAULT_QUALITY_CONFIG 一致（双向）", () => {
+    const json = cfg.thresholds.quality as Record<string, unknown>;
+    const jsonKeys = Object.keys(json).filter((k) => !k.startsWith("$"));
+    const codeKeys = Object.keys(DEFAULT_QUALITY_CONFIG);
+    for (const [k, v] of Object.entries(DEFAULT_QUALITY_CONFIG)) {
+      expect(
+        json[k],
+        `quality.${k} 两边不一致（JSON 是 ${String(json[k])}，代码是 ${String(v)}）`,
+      ).toBe(v);
+    }
+    // 双向：JSON 里也不许多出代码没有的键
+    for (const k of jsonKeys) {
+      expect(codeKeys.includes(k), `JSON 的 quality 里有 ${k}，但代码里没有这个阈值`).toBe(true);
+    }
+  });
+
+  it("未接入代码的配置块必须自己声明清楚（不许看着像有人守）", () => {
+    // `evidenceBudget` 与 `latency` 目前**没有**与代码逐值对应的常量：
+    // 前者的四个值名字对不上或压根没实现，后者只是目标值。
+    // 与其假装它们被守住了，不如要求它们**显式写明**这一点。
+    for (const block of ["evidenceBudget", "latency"]) {
+      const b = cfg.thresholds[block] as Record<string, unknown>;
+      expect(
+        typeof b.$comment === "string" && b.$comment.includes("未被校验"),
+        `thresholds.${block} 缺少说明。它目前不与任何代码常量对应，` +
+          `必须用 $comment 写明「未被校验」，否则读者会以为它和 quality/segmentation 一样有测试守着。`,
       ).toBe(true);
     }
   });

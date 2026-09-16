@@ -1339,6 +1339,61 @@ elapsedInStroke = sourceTimeMs − 0 = sourceTimeMs
 
 ---
 
+### F-027 · `thresholds.json` 另外三个块：一个没被校，两个**压根没法校**
+
+**日期**：2026-09-16
+**分类**：工程（配置快照与代码脱节）
+**严重度**：中 —— 其中一个值**根本没有实现**；其余的价值在于"看着像有人守"
+**状态**：**已处理**（能校的加上双向校验；不能校的**改为让文件自己声明**）
+
+**怎么发现的**：修完 F-026 之后顺手问了一句"还有别的块吗"。把 `thresholds` 下的
+五个块逐个对代码查了一遍，结果如下。
+
+| 块 | 代码里的对应 | 此前是否被校 |
+| --- | --- | --- |
+| `rules` | `DEFAULT_THRESHOLDS` | ✅（但只有单向）|
+| `segmentation` | `DEFAULT_SEGMENTATION` | ❌ → F-026 已补 |
+| **`quality`** | `DEFAULT_QUALITY_CONFIG` | ❌ **一个字都没提**（grep 计数 0）|
+| **`evidenceBudget`** | 见下表 | ❌ 无法逐值对应 |
+| **`latency`** | 无（只是目标值）| ❌ 无法对应 |
+
+**`evidenceBudget` 五个值逐个追的结果**：
+
+| JSON 声明 | 代码里的实际 | 判读 |
+| --- | --- | --- |
+| `maxRequestBytes: 2097152` | `apps/api` 的 `MAX_REQUEST_BYTES` 默认 `2*1024*1024` | 值一致，但**另一个包**、且可被 env 覆盖 |
+| `maxModelOutputTokens: 400` | `apps/api` 的 `MODEL_MAX_TOKENS` 默认 `400` | 同上 |
+| `maxSpeechChars: 30` | `apps/web` 的 `MAX_SPEECH_CHARS = 30` | 值一致，但**常量名不同**（按名字查永远找不到）|
+| `maxKeyframes: 6` | `evidence-builder` 的 `selectRepresentativeFrames(..., maxCount = 6)` 默认参数 | 值一致，但藏在函数默认值里 |
+| **`maxImageLongEdgePx: 960`** | **代码里没有任何地方读它** | **声明了但没实现** |
+
+**那个没实现的值意味着什么**（事实 + 边界）：
+"关键帧长边压到 960px"这条预算**没有任何代码在做** —— 关键帧按原分辨率送出去，
+唯一的兜底是 API 侧那 2 MiB 的 `maxRequestBytes`，而它是**拒绝**而不是**降采样**。
+所以理论上会出现"请求被拒"而不是"载荷变小"。
+**我没有实测真实关键帧是否真的超过 2 MiB** —— 那需要跑一次完整会话并看请求体大小，
+所以这一条只说到"预算未实现、兜底是拒绝"为止。
+
+**修法（分工不同，所以两种做法）**：
+
+1. **能校的**：`quality` 块补上**双向**校验（每个值两边一致 + JSON 不许多出代码没有的键）。
+2. **不能校的**：`evidenceBudget` 与 `latency` 各写一条 `$comment`，
+   逐字写明 **「未被校验」** 并说清原因（值在别的包 / 名字不同 / 压根没实现）。
+   并由测试**强制要求**这条说明存在 —— 没有它，读者会以为这两个块
+   和 `quality` / `segmentation` 一样有测试守着。
+3. 文件顶部的 `$runtimeNotice` 改为列出**三处**代码真值
+   （`DEFAULT_THRESHOLDS` / `DEFAULT_SEGMENTATION` / `DEFAULT_QUALITY_CONFIG`），
+   并点名哪两个块未被校验。
+
+**已验证这些断言真的会红**：把 `quality.minScore` 从 0.5 改成 0.6 → 红；
+把 `evidenceBudget` 的 `$comment` 换成不含「未被校验」的文字 → 红。
+
+**这一条最值得记的地方**：**"未校验"本身必须写在配置里。**
+一个挨着"已被校验的块"的块，会**继承它看起来被守着的印象**。
+所以当"加一条校验"做不到时，正确的收尾不是沉默，而是让文件自己说出这件事。
+
+---
+
 ## 待补充
 
 真实素材跑起来后，失败片段按上述分类逐条记录到这里，并附回归结果。
