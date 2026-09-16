@@ -71,7 +71,7 @@ pnpm verify
 ```
 packages/contracts  Tests   32 passed (32)
 packages/motion-core Tests 215 passed (215)
-apps/api            Tests  136 passed (136)
+apps/api            Tests  140 passed | 1 skipped (141)
 apps/web            Tests  105 passed (105)
 ...
 ✓ built in ~2s
@@ -81,7 +81,7 @@ apps/web            Tests  105 passed (105)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **488**）
+- [ ] 四组测试数字与上面完全一致（总共 **493**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -348,6 +348,55 @@ pnpm dev
 > 详见 `known-failures.md` 的 F-020 / F-021 与"待验证能力：手部 21 点"。
 
 **这一步没通过 = 后面所有质量讨论都无意义。** 如果有问题，把浏览器控制台报错整段贴给我。
+
+### 4.1 可选：接真实大模型（不要再用 mock）
+
+默认是 mock（不联网、也能跑通全链路）。要接真实模型，**只给 API 进程**设三个变量：
+
+```bash
+# DeepSeek 的例子（实测可用：deepseek-flash）
+MODEL_API_KEY=<你的密钥> \
+MODEL_BASE_URL=https://api.deepseek.com \
+MODEL_ID=deepseek-flash \
+pnpm dev:api
+```
+
+⚠️ **两个坑，都实测过**（`known-failures.md` F-039）：
+
+1. **没有 `.env` 加载器** —— 往根目录放 `.env` **不会生效**，变量要真的在进程环境里。
+2. **变量名没有前缀**：是 `MODEL_API_KEY`，**不是** `PPC_MODEL_API_KEY`。
+   （早期 README 写的是后者，代码一个都不读 → 会**静默跑成 mock**。）
+
+**必须确认模式**（不要靠"没报错"推断 —— 三缺一**不会**报错，只会退回 mock）：
+
+```bash
+curl http://127.0.0.1:8787/api/health
+# 期望看到 "modelMode":"live"；若是 "mock"，说明变量没被读到
+```
+
+界面上也会有模式徽标：**live 与 mock 必须一眼能分辨**。
+
+**可调项**（都有实测依据，见 `acceptance.md` 的阈值变更记录）：
+
+| 变量 | 默认 | 什么时候要动 |
+| --- | --- | --- |
+| `MODEL_TIMEOUT_MS` | `15000` | 模型更慢时调大 |
+| `MODEL_MAX_TOKENS` | `2000` | **看到 `model_truncated` 就调大**：推理模型先把预算花在推理上，正文会被腰斩 |
+
+**第三方地址用哪个**：本仓库只讲 OpenAI 兼容的 `/chat/completions`。
+比如 DeepSeek 要用 `https://api.deepseek.com`，
+**不要**用 `https://api.deepseek.com/anthropic`（那是 Anthropic 协议，本仓库不走）。
+
+- [ ] `/api/health` 显示 `"modelMode":"live"`
+- [ ] 界面上没有 mock 徽标
+- [ ] 跑一次分析，拿到的是真实模型的反馈（不是 `[mock]` 前缀的那种）
+- [ ] 记下这次的真实延迟（界面上的 P95，或健康检查里的统计）
+
+> **首次接通的实测参考**（DeepSeek `deepseek-flash`，2026-09-16）：
+> 端到端 **3130~4557ms**；图片**确实到达模型**（`prompt_tokens` 35→224）；
+> 模型**自发遵守红线**（`observation_only`、"腕峰≠击球时刻"、不推断发力）；
+> 服务端校验实跑（`rejectedClaims: []`）。
+> 完整记录见 `docs/evaluation-log.md`。
 
 ---
 

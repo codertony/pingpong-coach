@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**488 项单元测试 + 71 项浏览器测试全部通过**。
+**493 项单元测试 + 71 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
@@ -118,22 +118,44 @@ pnpm dev        # 只起前端
 ## 3. 模型接口配置
 
 默认走 **mock**，无需任何配置即可跑通全链路。
-要接真实模型，在仓库根目录建 `.env`（该文件已被 `.gitignore` 忽略）：
+要接真实模型，给 **API 进程**设置下面三个环境变量：
 
-```env
-# 三者必须同时提供，缺一个就会启动失败（这是故意的，避免“配了一半”的静默降级）
-PPC_MODEL_API_KEY=sk-xxxxxxxx
-PPC_MODEL_BASE_URL=https://your-openai-compatible-endpoint/v1
-PPC_MODEL_ID=your-multimodal-model-id
-
-# 可选
-PPC_PORT=8787
-PPC_MODEL_MODE=live        # mock | live
-PPC_REQUEST_TIMEOUT_MS=20000
+```bash
+# 三者齐全才会进入 live 模式（变量名就是这三个，**没有 PPC_ 前缀**）
+MODEL_API_KEY=sk-xxxxxxxx \
+MODEL_BASE_URL=https://api.deepseek.com \
+MODEL_ID=deepseek-flash \
+pnpm dev:api
 ```
 
-**设计约束**：`live` 模式要求 `API_KEY` / `BASE_URL` / `MODEL_ID` **三者齐全**，
-否则直接启动报错。不允许出现“以为在跑真模型、其实在跑 mock”的情况。
+> ⚠️ **两个坑，都实测过**（见 `docs/known-failures.md` F-039）：
+>
+> 1. **仓库没有 `.env` 加载器。** 在根目录放 `.env` **不会生效** ——
+>    这里的变量必须真的在进程环境里（上面的写法，或你自己 `export`）。
+>    早期版本的本文档让你建 `.env` 并用 `PPC_MODEL_API_KEY` 之类的名字，
+>    那些名字**代码里一个都不读**：照着做会**静默地跑成 mock**。
+> 2. **三缺一不会报错，会退回 mock**（不是"启动失败"）。
+>    安全性靠**显著标注**保证：`/api/health` 会写 `modelMode: "mock"`，
+>    界面上也有 mock 徽标。所以**先看健康检查**确认模式，别靠"没报错"推断。
+
+第三方模型的地址要用**它自己的 OpenAI 兼容端点**，不是 Anthropic 端点 ——
+本仓库只讲 `/chat/completions`：
+
+```bash
+# DeepSeek：用这个
+MODEL_BASE_URL=https://api.deepseek.com
+# 不要用 https://api.deepseek.com/anthropic —— 那是 Anthropic 协议，本仓库不走它
+```
+
+| 变量 | 必需 | 默认 |
+| --- | --- | --- |
+| `MODEL_API_KEY` | ✅（live 必需）| — |
+| `MODEL_BASE_URL` | ✅（live 必需）| — |
+| `MODEL_ID` | ✅（live 必需）| — |
+| `PORT` | | `8787` |
+| `HOST` | | `127.0.0.1` |
+| `MODEL_TIMEOUT_MS` | | `15000`（按真实模型实测调整，见 F-038）|
+| `MODEL_MAX_TOKENS` | | `2000`（同上；**推理模型**会先花推理 token，太小会导致正文被截断）|
 
 切换后可用健康检查确认当前模式：
 
@@ -235,15 +257,15 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **559 项测试**（488 单元 + 71 浏览器）：
+当前共 **564 项测试**（493 单元 + 71 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 32 | — |
 | `@pingpong/motion-core` | 215 | — |
-| `@pingpong/api` | 136 | — |
+| `@pingpong/api` | 141 | — |
 | `@pingpong/web` | 105 | 71 |
-| **合计** | **488** | **71** |
+| **合计** | **493** | **71** |
 
 **这些测试证明的是什么**：
 
