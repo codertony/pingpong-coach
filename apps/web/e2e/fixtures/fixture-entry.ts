@@ -27,7 +27,9 @@ import {
 import { SpeechChannel, toSpeechText } from "../../src/audio/speech-channel.js";
 import { fetchHealth, analyzeGroup } from "../../src/review/api-client.js";
 import { PoseEngine } from "../../src/vision/pose-engine.js";
+import { MODEL_ASSET } from "../../src/config/model-asset.js";
 import { TrainingSession } from "../../src/training/training-session.js";
+import { assignHandsToSides } from "@pingpong/motion-core";
 import type { EvidencePacket, Keypoint2D } from "@pingpong/contracts";
 
 /**
@@ -61,8 +63,12 @@ declare global {
       toSpeechText: typeof toSpeechText;
       fetchHealth: typeof fetchHealth;
       PoseEngine: typeof PoseEngine;
+      /** 产品实际使用的模型资产配置。测试要跑真实 worker 就得用它，而不是自己拼一份 */
+      MODEL_ASSET: typeof MODEL_ASSET;
       analyzeGroup: typeof analyzeGroup;
       TrainingSession: typeof TrainingSession;
+      /** 手部左右分配（纯计算）。暴露它是为了让测试能**用产品逻辑**验证真实手部数据 */
+      assignHandsToSides: typeof assignHandsToSides;
       /** 测试专用：把后续 API 请求指向指定后端实例；传 null 恢复同源 /api */
       setApiBase: typeof setApiBase;
       /**
@@ -282,7 +288,9 @@ window.__fixture = {
   fetchHealth,
   analyzeGroup,
   PoseEngine,
+  MODEL_ASSET,
   TrainingSession,
+  assignHandsToSides,
   setApiBase,
   runSyntheticGroup,
   makeRealBitmap,

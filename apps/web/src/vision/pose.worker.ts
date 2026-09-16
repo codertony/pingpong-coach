@@ -294,20 +294,45 @@ function projectHands(
   height: number,
   anchorTolerancePx: number,
 ): Partial<Record<"left" | "right", Keypoint2D[]>> {
+  // ⚠️ 单位口径（F-020）：MediaPipe 手部输出是**归一化坐标**（0..1），
+  // 而姿态腕部锚点经过 `toWrist` 乘过宽高，是**像素**（0..1280）。
+  // 两者直接做差会得到几百像素的假距离，`assignHandsToSides` 于是把
+  // 每一只手都按"超出容差"丢弃：手部 21 点永远缺失，而 `handDetected`
+  // 仍取自检测数量、依旧是 true —— 静默错，且遥测还反着说。
+  // 所以必须先换算到**与锚点同一空间**再比距离。
+  const pixelHands = hands.map((h) => h.map((p) => ({ x: p.x * width, y: p.y * height })));
+
   const anchors = {
     left: poseWrists.left,
     right: poseWrists.right,
   };
-  const { assigned } = assignHandsToSides(hands, anchors, anchorTolerancePx);
+  const { assigned } = assignHandsToSides(pixelHands, anchors, anchorTolerancePx);
 
   const out: Partial<Record<"left" | "right", Keypoint2D[]>> = {};
   for (const side of ["left", "right"] as const) {
     const lm = assigned[side];
     if (!lm) continue;
     const names = HAND_NAMES_BY_SIDE[side];
-    out[side] = lm.map((p, i) => handToPixel(names[i]!, p, width, height));
+    // 这里拿到的已经是像素坐标，**不能**再乘一次宽高
+    out[side] = lm.map((p, i) => pixelToKeypoint(names[i]!, p));
   }
   return out;
+}
+
+/**
+ * 已经是像素坐标的点 → `Keypoint2D`。
+ *
+ * 只给手部用：手部模型不提供逐点置信度（见上面 `handToPixel` 的说明），
+ * 所以 `score` 与 `visible` 都是 `null`（未知）—— 不是 `false`（不可见）。
+ */
+function pixelToKeypoint(name: string, p: { x: number; y: number }): Keypoint2D {
+  return {
+    name: name as Keypoint2D["name"],
+    xPx: p.x,
+    yPx: p.y,
+    score: null,
+    visible: null,
+  };
 }
 
 /** 上一次交给 MediaPipe 的时间戳，用于保证严格递增。 */

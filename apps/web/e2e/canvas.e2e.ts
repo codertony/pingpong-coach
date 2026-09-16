@@ -275,20 +275,27 @@ test.describe("drawReadyZone", () => {
 test.describe("drawSkeleton — 手部 21 点", () => {
   /** 造一只摊开的右手：腕在左下，四指朝右上，另加拇指。 */
   function rightHandPoints() {
+    // ⚠️ 名字必须与契约 `HAND_LANDMARK_NAMES` 一致：**只有腕点**带 `_hand_` 中缀
+    // （`right_hand_wrist`），手指是 `right_thumb_mcp` / `right_index_mcp` …
+    //
+    // 这里原先写的是 `right_hand_thumb_mcp` 这类**契约里根本不存在**的名字。
+    // 而当时的绘制层也拼错了同样的名字 —— 测试与实现**错得一模一样**，
+    // 于是这组测试一直在量"通用关键点循环把手部点当姿态点画出来的像素"，
+    // 却报成"手部绘制通过"。真正的 `drawHand` 一次都没被执行过（F-021）。
     const pts = [
       { name: "right_hand_wrist", xPx: 300, yPx: 300, score: 0.9, visible: true },
-      { name: "right_hand_thumb_mcp", xPx: 290, yPx: 280, score: 0.9, visible: true },
-      { name: "right_hand_thumb_ip", xPx: 282, yPx: 268, score: 0.9, visible: true },
-      { name: "right_hand_thumb_tip", xPx: 276, yPx: 258, score: 0.9, visible: true },
+      { name: "right_thumb_mcp", xPx: 290, yPx: 280, score: 0.9, visible: true },
+      { name: "right_thumb_ip", xPx: 282, yPx: 268, score: 0.9, visible: true },
+      { name: "right_thumb_tip", xPx: 276, yPx: 258, score: 0.9, visible: true },
     ];
     const bases = ["index", "middle", "ring", "pinky"];
     bases.forEach((f, i) => {
       const x = 320 + i * 18;
       pts.push(
-        { name: `right_hand_${f}_mcp`, xPx: x, yPx: 300, score: 0.9, visible: true },
-        { name: `right_hand_${f}_pip`, xPx: x, yPx: 280, score: 0.9, visible: true },
-        { name: `right_hand_${f}_dip`, xPx: x, yPx: 268, score: 0.9, visible: true },
-        { name: `right_hand_${f}_tip`, xPx: x, yPx: 256, score: 0.9, visible: true },
+        { name: `right_${f}_mcp`, xPx: x, yPx: 300, score: 0.9, visible: true },
+        { name: `right_${f}_pip`, xPx: x, yPx: 280, score: 0.9, visible: true },
+        { name: `right_${f}_dip`, xPx: x, yPx: 268, score: 0.9, visible: true },
+        { name: `right_${f}_tip`, xPx: x, yPx: 256, score: 0.9, visible: true },
       );
     });
     return pts;
@@ -320,9 +327,8 @@ test.describe("drawSkeleton — 手部 21 点", () => {
       const ctx = canvas.getContext("2d")!;
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 只有掌心三个锚点中的腕，缺 index_mcp / pinky_mcp。
-      // 这个腕点本身会被骨架的通用循环正常画成圆点（在 100,100），
-      // 那是对的；这里要验的是**手部绘制路径**没有把缺失的指节点画到 (0,0)。
+      // 只有掌心三个锚点中的腕，缺 index_mcp / pinky_mcp →
+      // 手部绘制路径必须**整体放弃**：半个手比不画更容易被误读为"手就是这样"。
       window.__fixture.drawSkeleton(
         canvas,
         [{ name: "right_hand_wrist", xPx: 100, yPx: 100, score: 0.9, visible: true }] as never,
@@ -340,15 +346,19 @@ test.describe("drawSkeleton — 手部 21 点", () => {
       return {
         // 左上角 80×80：缺失点若被当成 (0,0) 就会落在这里
         topLeft: count(0, 0, 80, 80),
-        // 腕点附近：证明绘制确实发生了，不是整块画布都是空的
-        nearWrist: count(80, 80, 40, 40),
+        // 整块画布：锚点不全时不该画出**任何**手部像素。
+        // 这一条比"腕点附近>0"更强 —— 后者原先靠通用关键点循环画手部点来满足，
+        // 而那正是把 21 个点糊成一团白的原因（F-021）。
+        total: count(0, 0, canvas.width, canvas.height),
       };
     });
 
     // 关键：不能把缺失关键点当成 (0,0) 画出一簇点
     expect(result.topLeft).toBe(0);
-    // 同时确认这一帧确实画了东西（否则上面的 0 没有说服力）
-    expect(result.nearWrist).toBeGreaterThan(0);
+    // 锚点不全 → 手部路径放弃，且通用关键点循环**不替它画**
+    expect(result.total, "锚点不全时画出了手部像素 —— 通用关键点循环又把手部点画上了").toBe(0);
+    // "绘制确实发生了"由上一条「有手部点时确实画出手部像素」作证：
+    // 那一条现在走的是真正的 drawHand（名字已与契约一致）。
   });
 
   test("手部点不可见（visible=false）时不参与绘制", async ({ page }) => {
