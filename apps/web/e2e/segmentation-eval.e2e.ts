@@ -17,9 +17,10 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { test, expect } from "@playwright/test";
+import { createHash } from "node:crypto";
+import { test, expect, type Page } from "@playwright/test";
 import type { StrokeEvent } from "@pingpong/contracts";
 import { boundaryToleranceMs } from "@pingpong/motion-core";
 
@@ -53,6 +54,119 @@ const DERIVED_STEP_MS = Math.min(
 );
 /** 实际使用的格子宽度（可被环境变量覆盖）。 */
 const SHEET_STEP_MS = Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? DERIVED_STEP_MS);
+
+/**
+ * 把一串时刻渲染成网格图：每格一个源帧，**时间戳烧在画面里**。
+ *
+ * 抽出来是因为"导出联系表"与"导出分块联系表"必须用**同一套画法**：
+ * 两处各写一遍的话，一处改了时间戳格式、另一处没改，而下游的
+ * 「引用格子」校验靠的是 `frame-index.json` 与**画面里那行文字**对得上 ——
+ * 对不上就会把**正确的人工标注**判成编造（标注协议 §2 的判废条件之一）。
+ */
+async function renderSheet(
+  page: Page,
+  videoB64: string,
+  timesSec: number[],
+  cols: number,
+): Promise<string> {
+  return page.evaluate(
+    async ({ videoB64: b64, times, cols: c }) => {
+      const bin = atob(b64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const video = document.createElement("video");
+      video.muted = true;
+      video.src = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+      await new Promise<void>((r, j) => {
+        video.onloadeddata = () => r();
+        video.onerror = () => j(new Error("视频加载失败"));
+      });
+
+      const CW = 320;
+      const CH = Math.round((video.videoHeight / video.videoWidth) * CW);
+      const rows = Math.ceil(times.length / c);
+      const canvas = document.createElement("canvas");
+      canvas.width = CW * c;
+      canvas.height = CH * rows;
+      const ctx = canvas.getContext("2d")!;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (let i = 0; i < times.length; i++) {
+        video.currentTime = times[i]!;
+        await new Promise<void>((r) => {
+          video.onseeked = () => r();
+        });
+        const cx = (i % c) * CW;
+        const cy = Math.floor(i / c) * CH;
+        ctx.drawImage(video, cx, cy, CW, CH);
+        // 时间戳烧进画面。**两位小数**——`frame-index.json` 里必须是同一个字符串，
+        // 否则标注者照着画面写下来的引用会被机器判成"不存在的格子"。
+        const label = `${times[i]!.toFixed(2)}s`;
+        ctx.font = "bold 15px monospace";
+        ctx.textAlign = "left";
+        ctx.textBaseline = "top";
+        ctx.fillStyle = "rgba(0,0,0,0.75)";
+        ctx.fillRect(cx + 4, cy + 4, ctx.measureText(label).width + 8, 20);
+        ctx.fillStyle = "#ffd166";
+        ctx.fillText(label, cx + 8, cy + 6);
+      }
+      return canvas.toDataURL("image/png").split(",")[1]!;
+    },
+    { videoB64, times: timesSec, cols },
+  );
+}
+
+/** 只问视频的基本信息（时长与尺寸）——"导出图片"这类用例只需要时间轴。 */
+async function probeVideo(
+  page: Page,
+  videoB64: string,
+): Promise<{ durationSec: number; width: number; height: number }> {
+  return page.evaluate(async (b64: string) => {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const video = document.createElement("video");
+    video.muted = true;
+    video.src = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
+    await new Promise<void>((r, j) => {
+      video.onloadeddata = () => r();
+      video.onerror = () => j(new Error("视频加载失败"));
+    });
+    return {
+      durationSec: video.duration,
+      width: video.videoWidth,
+      height: video.videoHeight,
+    };
+  }, videoB64);
+}
+
+/**
+ * 一张表里每个格子 → 源时间（毫秒）。行列为 0 基，与画面里的排布一致。
+ *
+ * ⚠️ **入参是整数毫秒，不是秒**。第一版用秒并靠 `t += 0.1` 累加，
+ * 于是会出现 `5.999999…` 这种值 —— 它 `toFixed(3)` 后变成 6000，
+ * 于**同一格被排进了相邻两块表**（一块把它当结尾、下一块把它当开头）。
+ * 是下面那条"首尾相接"的自检把它抓出来的。
+ * 换成整数毫秒累加之后，这种误差根本不会产生。
+ */
+function cellsOf(
+  timesMs: number[],
+  cols: number,
+): Array<{ row: number; col: number; sourceTimeMs: number }> {
+  return timesMs.map((ms, i) => ({
+    row: Math.floor(i / cols),
+    col: i % cols,
+    sourceTimeMs: ms,
+  }));
+}
+
+/** 整数毫秒的等间隔时刻：`[fromMs, toMs)`，步长 `stepMs`。 */
+function everyMs(fromMs: number, toMs: number, stepMs: number): number[] {
+  const out: number[] = [];
+  for (let ms = fromMs; ms < toMs; ms += stepMs) out.push(ms);
+  return out;
+}
 
 test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => {
   test.skip(!hasVideo, "未提供 PPC_VERIFY_VIDEO（真实挥拍素材），跳过");
@@ -328,59 +442,14 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
 
     const b64 = readFileSync(VIDEO).toString("base64");
 
-    const png = await page.evaluate(
-      async ({ videoB64, everySec, cols }) => {
-        const bin = atob(videoB64);
-        const bytes = new Uint8Array(bin.length);
-        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        const video = document.createElement("video");
-        video.muted = true;
-        video.src = URL.createObjectURL(new Blob([bytes], { type: "video/mp4" }));
-        await new Promise<void>((r, j) => {
-          video.onloadeddata = () => r();
-          video.onerror = () => j(new Error("视频加载失败"));
-        });
-
-        const CW = 320;
-        const CH = Math.round((video.videoHeight / video.videoWidth) * CW);
-        const times: number[] = [];
-        for (let t = 0; t < video.duration; t += everySec) times.push(t);
-        const rows = Math.ceil(times.length / cols);
-
-        const canvas = document.createElement("canvas");
-        canvas.width = CW * cols;
-        canvas.height = CH * rows;
-        const ctx = canvas.getContext("2d")!;
-        ctx.fillStyle = "#000";
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        for (let i = 0; i < times.length; i++) {
-          video.currentTime = times[i]!;
-          await new Promise<void>((r) => {
-            video.onseeked = () => r();
-          });
-          const cx = (i % cols) * CW;
-          const cy = Math.floor(i / cols) * CH;
-          ctx.drawImage(video, cx, cy, CW, CH);
-          // 时间戳烧进画面：没有它就没法把看到的动作对回毫秒
-          ctx.font = "bold 15px monospace";
-          ctx.textAlign = "left";
-          ctx.textBaseline = "top";
-          const label = `${times[i]!.toFixed(2)}s`;
-          ctx.fillStyle = "rgba(0,0,0,0.75)";
-          ctx.fillRect(cx + 4, cy + 4, ctx.measureText(label).width + 8, 20);
-          ctx.fillStyle = "#ffd166";
-          ctx.fillText(label, cx + 8, cy + 6);
-        }
-        return canvas.toDataURL("image/png").split(",")[1]!;
-      },
-      {
-        videoB64: b64,
-        // 格子宽度由验收判据推出（见文件顶部的 DERIVED_STEP_MS），可用
-        // PPC_CONTACT_SHEET_STEP_MS 覆盖；下面的自检会核对它够不够细。
-        everySec: SHEET_STEP_MS / 1000,
-        cols: 6,
-      },
+    // 概览表：整段素材，格子宽度由判据推出（见文件顶部 DERIVED_STEP_MS）
+    const meta = await probeVideo(page, b64);
+    const overviewMs = everyMs(0, Math.round(meta.durationSec * 1000), SHEET_STEP_MS);
+    const png = await renderSheet(
+      page,
+      b64,
+      overviewMs.map((ms) => ms / 1000),
+      6,
     );
 
     mkdirSync(OUT_DIR, { recursive: true });
@@ -437,5 +506,132 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
       console.warn(`\n✓ 格子细于自检基准所需容差，可以照此标注。\n`);
     }
     expect(png.length).toBeGreaterThan(0);
+  });
+
+  /**
+   * 导出**分块联系表**与 `frame-index.json`（供外部标注 agent 引用格子）。
+   *
+   * ## 为什么必须分块
+   *
+   * 整段压成一张表时，相邻两格之间差几十秒 —— 标注者根本读不出"这一板从哪一格开始"。
+   * 分块之后每块只覆盖一小段，格子密到能读边界（格子宽度仍由判据推出，见文件顶部）。
+   *
+   * ## 为什么必须给 `frame-index.json`
+   *
+   * 它让"引用格子"这件事**可机器校验**：标注里写的 `strip_02@1.70s` 会被逐个比对
+   * 是否存在（标注协议 §2 把"引用不存在的格子"列为判废条件）。
+   * 所以格子里的时间戳文字与索引里的 `sourceTimeMs` **必须同源** ——
+   * 两者都由这里同一份 `times` 生成，就是为了不给它们走样的机会。
+   *
+   * ## sheetId 与文件名分开
+   *
+   * `sheetId` 是**逻辑名**（协议与标注里引用它），文件叫什么由这里决定并记进索引 ——
+   * 概览那张沿用了既有文件名 `contact-sheet.png`，不必为了对齐协议去改名。
+   */
+  test("导出分块联系表与帧索引（供外部标注 agent）", async ({ page }) => {
+    test.setTimeout(900_000);
+    await page.goto("/e2e/fixtures/fixture.html");
+    await page.waitForFunction(() => Boolean(window.__fixture));
+
+    const b64 = readFileSync(VIDEO).toString("base64");
+    const meta = await probeVideo(page, b64);
+
+    const cols = 6;
+    const stripSeconds = Number(process.env.PPC_STRIP_SECONDS ?? 2);
+    if (!(stripSeconds > 0)) throw new Error("PPC_STRIP_SECONDS 必须是正数");
+
+    interface SheetRecord {
+      sheetId: string;
+      file: string;
+      cols: number;
+      cells: Array<{ row: number; col: number; sourceTimeMs: number }>;
+    }
+    const sheets: SheetRecord[] = [];
+
+    // 概览：由上一个用例渲染，这里只登记它的格子（同一套公式，不重画一遍）
+    const overviewMs = everyMs(0, Math.round(meta.durationSec * 1000), SHEET_STEP_MS);
+    const overviewFile = resolve(OUT_DIR, "contact-sheet.png");
+    if (!existsSync(overviewFile)) {
+      throw new Error("contact-sheet.png 不存在 —— 概览由上一个用例渲染，顺序不能反");
+    }
+    sheets.push({
+      sheetId: "overview",
+      file: "contact-sheet.png",
+      cols,
+      cells: cellsOf(overviewMs, cols),
+    });
+
+    // 分块表
+    mkdirSync(resolve(OUT_DIR, "strips"), { recursive: true });
+    const totalMs = Math.round(meta.durationSec * 1000);
+    const stripMs = Math.round(stripSeconds * 1000);
+    let index = 0;
+    for (let fromMs = 0; fromMs < totalMs; fromMs += stripMs) {
+      index++;
+      const sheetId = `strip_${String(index).padStart(2, "0")}`;
+      const timesMs = everyMs(fromMs, Math.min(fromMs + stripMs, totalMs), SHEET_STEP_MS);
+      if (timesMs.length === 0) continue;
+      const png = await renderSheet(
+        page,
+        b64,
+        timesMs.map((ms) => ms / 1000),
+        cols,
+      );
+      const file = `strips/${sheetId}.png`;
+      writeFileSync(resolve(OUT_DIR, file), Buffer.from(png, "base64"));
+      sheets.push({ sheetId, file, cols, cells: cellsOf(timesMs, cols) });
+    }
+
+    const frameIndex = {
+      note:
+        "每格 → 源时间。格子里的时间戳文字（两位小数）与本索引同源；" +
+        "标注里引用格子时请写成 `<sheetId>@<格子上的时间戳>`，例如 strip_02@1.70s。",
+      source: {
+        file: basename(VIDEO),
+        sha256: createHash("sha256").update(readFileSync(VIDEO)).digest("hex"),
+        durationSec: Number(meta.durationSec.toFixed(3)),
+        width: meta.width,
+        height: meta.height,
+        sourceFps: SOURCE_FPS,
+      },
+      cellStepMs: SHEET_STEP_MS,
+      cols,
+      sheets,
+    };
+    writeFileSync(
+      resolve(OUT_DIR, "frame-index.json"),
+      JSON.stringify(frameIndex, null, 2),
+      "utf8",
+    );
+
+    // ── 自检：分块**首尾相接且覆盖全程**，不留缝也不重叠 ──
+    // 有缝就意味着有一段素材没有任何格子可引用 —— 那段的动作**标不出来**。
+    const strips = sheets.filter((s) => s.sheetId !== "overview");
+    expect(strips.length, "一张分块表都没导出").toBeGreaterThan(0);
+    for (let i = 1; i < strips.length; i++) {
+      const prev = strips[i - 1]!.cells;
+      const cur = strips[i]!.cells;
+      const prevLast = prev[prev.length - 1]!.sourceTimeMs;
+      expect(
+        cur[0]!.sourceTimeMs,
+        `${strips[i]!.sheetId} 的起点与上一块不相接（中间那段素材没有格子可引用）`,
+      ).toBe(prevLast + SHEET_STEP_MS);
+    }
+    const lastCell = strips[strips.length - 1]!.cells.slice(-1)[0]!;
+    expect(lastCell.sourceTimeMs, "最后一块没覆盖到素材结尾").toBeGreaterThan(
+      Math.round(meta.durationSec * 1000) - SHEET_STEP_MS - 1,
+    );
+
+    const totalCells = sheets.reduce((n, s) => n + s.cells.length, 0);
+    console.warn(
+      [
+        "",
+        `分块联系表已导出：${strips.length} 块（每块 ${stripSeconds}s）+ 概览 1 张`,
+        `共 ${totalCells} 格，格子宽度 ${SHEET_STEP_MS}ms，列数 ${cols}`,
+        `索引：${resolve(OUT_DIR, "frame-index.json")}`,
+        `目录：${resolve(OUT_DIR, "strips")}`,
+        "",
+      ].join("\n"),
+    );
   });
 });

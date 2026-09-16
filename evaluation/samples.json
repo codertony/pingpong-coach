@@ -27,7 +27,9 @@
       "outputs": [
         "apps/web/.tmp-eval/segmentation-observed.json —— 逐帧喂入真实 TrainingSession 后检出的挥拍窗口",
         "apps/web/.tmp-eval/pose-timeline.json —— 每帧的腕部位置、**当时生效的准备区坐标与实测体尺度**、分段相位（排查用；准备区两列是阈值诊断的输入）",
-        "apps/web/.tmp-eval/contact-sheet.png —— 每 0.25 秒一格、时间戳烧进画面的联系表"
+        "apps/web/.tmp-eval/contact-sheet.png —— 每 0.25 秒一格、时间戳烧进画面的联系表",
+        "apps/web/.tmp-eval/strips/*.png —— **分块联系表**（每块 2 秒、格子 100ms，时间戳烧在画面里）。整段压一张表时相邻两格差几十秒，读不出边界；分块之后才读得出（块长可用 PPC_STRIP_SECONDS 覆盖）",
+        "apps/web/.tmp-eval/frame-index.json —— 每格 → 源时间（sheetId/row/col/sourceTimeMs）+ 素材 sha256 与帧率。**「引用格子」的校验全靠它**：标注里写的 `strip_02@1.70s` 会被逐个比对是否存在"
       ],
       "whyRealPipeline": "观测走的是**产品真实的 TrainingSession**（含滤波、质量、准备区自动标定与状态机），不是在 Node 里重算一遍 —— 重算就得把前处理抄一份，而抄出来的那份会漂移。"
     },

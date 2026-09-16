@@ -358,7 +358,9 @@ E2E_STAGE2_PORT=8991 pnpm test:e2e
 3. 跑分段评估，**三步缺一不可**（`evaluation/samples.json` 的 `$howToEvaluate` 里有完整说明）：
 
    ```bash
-   # 3a. 导出观测：用产品真实的 TrainingSession 逐帧跑一遍素材
+   # 3a. 导出观测与标注素材：用产品真实的 TrainingSession 逐帧跑一遍素材。
+   #     一次导出三样：逐帧观测、**分块联系表**（strips/strip_NN.png）、
+   #     **frame-index.json**（每格 → 源时间，供「引用格子」校验）
    PPC_VERIFY_VIDEO="<素材绝对路径>" pnpm --filter @pingpong/web test:e2e segmentation-eval
    # 3b. 照着导出的联系表（格子默认由判据推出、时间戳烧在画面上）标真值。
    #     标两样：每板的两端（annotation.strokes）；阶段事件时刻（annotation.events，
