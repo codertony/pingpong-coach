@@ -35,6 +35,7 @@ const KEYS = [
   "handedness",
   "cameraView",
   "strokes",
+  "perStrokeFeatures",
   "features",
   "keyframes",
   "ruleVersion",
@@ -87,6 +88,7 @@ function validPacket() {
     strokeType: "forehand_drive",
     handedness: "right",
     cameraView: "front",
+    perStrokeFeatures: [{ strokeId: "st-1", features: [] }],
     strokes: [
       {
         strokeId: "st-1",

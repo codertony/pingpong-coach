@@ -53,6 +53,13 @@ export function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePac
     handedness: "right",
     cameraView: "front",
     strokes: [makeStroke()],
+    // 逐板值用**真实**的一条（不是空数组）：提示词用例要断言它被渲染出来
+    perStrokeFeatures: [
+      {
+        strokeId: makeStroke().strokeId,
+        features: [makeFeature({ id: "return_after_wrist_peak_ms", value: 260 })],
+      },
+    ],
     features: [makeFeature()],
     keyframes: [
       {

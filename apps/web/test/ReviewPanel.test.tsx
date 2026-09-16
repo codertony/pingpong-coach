@@ -25,6 +25,7 @@ function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
     strokeType: "forehand_drive",
     handedness: "right",
     cameraView: "front",
+    perStrokeFeatures: [{ strokeId: "st-1", features: [] }],
     strokes: [
       {
         strokeId: "st-1",

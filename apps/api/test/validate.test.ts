@@ -17,6 +17,7 @@ const PACKET: EvidencePacket = {
   strokeType: "forehand_drive",
   handedness: "right",
   cameraView: "front",
+  perStrokeFeatures: [{ strokeId: "st_1", features: [] }],
   strokes: [
     {
       strokeId: "st_1",
@@ -363,5 +364,54 @@ describe("validateModelOutput — 逐条要点", () => {
       EXPECTED,
     );
     expect(r.feedback!.keyPoints).toEqual([okPoints[0]]);
+  });
+});
+
+/**
+ * 逐板测量值的 ID 必须**可引用**（否则真实引用会被判成伪造）。
+ *
+ * 这是新增证据字段时最容易漏的一步：`knownIds` 少收一个来源，
+ * 模型一引用它就被判"引用了不存在的 ID"，**整条反馈被拒** ——
+ * 把可用的证据当成攻击来处置。
+ */
+describe("validateModelOutput — 逐板测量值可引用", () => {
+  it("只出现在**逐板**里的测量 id 也算有效引用", () => {
+    const packet: EvidencePacket = {
+      ...PACKET,
+      perStrokeFeatures: [
+        {
+          strokeId: PACKET.strokes[0]!.strokeId,
+          features: [
+            {
+              id: "per_stroke_only_metric",
+              value: 3,
+              unit: "deg",
+              coordinateSpace: "image_2d",
+              intervalMs: [0, 1],
+              quality: "usable",
+              reasonIfMissing: null,
+            },
+          ],
+        },
+      ],
+    };
+    const r = validateModelOutput(
+      output({ evidenceRefs: ["per_stroke_only_metric"] }),
+      packet,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.issues.some((i) => i.code === "evidence_ref_unknown")).toBe(false);
+    expect(r.feedback).not.toBeNull();
+  });
+
+  it("真正的伪造引用照样被拒（放宽可引用集合不等于不查）", () => {
+    const r = validateModelOutput(
+      output({ evidenceRefs: ["still_not_real"] }),
+      PACKET,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.feedback).toBeNull();
   });
 });

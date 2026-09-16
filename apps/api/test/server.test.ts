@@ -22,6 +22,7 @@ const PACKET_BODY = {
   strokeType: "forehand_drive",
   handedness: "right",
   cameraView: "front",
+  perStrokeFeatures: [{ strokeId: "st_1", features: [] }],
   strokes: [
     {
       strokeId: "st_1",

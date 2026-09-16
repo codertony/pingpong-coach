@@ -14,6 +14,7 @@ import type {
   EvidencePacket,
   FeatureValue,
   Keypoint2D,
+  PerStrokeFeatures,
   PoseFrame,
   RuleCriterion,
   SegmentationConfig,
@@ -608,17 +609,85 @@ export class TrainingSession {
     }
   }
 
+  /**
+   * 本组的区间与落在其中的几何。
+   *
+   * 组区间 = 第一次挥拍起点 → 最后一次挥拍终点。
+   * 抽出来是因为**逐板指标也要用同一批几何**（见 `computePerStrokeFeatures`）——
+   * 两处各过滤一遍的话，将来改了"组区间怎么算"，只会改到其中一处，
+   * 于是组级与逐板的数值来自两个不同的帧集合，而谁都看不出来。
+   */
+  private currentGroupWindow(): { interval: [number, number]; geometries: FrameGeometry[] } {
+    const first = this.validStrokes[0]!;
+    const last = this.validStrokes[this.validStrokes.length - 1]!;
+    const interval: [number, number] = [first.startMs, last.endMs ?? last.anchor.timeMs];
+    return {
+      interval,
+      geometries: this.geometries.filter(
+        (g) => g.sourceTimeMs >= interval[0] && g.sourceTimeMs <= interval[1],
+      ),
+    };
+  }
+
+  /**
+   * 逐板测量值（R5）。
+   *
+   * 这些数**本来就算过**：组级特征的口径就是"先算每板、再取中位数"，
+   * 而聚合时把每板丢掉了 —— 模型只能拿组级标量讲话，答不了"哪一板、差多少"。
+   *
+   * 只放**确实能逐板算**的量：
+   * - 返回准备区时间（每板一个，未闭合的板如实报缺失并说明原因）；
+   * - 肘角（每板取峰值 ±80ms 中位数）—— 与组级特征同一个关注点门槛。
+   *
+   * **组内一致性、肘相对躯干位移刻意不放**：它们的定义就是组级概念，
+   * 不是"每板的同一个量"。硬塞进来只会让模型把组级指标误读成逐板差异。
+   */
+  private computePerStrokeFeatures(): PerStrokeFeatures[] {
+    const { geometries } = this.currentGroupWindow();
+    return this.validStrokes.map((s) => {
+      const features: FeatureValue[] = [];
+
+      if (this.config.focusId === "elbow_extension_pattern") {
+        features.push(
+          computeElbowAngleAtWristPeak(geometries, s.anchor.timeMs, 80, [
+            s.anchor.timeMs,
+            s.anchor.timeMs,
+          ]),
+        );
+      }
+
+      if (s.endMs == null) {
+        /*
+         * 契约允许 `endMs` 为 null，而分段器只对**已闭合**的挥拍置 `complete: true`
+         * 且必定带上 `endMs`（`onStrokeEvent` 也把未闭合的挡在外面）——
+         * 所以正常链路走不到这里。留着它是因为**类型要求收窄**，
+         * 而不是在为一个会发生的情况兜底；真走到了，也要如实说是哪一板缺什么。
+         */
+        features.push({
+          id: FEATURE_IDS.RETURN_AFTER_WRIST_PEAK,
+          value: null,
+          unit: "ms",
+          coordinateSpace: "image_2d",
+          intervalMs: [s.anchor.timeMs, s.anchor.timeMs],
+          quality: "unusable",
+          reasonIfMissing: "这一板未闭合（没有回到准备区），无法计算返回时间",
+        });
+      } else {
+        features.push(
+          computeReturnAfterWristPeak(s.anchor.timeMs, s.endMs, [s.anchor.timeMs, s.endMs]),
+        );
+      }
+
+      return { strokeId: s.strokeId, features };
+    });
+  }
+
   private computeFeatures(): FeatureValue[] {
     const features: FeatureValue[] = [];
     if (this.validStrokes.length === 0) return features;
 
     const first = this.validStrokes[0]!;
-    const last = this.validStrokes[this.validStrokes.length - 1]!;
-    const interval: [number, number] = [first.startMs, last.endMs ?? last.anchor.timeMs];
-
-    const geometriesInGroup = this.geometries.filter(
-      (g) => g.sourceTimeMs >= interval[0] && g.sourceTimeMs <= interval[1],
-    );
+    const { interval, geometries: geometriesInGroup } = this.currentGroupWindow();
 
     features.push(computeElbowAngleRange(geometriesInGroup, interval));
     features.push(computeElbowTorsoDrift(geometriesInGroup, interval));
@@ -770,6 +839,8 @@ export class TrainingSession {
    */
   private async emitGroup(cutShortReason: string | null): Promise<void> {
     const features = this.computeFeatures();
+    // 逐板数值与组级数值**同时**取：两者必须来自同一批挥拍（见 currentGroupWindow）
+    const perStrokeFeatures = this.computePerStrokeFeatures();
     const poses = [...this.posesByFrameId.values()];
     const quality = summarizeGroupQuality(poses, DEFAULT_QUALITY_CONFIG);
 
@@ -864,6 +935,7 @@ export class TrainingSession {
       handedness: this.config.handedness,
       cameraView: this.config.cameraView,
       strokes: this.validStrokes,
+      perStrokeFeatures,
       features,
       keyframes,
       ruleVersion: RULE_VERSION,

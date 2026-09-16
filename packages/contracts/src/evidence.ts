@@ -52,6 +52,27 @@ const ruleCriterionSchema = z.object({
 export type RuleCriterion = z.infer<typeof ruleCriterionSchema>;
 
 /**
+ * 一次挥拍各自的测量值。
+ *
+ * ## 为什么必须有它（R5）
+ *
+ * 在此之前，模型拿到的是**组级标量**（"本组返回准备区中位数 880ms"）——
+ * 它没法回答"哪一板、差多少"，只能讲"整体节奏"这类没有落点的话。
+ * 而逐板的数值**本来就在手里**（`computeFeatures` 里就是先算每板再取中位数），
+ * 只是在聚合时被丢掉了。
+ *
+ * 逐板值用**同一个 `FeatureValue` 结构**（含区间、质量、缺失原因），
+ * 不另造一套：单板也会有"取不到"的情况，缺失同样必须带原因（红线 1）。
+ */
+const perStrokeFeaturesSchema = z.object({
+  /** 这一组测量属于哪一板。必须在 `strokes` 里存在。 */
+  strokeId: z.string().min(1),
+  features: z.array(featureValueSchema),
+});
+
+export type PerStrokeFeatures = z.infer<typeof perStrokeFeaturesSchema>;
+
+/**
  * 证据包：前端已准备好的、自包含的一次分析输入。
  *
  * 关键约束：
@@ -73,6 +94,13 @@ export const evidencePacketSchema = z
     handedness: z.enum(["left", "right"]),
     cameraView: z.string().min(1),
     strokes: z.array(strokeEventSchema),
+    /**
+     * 逐板测量值，与 `strokes` **一一对应**（由下面的 refine 强制）。
+     *
+     * 一一对应而不是"可选的补充"：漏一板就等于悄悄丢一板的证据，
+     * 而它读起来像"这一板没有可测的量"。
+     */
+    perStrokeFeatures: z.array(perStrokeFeaturesSchema),
     features: z.array(featureValueSchema),
     keyframes: z.array(evidenceKeyframeSchema),
     ruleVersion: z.string().min(1),
@@ -121,7 +149,25 @@ export const evidencePacketSchema = z
   .refine((p) => p.criterion == null || p.features.some((f) => f.id === p.criterion!.featureId), {
     message: "criterion.featureId 必须在本包的 features 里出现 —— 判据不能指向包内不存在的测量",
     path: ["criterion"],
-  });
+  })
+  /**
+   * 逐板测量值必须与挥拍**一一对应**。
+   *
+   * 少一板、多一板、或对不上 strokeId，都会让"哪一板"这件事失去意义 ——
+   * 而它读起来不像缺数据，像"那一板本来就没有可测的量"。
+   */
+  .refine(
+    (p) => {
+      const strokeIds = p.strokes.map((s) => s.strokeId);
+      const entryIds = p.perStrokeFeatures.map((e) => e.strokeId);
+      if (entryIds.length !== strokeIds.length) return false;
+      return strokeIds.every((id) => entryIds.includes(id));
+    },
+    {
+      message: "perStrokeFeatures 必须与 strokes 一一对应（同数量且 strokeId 集合相同）",
+      path: ["perStrokeFeatures"],
+    },
+  );
 
 export type EvidencePacket = z.infer<typeof evidencePacketSchema>;
 

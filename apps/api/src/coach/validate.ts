@@ -159,11 +159,14 @@ export function validateModelOutput(
   }
   const out = parsed.data;
 
-  // 可引用 ID 集合：测量值 ID ∪ 关键帧 ID
+  // 可引用 ID 集合：测量值 ID ∪ 关键帧 ID ∪ 挥拍 ID ∪ **逐板测量值 ID**。
+  // 逐板值也要进来：模型讲"第 2 板"时会引用它，漏掉就会把**真实的引用**
+  // 判成伪造引用，整条反馈被拒 —— 那是把可用的证据当成了攻击。
   const knownIds = new Set<string>([
     ...packet.features.map((f) => f.id),
     ...packet.keyframes.map((k) => k.id),
     ...packet.strokes.map((s) => s.strokeId),
+    ...packet.perStrokeFeatures.flatMap((e) => e.features.map((f) => f.id)),
   ]);
 
   // 1) evidenceRefs 必须全部存在，杜绝伪造引用

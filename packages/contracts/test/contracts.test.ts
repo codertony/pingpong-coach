@@ -79,6 +79,7 @@ describe("EvidencePacket", () => {
     handedness: "right" as const,
     cameraView: "front",
     strokes: [baseStroke],
+    perStrokeFeatures: [{ strokeId: "st1", features: [] }],
     features: [
       {
         id: "return_after_wrist_peak_ms",
@@ -171,6 +172,33 @@ describe("EvidencePacket", () => {
       },
     };
     expect(evidencePacketSchema.safeParse(badCriterion).success).toBe(false);
+  });
+
+  it("逐板测量值与挥拍一一对应时通过", () => {
+    // 夹具本身就是这样，这里显式写出来当对照
+    expect(packet.perStrokeFeatures).toHaveLength(packet.strokes.length);
+    expect(evidencePacketSchema.safeParse(packet).success).toBe(true);
+  });
+
+  it("**少一板**逐板测量值时被拒绝 —— 漏一板等于悄悄丢一板的证据", () => {
+    const missing = { ...packet, perStrokeFeatures: [] };
+    expect(evidencePacketSchema.safeParse(missing).success).toBe(false);
+  });
+
+  it("**多一板**逐板测量值时被拒绝（对不上任何挥拍）", () => {
+    const extra = {
+      ...packet,
+      perStrokeFeatures: [...packet.perStrokeFeatures, { strokeId: "st-not-real", features: [] }],
+    };
+    expect(evidencePacketSchema.safeParse(extra).success).toBe(false);
+  });
+
+  it("逐板的 strokeId 写错时被拒绝（数量对得上也不行）", () => {
+    const wrongId = {
+      ...packet,
+      perStrokeFeatures: [{ strokeId: "st-typo", features: [] }],
+    };
+    expect(evidencePacketSchema.safeParse(wrongId).success).toBe(false);
   });
 });
 

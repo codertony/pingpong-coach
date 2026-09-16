@@ -144,6 +144,7 @@ describe("EvidencePacket 与 strokeType 定义同源", () => {
       handedness: "right",
       cameraView: CAMERA_VIEWS[0],
       strokes: [],
+      perStrokeFeatures: [],
       features: [],
       keyframes: [],
       ruleVersion: RULE_VERSION,
@@ -168,6 +169,7 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
     strokeType: "forehand_drive",
     handedness: "right",
     cameraView: CAMERA_VIEWS[0],
+    perStrokeFeatures: [{ strokeId: "st-1", features: [] }],
     strokes: [
       {
         strokeId: "st-1",

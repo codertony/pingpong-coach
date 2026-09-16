@@ -255,3 +255,43 @@ describe("keyPoints 的写作要求", () => {
     expect(OUTPUT_SCHEMA_HINT).toContain("30 个汉字");
   });
 });
+
+/**
+ * 逐板测量值（R5）的渲染。
+ *
+ * 模型此前只拿到组级标量，所以只能讲"整体节奏"。这一段把每板各自的数摆出来，
+ * 并在**缺失时写明原因**（红线 1：缺失不等于 0）。
+ */
+describe("逐板测量值段", () => {
+  it("逐板列出「第 N 板 + strokeId + 起止」与它自己的测量值", () => {
+    const packet = makePacket();
+    const p = buildPrompt(packet, [], noAllowed);
+    expect(p.user).toContain("逐板测量值");
+    expect(p.user).toContain("第 1 板");
+    expect(p.user).toContain(packet.strokes[0]!.strokeId);
+    expect(p.user).toContain("return_after_wrist_peak_ms=260 ms");
+  });
+
+  it("逐板值缺失时写明原因，并点明**缺失不等于 0**", () => {
+    const stroke = makeStroke();
+    const packet = makePacket({
+      perStrokeFeatures: [
+        {
+          strokeId: stroke.strokeId,
+          features: [
+            makeFeature({
+              id: "return_after_wrist_peak_ms",
+              value: null,
+              quality: "unusable",
+              reasonIfMissing: "这一板未闭合（没有回到准备区），无法计算返回时间",
+            }),
+          ],
+        },
+      ],
+    });
+    const p = buildPrompt(packet, [], noAllowed);
+    expect(p.user).toContain("无可用值");
+    expect(p.user).toContain("未闭合");
+    expect(p.user).toContain("缺失不等于 0");
+  });
+});

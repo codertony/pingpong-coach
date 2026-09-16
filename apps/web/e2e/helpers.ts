@@ -29,6 +29,22 @@ export const TINY_PACKET = {
   strokeType: "forehand_drive",
   handedness: "right",
   cameraView: "front",
+  perStrokeFeatures: [
+    {
+      strokeId: "st-1",
+      features: [
+        {
+          id: "return_after_wrist_peak_ms",
+          value: 260,
+          unit: "ms",
+          coordinateSpace: "image_2d",
+          intervalMs: [520, 780],
+          quality: "usable",
+          reasonIfMissing: null,
+        },
+      ],
+    },
+  ],
   strokes: [
     {
       strokeId: "st-1",

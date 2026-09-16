@@ -106,6 +106,37 @@ function renderFeatures(packet: EvidencePacket): string {
     .join("\n");
 }
 
+/**
+ * 渲染**逐板**测量值（R5）。
+ *
+ * 为什么单列一段：模型此前只拿到**组级标量**（"本组中位数 880ms"），
+ * 于是它只能讲"整体节奏"这类没有落点的话 —— 不是它不肯说细，是**没人给它逐板的数**。
+ * 而这些数本来就在手里，只是在聚合时被丢掉了。
+ *
+ * 每板都标上「第 N 板 + strokeId + 起止」，这样模型引用时能指向具体哪一板。
+ * 缺失照样带原因：`无可用值（原因：…）` —— 不写成 0（红线 1）。
+ */
+function renderPerStroke(packet: EvidencePacket): string {
+  if (packet.strokes.length === 0) return "（本组无有效挥拍）";
+  const byStroke = new Map(packet.perStrokeFeatures.map((e) => [e.strokeId, e.features]));
+  return packet.strokes
+    .map((s, i) => {
+      const values = byStroke.get(s.strokeId) ?? [];
+      const body =
+        values.length === 0
+          ? "（本板无可用测量）"
+          : values
+              .map((f) =>
+                f.value == null
+                  ? `${f.id}=无可用值（原因：${f.reasonIfMissing ?? "未说明"}），缺失不等于 0`
+                  : `${f.id}=${f.value} ${f.unit}（质量=${f.quality}）`,
+              )
+              .join("；");
+      return `- 第 ${i + 1} 板 ${s.strokeId}（${s.startMs}–${s.endMs ?? "未闭合"}ms）：${body}`;
+    })
+    .join("\n");
+}
+
 function renderStrokes(packet: EvidencePacket): string {
   if (packet.strokes.length === 0) return "（本组无有效挥拍）";
   return packet.strokes
@@ -141,7 +172,10 @@ export function buildPrompt(
 # 本组挥拍
 ${renderStrokes(packet)}
 
-# 程序测量值
+# 逐板测量值（每一板各自的数 —— 要讲"哪一板"就用这里的）
+${renderPerStroke(packet)}
+
+# 程序测量值（组级汇总）
 ${renderFeatures(packet)}
 
 # 本关注点的判据（程序口径与门槛 —— 这是给你对齐语言用的，不是给你的结论）
