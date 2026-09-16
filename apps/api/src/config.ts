@@ -58,19 +58,24 @@ export function loadConfig(): ServerConfig {
     modelId: live ? modelId : "mock-coach",
     modelBaseUrl: baseUrl,
     modelApiKey: apiKey,
-    // 两个默认值都**按真实模型实测改过**（2026-09-16，deepseek-flash）：
-    //
-    // - 超时 4000 → 15000：实测延迟 min 2278 / 中位 3928 / max 4753 ms，
-    //   端到端（含图片）实测 2568~4496 ms。**4000 正落在中位数上**，
-    //   意味着约一半请求会超时 —— 那是"配了个必然间歇失败的默认值"。
-    // - token 400 → 2000：实测完成用量（**含推理 token**）398~813，
-    //   而 400 会让正文被腰斩（实测在第 192 字符处断），报出来却是
-    //   "JSON 不合法"。推理模型会先花推理 token，正文预算必须留出余量。
-    //
-    // 依据记在 docs/evaluation-log.md；改这两个值要连 `configs/thresholds.json`
-    // 的 latency 快照与 `apps/api/test/config.test.ts` 一起改，否则就是悄悄放宽。
-    modelTimeoutMs: envInt("MODEL_TIMEOUT_MS", 15_000),
-    modelMaxTokens: envInt("MODEL_MAX_TOKENS", 2000),
+    /*
+     * 两个默认值都是按**实测**定的，而且改过两轮 —— 第二轮是拿**真实证据包**量的。
+     *
+     * 第一轮（短提示）：原始值 4000ms / 400 tokens 在真实模型上全是错的 ——
+     *   4000 正落在中位延迟（3928ms）上，400 会让正文被腰斩。
+     *
+     * 第二轮（**真实包：9 张 960 长边关键帧**，2026-09-16）：输入 4145 tokens、
+     *   输出 1584 tokens、端到端 8.7s；无图那次更慢（>15s）。也就是说短提示上
+     *   量出来的 15000/2000 对真实包**仍然偏紧**（已分别在 2000 处截断过一次、
+     *   15000 处超时过一次）。→ 45000ms / 4000 tokens：
+     *   成功那次输出 1584，留 2.5 倍余量；最慢观测 ~15s，留 3 倍。
+     *
+     * 依据记在 docs/evaluation-log.md 与 docs/acceptance.md（版本 1.0.2）；
+     * 改这两个值要连 `configs/thresholds.json` 的 latency 快照与
+     * `apps/api/test/config.test.ts` 一起改，否则就是悄悄放宽。
+     */
+    modelTimeoutMs: envInt("MODEL_TIMEOUT_MS", 45_000),
+    modelMaxTokens: envInt("MODEL_MAX_TOKENS", 4000),
     // 空字符串 = 不发送（与"没配"同义），避免把 "" 当成一个值发给提供商
     modelReasoningEffort: (process.env.MODEL_REASONING_EFFORT ?? "").trim() || null,
     maxRequestBytes: envInt("MAX_REQUEST_BYTES", 2 * 1024 * 1024),
