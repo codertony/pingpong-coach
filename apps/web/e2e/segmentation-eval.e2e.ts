@@ -184,6 +184,7 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
           }
 
           const wrist = keypoints2D.find((k) => k.name === "right_wrist");
+          const zone = session.readyZoneDisplay;
           timeline.push({
             tMs: sourceTimeMs,
             poseDetected: detectedPose,
@@ -192,6 +193,15 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
             wristScore: wrist ? wrist.score : null,
             phase: session.telemetry.segmentationPhase,
             readyZoneAutoCalibrated: session.telemetry.readyZoneAutoCalibrated,
+            // 把当时生效的准备区**逐帧记下来**：腕部距离是相对它算的，
+            // 不记就没法在离线复算（见 scripts/threshold-diagnostic.ts）
+            zoneXPx: zone ? zone.xPx : null,
+            zoneYPx: zone ? zone.yPx : null,
+            zoneRadiusPx: zone ? zone.radiusPx : null,
+            // 体尺度也逐帧记：离线算"距离 ÷ 体尺度"时要它。
+            // 不记的话只能从半径反推，而反推依赖"半径是按当前配置算的"这个前提 ——
+            // 配置一改，反推就错（见 F-032）。
+            bodyScalePx: session.telemetry.bodyScalePx,
           });
         }
 

@@ -283,18 +283,34 @@ export class TrainingSession {
   }
 
   /**
+   * 准备区半径（像素）：`readyZoneRadiusBodyScale × 体尺度`。
+   *
+   * ⚠️ **这是唯一一处计算**。此前同一个量在三处各算各的（F-032）：
+   *   - 画面上的绿圈：`体尺度 ?? 200`（未测到时用魔数占位）
+   *   - 证据包里的 `readyZone.radiusPx`：**写死 200**
+   *   - 遥测的 `wristToZoneRatio` 分母：体尺度，未测到时为 null
+   * 三者在这支素材上分别是 0.3×200、0.3×200、0.3×(147~250) ——
+   * **用户照着调姿势的那个圈，跟状态机真正用的圈不是一个大小。**
+   *
+   * 未测到体尺度时返回 `null`：**不猜**。宁可先不画圈、也不在证据包里
+   * 塞一个编出来的半径（红线 1：缺失就是缺失）。
+   */
+  private zoneRadiusPx(): number | null {
+    return this.lastBodyScalePx == null
+      ? null
+      : this.config.segmentation.readyZoneRadiusBodyScale * this.lastBodyScalePx;
+  }
+
+  /**
    * 准备区显示信息（用于在画面上画出准备区）。
-   * 半径按 `readyZoneRadiusBodyScale * 体尺度` 计算，与分段状态机一致。
-   * 体尺度尚未测到（肩或髋未入镜）时用固定占位值，仅用于显示，不影响判定。
+   *
+   * 体尺度尚未测到（肩或髋未入镜）时返回 `null` —— **不画圈**。
+   * 画一个尺寸随手编的圈比不画更糟：用户会照它调整站位。
    */
   get readyZoneDisplay(): { xPx: number; yPx: number; radiusPx: number } | null {
-    if (!this.readyZoneCenter) return null;
-    const bodyScale = this.lastBodyScalePx ?? 200;
-    return {
-      xPx: this.readyZoneCenter.x,
-      yPx: this.readyZoneCenter.y,
-      radiusPx: this.config.segmentation.readyZoneRadiusBodyScale * bodyScale,
-    };
+    const radiusPx = this.zoneRadiusPx();
+    if (!this.readyZoneCenter || radiusPx == null) return null;
+    return { xPx: this.readyZoneCenter.x, yPx: this.readyZoneCenter.y, radiusPx };
   }
 
   /** 源切换（seek/重播/切摄像头）时重置分段，避免跨片段污染。 */
@@ -605,6 +621,9 @@ export class TrainingSession {
     }
 
     this.lastRequestId = `${this.groupId}_${Date.now()}`;
+    // 与画面上的绿圈、遥测的 wristToZoneRatio 分母**同一处计算**（F-032）。
+    // 未测到体尺度时给 null → 包里不带准备区，而不是塞一个编出来的半径。
+    const packetZoneRadius = this.zoneRadiusPx();
     const packet: EvidencePacket = {
       schemaVersion: SCHEMA_VERSION,
       requestId: this.lastRequestId,
@@ -624,13 +643,14 @@ export class TrainingSession {
         "事件锚点为腕部速度峰值，不是已确认的击球时刻",
         ...(quality.judgeable ? [] : ["本组画质未达到可判门槛"]),
       ],
-      readyZone: this.readyZoneCenter
-        ? {
-            xPx: this.readyZoneCenter.x,
-            yPx: this.readyZoneCenter.y,
-            radiusPx: this.config.segmentation.readyZoneRadiusBodyScale * 200,
-          }
-        : null,
+      readyZone:
+        this.readyZoneCenter && packetZoneRadius != null
+          ? {
+              xPx: this.readyZoneCenter.x,
+              yPx: this.readyZoneCenter.y,
+              radiusPx: packetZoneRadius,
+            }
+          : null,
     };
 
     // 请求体积预算（数据契约「图片与请求预算」）。
@@ -702,8 +722,8 @@ export class TrainingSession {
     const quality = summarizeGroupQuality(poses, DEFAULT_QUALITY_CONFIG);
     const diag = this.segmenter.diagnostics;
     const bodyScale = this.lastBodyScalePx;
-    const zoneRadius =
-      bodyScale != null ? this.config.segmentation.readyZoneRadiusBodyScale * bodyScale : null;
+    // 与画面上的绿圈、证据包里的半径**同一处计算**（F-032）
+    const zoneRadius = this.zoneRadiusPx();
     const wristToZoneRatio =
       this.lastWristPx != null &&
       this.readyZoneCenter != null &&

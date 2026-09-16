@@ -2,7 +2,13 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "noEmit": true
+    "noEmit": true,
+    // 只在这个包开：它是纯计算核心，**"定义了却没人调用"这类问题反复出在这里**
+    // （F-016 第一层零调用的特征函数、以及 F-033 的死方法 `phaseElapsed`）。
+    // 没在 base 里全面开启是刻意的：apps 里有大量"为了接口完整而保留"的参数，
+    // 全面开启会淹没真正要紧的信号 —— 门禁一旦要人加豁免就会被绕过。
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
   },
   "include": ["src/**/*.ts", "test/**/*.ts"]
 }

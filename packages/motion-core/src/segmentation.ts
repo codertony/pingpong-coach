@@ -77,7 +77,6 @@ export class StrokeSegmenter {
   private readonly config: SegmentationConfig;
   private phase: StrokePhase = "idle";
   private phaseSinceMs = 0;
-  private phaseEntered = false;
 
   // 当前进行中的挥拍
   private currentStrokeId: string | null = null;
@@ -113,7 +112,6 @@ export class StrokeSegmenter {
   reset(): void {
     this.phase = "idle";
     this.phaseSinceMs = 0;
-    this.phaseEntered = false;
     this.currentStrokeId = null;
     this.strokeStartMs = 0;
     this.strokeFrames = [];
@@ -135,7 +133,9 @@ export class StrokeSegmenter {
   get diagnostics(): SegmentationDiagnostics {
     return {
       phase: this.phase,
-      phaseElapsedMs: this.lastSampleAtMs == null ? 0 : this.lastSampleAtMs - this.phaseSinceMs,
+      // 用 phaseElapsed 而不是在这里重写一遍同样的减法 ——
+      // 同一个量两处各算各的，迟早会漂（本项目已经栽过好几次）。
+      phaseElapsedMs: this.lastSampleAtMs == null ? 0 : this.phaseElapsed(this.lastSampleAtMs),
       skippedFrames: this.skippedFrames,
       abortedCount: this.abortedCount,
       lastAbortReason: this.lastAbortReason,

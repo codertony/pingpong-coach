@@ -1,0 +1,21 @@
+{
+  "//": "脚本的类型检查。scripts/ 不是 workspace 包，所以 `pnpm -r typecheck` 从来不管它们 —— 于是 eval-replay.ts 与 threshold-diagnostic.ts 是 TypeScript，却没有任何东西检查它们的类型。（实测踩过：一个被断开的字符串字面量只能靠肉眼发现。）",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "paths": {
+      "@pingpong/motion-core": ["./packages/motion-core/src/index.ts"],
+      "@pingpong/contracts": ["./packages/contracts/src/index.ts"]
+    }
+  },
+  "include": ["scripts/**/*.ts"]
+}
