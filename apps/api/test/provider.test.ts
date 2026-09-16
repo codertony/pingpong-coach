@@ -319,3 +319,87 @@ describe("callModel — live 模式失败路径", () => {
     expect(result.mock).toBe(false);
   });
 });
+
+/**
+ * mock 适配器必须**按用户选中的关注点**回答。
+ *
+ * 实测发现的缺陷：mock 原先写死只找 `return_after_wrist_peak_ms`，
+ * 完全忽略 `packet.focusId`。用户选了「肘角伸展模式」时，
+ * mock 返回的观察文本仍在讲返回准备区时间 —— **答非所问**。
+ * 再叠加"本地规则也只有 return_to_ready_zone 一条"，那条路径下
+ * 用户几乎拿不到任何与所选关注点相关的反馈。
+ */
+describe("callModel — mock 按关注点回答", () => {
+  /** 造一个带指定关注点与测量的包。 */
+  function packetFor(focusId: string, featureId: string, value: number | null) {
+    return makePacket({
+      focusId,
+      features: [
+        {
+          id: featureId,
+          value,
+          unit: featureId.endsWith("_ms") ? "ms" : "deg",
+          coordinateSpace: "image_2d",
+          intervalMs: [0, 1000],
+          quality: value == null ? "unusable" : "usable",
+          reasonIfMissing: value == null ? "锚点附近没有足够近的采样" : null,
+        },
+      ],
+    });
+  }
+
+  it("关注点是「肘角伸展模式」时，观察文本讲的是肘角，不是返回准备区时间", async () => {
+    const packet = packetFor("elbow_extension_pattern", "elbow_angle_at_wrist_peak_deg", 163.4);
+    const r = await callModel(makeConfig(), packet, [], noAllowed);
+    const out = JSON.parse(r.raw!);
+
+    expect(out.observation).toContain("肘角");
+    // 关键：不能答非所问地讲返回准备区
+    expect(out.observation).not.toContain("准备区");
+    // 数值来自程序测量，不是编造的
+    expect(out.observation).toContain("163");
+  });
+
+  it("关注点是「肘相对躯干移动」时，观察文本讲的是躯干位移", async () => {
+    const packet = packetFor(
+      "elbow_relative_torso_drift",
+      "elbow_relative_torso_drift_body_scale",
+      0.42,
+    );
+    const r = await callModel(makeConfig(), packet, [], noAllowed);
+    const out = JSON.parse(r.raw!);
+
+    expect(out.observation).toContain("躯干");
+    expect(out.observation).toContain("0.42");
+  });
+
+  it("关注点是默认的返回准备区时，行为不变", async () => {
+    const packet = packetFor("return_to_ready_zone", "return_after_wrist_peak_ms", 420);
+    const r = await callModel(makeConfig(), packet, [], noAllowed);
+    const out = JSON.parse(r.raw!);
+
+    expect(out.observation).toContain("准备区");
+    expect(out.observation).toContain("420");
+  });
+
+  it("对应测量缺失时如实说明原因，不编造数值", async () => {
+    const packet = packetFor("elbow_extension_pattern", "elbow_angle_at_wrist_peak_deg", null);
+    const r = await callModel(makeConfig(), packet, [], noAllowed);
+    const out = JSON.parse(r.raw!);
+
+    // 缺失就报缺失 + 原因
+    expect(out.observation).toContain("未取得");
+    expect(out.observation).toContain("锚点附近没有足够近的采样");
+    // 不能凭空出现一个角度值
+    expect(out.observation).not.toMatch(/\d+\s*度/);
+  });
+
+  it("未知关注点不崩，也不冒充知道了什么", async () => {
+    const packet = packetFor("some_future_focus", "some_feature", 1);
+    const r = await callModel(makeConfig(), packet, [], noAllowed);
+    const out = JSON.parse(r.raw!);
+
+    expect(typeof out.observation).toBe("string");
+    expect(out.status).toBe("observation_only");
+  });
+});

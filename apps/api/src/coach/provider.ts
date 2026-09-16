@@ -126,24 +126,58 @@ export async function callModel(
  * 它只用于在缺少密钥时验证整条链路（构造证据包 → 校验 → 展示 → 复查）。
  * **不得**用它产出的数字冒充真实延迟，也不得用它评估准确性。
  */
+/**
+ * 关注点 → 该关注点对应的**主测量**。
+ *
+ * 为什么需要这张表（实测发现的缺陷）：mock 适配器原先**写死**只找
+ * `return_after_wrist_peak_ms`，完全忽略 `packet.focusId`。
+ * 于是用户选了「肘角伸展模式」时，mock 返回的观察文本仍在讲返回准备区时间 ——
+ * 答非所问。配合本地规则也只有 return_to_ready_zone 一条，
+ * 在 mock 模式下**整个反馈区是空的**。
+ *
+ * 语义：这里声明的是"这个关注点关心哪个测量"，mock 据此复述**程序已经算出的**
+ * 值。它不做任何判断，只是把该关注点的测量如实转述出来。
+ */
+const FOCUS_PRIMARY_FEATURE: Record<string, string> = {
+  return_to_ready_zone: "return_after_wrist_peak_ms",
+  elbow_extension_pattern: "elbow_angle_at_wrist_peak_deg",
+  elbow_relative_torso_drift: "elbow_relative_torso_drift_body_scale",
+};
+
+/** 各测量的口语化说法，用于 mock 的观察文本。 */
+const FEATURE_STATEMENT: Record<string, (v: number, n: number) => string> = {
+  return_after_wrist_peak_ms: (v, n) =>
+    `本组 ${n} 次挥拍中，从腕部速度峰值到重新进入准备区的中位时间约 ${Math.round(v)} 毫秒`,
+  elbow_angle_at_wrist_peak_deg: (v, n) =>
+    `本组 ${n} 次挥拍中，腕部速度峰值处的肘角中位数约 ${Math.round(v)} 度（180 度为伸直）`,
+  elbow_relative_torso_drift_body_scale: (v) =>
+    `本组肘部相对躯干的移动幅度约 ${v.toFixed(2)} 倍体尺度（已消除整体平移）`,
+};
+
 function mockCall(
   packet: EvidencePacket,
   entries: KnowledgeEntry[],
   allowed: AllowedOutputs,
   started: number,
 ): ModelCallResult {
-  const returnFeature = packet.features.find((f) => f.id === "return_after_wrist_peak_ms");
+  // 按**用户选中的关注点**挑主测量，而不是固定挑返回准备区时间。
+  const primaryId = FOCUS_PRIMARY_FEATURE[packet.focusId] ?? "return_after_wrist_peak_ms";
+  const primary = packet.features.find((f) => f.id === primaryId);
 
   const evidenceRefs: string[] = [];
-  if (returnFeature) evidenceRefs.push(returnFeature.id);
+  if (primary) evidenceRefs.push(primary.id);
   const firstKeyframe = packet.keyframes[0];
   if (firstKeyframe) evidenceRefs.push(firstKeyframe.id);
 
+  const say = FEATURE_STATEMENT[primaryId];
   let observation: string;
-  if (returnFeature?.value == null) {
-    observation = `本组未取得可靠的返回准备区时间测量（${returnFeature?.reasonIfMissing ?? "缺少该测量"}），仅报告可见的挥拍数量与关键帧，不判断目标。`;
+  if (primary?.value == null) {
+    // 缺失时按契约如实说明原因，**不编造数值**（红线 1）
+    observation = `本组未取得可靠的对应测量（${primary?.reasonIfMissing ?? "缺少该测量"}），仅报告可见的挥拍数量与关键帧，不判断目标。`;
+  } else if (say) {
+    observation = `[mock] ${say(primary.value, packet.strokes.length)}。该数值由程序测量，未经真实模型复核。`;
   } else {
-    observation = `[mock] 本组 ${packet.strokes.length} 次挥拍中，从腕部速度峰值到重新进入准备区的中位时间约 ${Math.round(returnFeature.value)} 毫秒。该数值由程序测量，未经真实模型复核。`;
+    observation = `[mock] 本组 ${packet.strokes.length} 次挥拍，未识别该关注点对应的测量。`;
   }
 
   const cue = allowed.cues[0] ?? null;

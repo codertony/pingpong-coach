@@ -71,7 +71,7 @@ pnpm verify
 ```
 packages/contracts  Tests   30 passed (30)
 packages/motion-core Tests 176 passed (176)
-apps/api            Tests  130 passed (130)
+apps/api            Tests  135 passed (135)
 apps/web            Tests   64 passed (64)
 ...
 ✓ built in ~2s
@@ -81,7 +81,7 @@ apps/web            Tests   64 passed (64)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **400**）
+- [ ] 四组测试数字与上面完全一致（总共 **405**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
