@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import type { Keypoint2D, PoseFrame } from "@pingpong/contracts";
+import type { Keypoint2D, PhaseEvent, PoseFrame } from "@pingpong/contracts";
 import { FEATURE_IDS, SCHEMA_VERSION } from "@pingpong/contracts";
 import {
   computeElbowAngleRange,
   computeElbowAngleAtWristPeak,
   computeElbowTorsoDrift,
   computeIntraGroupConsistency,
+  computePhaseDurations,
   computeReturnAfterWristPeak,
   extractFrameGeometry,
   summarizeValues,
@@ -417,5 +418,73 @@ describe("computeElbowAngleAtWristPeak", () => {
     const f = computeElbowAngleAtWristPeak([geo(1000, 170)], 1000, 80);
     expect(f.id).toBe("elbow_angle_at_wrist_peak_deg");
     expect(f.id).not.toContain("forward_peak");
+  });
+});
+
+/**
+ * 逐阶段时长（R5 后半）：从**这一板自己的阶段事件**算出来。
+ *
+ * 此前模型只有「这一板从 1200ms 到 1900ms」加几个标量，说不出「引拍拖太久」——
+ * 因为没有任何一个量在描述分段。事件送出来之后，时长就是它们之间的差。
+ */
+describe("computePhaseDurations", () => {
+  const ev = (eventType: string, timeMs: number) => ({
+    eventType: eventType as PhaseEvent["eventType"],
+    timeMs,
+    supportFrameIds: ["f"],
+  });
+  const valueOf = (events: PhaseEvent[], id: string): number | null =>
+    computePhaseDurations(events).find((f) => f.id === id)!.value;
+
+  const CLEAN = [
+    ev("backswing_start", 1000),
+    ev("forward_start", 1200),
+    ev("return_start", 1400),
+    ev("stroke_closed", 1700),
+  ];
+
+  it("干净一板：三个时长分别等于相邻事件的差", () => {
+    expect(valueOf(CLEAN, FEATURE_IDS.BACKSWING_DURATION)).toBe(200);
+    expect(valueOf(CLEAN, FEATURE_IDS.FORWARD_DURATION)).toBe(200);
+    expect(valueOf(CLEAN, FEATURE_IDS.RETURN_DURATION)).toBe(300);
+  });
+
+  it("时长是**累计**的：拉锯走两遍引拍就累加两段", () => {
+    const sawtooth = [
+      ev("backswing_start", 1000),
+      ev("forward_start", 1100),
+      ev("return_start", 1200),
+      ev("backswing_start", 1300), // 又拉出去一次：前一次还原没成立
+      ev("forward_start", 1400),
+      ev("return_start", 1500),
+      ev("stroke_closed", 1600),
+    ];
+    expect(valueOf(sawtooth, FEATURE_IDS.BACKSWING_DURATION)).toBe(200); // 100 + 100
+    expect(valueOf(sawtooth, FEATURE_IDS.FORWARD_DURATION)).toBe(200);
+    expect(valueOf(sawtooth, FEATURE_IDS.RETURN_DURATION)).toBe(200);
+
+    // value 是各段之和，intervalMs 是首段起点→末段终点 —— 两者一对比就能看出重复
+    const backswing = computePhaseDurations(sawtooth).find(
+      (f) => f.id === FEATURE_IDS.BACKSWING_DURATION,
+    )!;
+    expect(backswing.value!).toBeLessThan(backswing.intervalMs[1] - backswing.intervalMs[0]);
+  });
+
+  it("**缺闭合就不给数**：null + 原因，不补 0", () => {
+    const aborted = [ev("backswing_start", 1000)]; // 拉出去了，但这一板没有闭合
+    const rows = computePhaseDurations(aborted);
+    for (const f of rows) {
+      expect(f.value, `${f.id} 不该编出一个数`).toBeNull();
+      expect(f.reasonIfMissing).toBeTruthy();
+      expect(f.quality).toBe("unusable");
+    }
+  });
+
+  it("事件为空时三个量都是 null，而不是 0", () => {
+    const rows = computePhaseDurations([]);
+    expect(rows).toHaveLength(3);
+    for (const f of rows) expect(f.value).toBeNull();
+    // 0 会被读成「这一段瞬时完成」—— 与「没测到」是两件完全不同的事
+    expect(rows.map((f) => f.value)).not.toContain(0);
   });
 });

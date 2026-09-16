@@ -9,7 +9,7 @@
  * - 组内一致性不能把"稳定地做错"判为正确。
  */
 
-import type { FeatureValue, PoseFrame, QualityState } from "@pingpong/contracts";
+import type { FeatureValue, PhaseEvent, PoseFrame, QualityState } from "@pingpong/contracts";
 import { FEATURE_IDS } from "@pingpong/contracts";
 import { angleDeg, coefficientOfVariation, mean, median, type Point2D } from "./geometry.js";
 import { pointOf } from "./quality.js";
@@ -319,4 +319,81 @@ export function summarizeValues(values: Array<number | null>): GroupSummaryStats
     min: Math.min(...clean),
     max: Math.max(...clean),
   };
+}
+
+/**
+ * 逐阶段时长：从**这一板自己的阶段事件**算出来（外部评审 R5 后半）。
+ *
+ * ## 为什么需要
+ *
+ * 此前模型只有「这一板从 1200ms 到 1900ms」加几个标量 —— 它说不出
+ * 「引拍拖太久」「前挥来得太晚」，因为**没有任何一个量在描述分段**。
+ * 事件送出来之后（R4），时长就是它们之间的差。
+ *
+ * ## 口径
+ *
+ * 按事件序列走一遍：遇到某个阶段的开始就开表，遇到**下一个事件**就结账，
+ * 同类**累加**（拉锯时一次挥拍会走两遍引拍，那就是两段之和）。
+ *
+ * ⚠️ 名字里的阶段是**状态机口径**，不是解剖学结论：`backswing` 是
+ * 「越过准备区离开阈值 → 回身并加速向回」这一段，与肌肉是否拉伸无关。
+ *
+ * 某一段没有闭合（例如异常结束的板没有 `stroke_closed`）→ `value: null` +
+ * `reasonIfMissing`，**不补 0**：0 会被读成「这一段瞬时完成」。
+ */
+export function computePhaseDurations(events: readonly PhaseEvent[]): FeatureValue[] {
+  const phases = [
+    { key: "backswing", opener: "backswing_start", id: FEATURE_IDS.BACKSWING_DURATION },
+    { key: "forward", opener: "forward_start", id: FEATURE_IDS.FORWARD_DURATION },
+    { key: "return", opener: "return_start", id: FEATURE_IDS.RETURN_DURATION },
+  ] as const;
+
+  const openerToKey = new Map<string, (typeof phases)[number]["key"]>(
+    phases.map((p) => [p.opener, p.key]),
+  );
+
+  const total = new Map<string, number>();
+  const span = new Map<string, [number, number]>();
+  let open: { key: string; at: number } | null = null;
+
+  for (const e of events) {
+    if (open) {
+      // 累加这一段的长度，并扩展该阶段的时间跨度
+      total.set(open.key, (total.get(open.key) ?? 0) + (e.timeMs - open.at));
+      const prev = span.get(open.key);
+      span.set(open.key, [prev ? prev[0] : open.at, e.timeMs]);
+      open = null;
+    }
+    const key = openerToKey.get(e.eventType);
+    if (key != null) open = { key, at: e.timeMs };
+  }
+
+  return phases.map(({ key, opener, id }): FeatureValue => {
+    const value = total.get(key);
+    if (value == null) {
+      return {
+        id,
+        value: null,
+        unit: "ms",
+        coordinateSpace: "image_2d",
+        intervalMs: [events[0]?.timeMs ?? 0, events[events.length - 1]?.timeMs ?? 0],
+        quality: "unusable",
+        reasonIfMissing: `这一板没有闭合的「${opener}」阶段（事件序列里缺少它的结束事件，或整段缺失）`,
+      };
+    }
+    const [from, to] = span.get(key)!;
+    return {
+      id,
+      value,
+      unit: "ms",
+      coordinateSpace: "image_2d",
+      intervalMs: [from, to],
+      // 时长是对源时间戳做减法，没有"质量降级"可言；精度上限由**帧间隔**决定
+      // （这一点写在证据包的 limitations 里，不在这里每条上重复）
+      quality: "usable",
+      reasonIfMissing: null,
+      // 拉锯时 `value` 是**多段之和**，而 `intervalMs` 是首段起点到最后一段终点：
+      // 两者一对比就能看出这一段走过不止一次（不必再加一个字段）
+    };
+  });
 }

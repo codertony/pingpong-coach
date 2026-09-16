@@ -124,3 +124,43 @@ describe("阶段事件", () => {
     }
   });
 });
+
+/**
+ * 逐阶段时长（R5 后半）：证据包里**每一个量都在描述分段**了。
+ *
+ * 这条走的是**产品链路**（TrainingSession → 证据包），不是纯函数直调 ——
+ * 纯函数有自己的单测，这里要确认它真的被接进去了、且与事件时刻对得上。
+ */
+describe("逐阶段时长", () => {
+  const PHASE_DURATIONS = ["backswing_duration_ms", "forward_duration_ms", "return_duration_ms"];
+
+  it("每一板都带上三个阶段时长，且都算出了值", () => {
+    const p = run(3);
+    expect(p.strokes.length).toBeGreaterThan(0);
+    for (const s of p.strokes) {
+      const entry = p.perStrokeFeatures.find((e) => e.strokeId === s.strokeId)!;
+      for (const id of PHASE_DURATIONS) {
+        const f = entry.features.find((x) => x.id === id);
+        expect(f, `${s.strokeId} 缺 ${id} —— 过程还是没被量化`).toBeDefined();
+        expect(f!.value, `${id} 在本板不该缺失（这一板是完整闭合的）`).not.toBeNull();
+        expect(f!.value!).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("时长与**这一板自己的事件时刻**对得上（不是别处算来的）", () => {
+    const p = run(3);
+    for (const s of p.strokes) {
+      const entry = p.perStrokeFeatures.find((e) => e.strokeId === s.strokeId)!;
+      const first = (t: string): number => s.phaseEvents.find((e) => e.eventType === t)!.timeMs;
+
+      // 合成夹具每板只走一遍各阶段，所以时长就等于相邻事件之差
+      expect(entry.features.find((x) => x.id === "backswing_duration_ms")!.value).toBe(
+        first("forward_start") - first("backswing_start"),
+      );
+      expect(entry.features.find((x) => x.id === "return_duration_ms")!.value).toBe(
+        first("stroke_closed") - first("return_start"),
+      );
+    }
+  });
+});

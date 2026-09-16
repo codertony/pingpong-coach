@@ -47,6 +47,26 @@ export const FEATURE_IDS = {
    * 注意命名：未确认为击球，所以不叫 recovery_after_impact_ms。
    */
   RETURN_AFTER_WRIST_PEAK: "return_after_wrist_peak_ms",
+  /**
+   * 本板**累计**处于引拍的时间：从离开准备区（`backswing_start`）
+   * 到确认前挥（`forward_start`）之间的时间。拉锯时会累加多段。
+   *
+   * ⚠️ 名字里的 backswing 是**状态机的阶段名**，不是解剖学结论：
+   * 它是"腕部越过准备区离开阈值 → 回身并加速向回"这一段，与"肌肉在拉伸"无关。
+   */
+  BACKSWING_DURATION: "backswing_duration_ms",
+  /**
+   * 本板**累计**处于前挥的时间：`forward_start` → `return_start`。
+   * 同样只是状态机口径，**不是**"击球过程"——未识别触球，红线 2。
+   */
+  FORWARD_DURATION: "forward_duration_ms",
+  /**
+   * 本板**累计**处于还原的时间：`return_start` → `stroke_closed`。
+   *
+   * 与 `RETURN_AFTER_WRIST_PEAK` 的区别：那个从**腕速峰值**起算，
+   * 这个从**重新进入准备区**起算。两个都不等于"回到位的质量"。
+   */
+  RETURN_DURATION: "return_duration_ms",
   /** 组内一致性：同条件多次挥拍同一特征的离散程度。 */
   INTRA_GROUP_CONSISTENCY: "intra_group_consistency_cv",
 } as const;

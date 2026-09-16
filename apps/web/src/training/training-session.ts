@@ -28,6 +28,7 @@ import {
   computeElbowAngleRange,
   computeElbowAngleAtWristPeak,
   computeElbowTorsoDrift,
+  computePhaseDurations,
   computeIntraGroupConsistency,
   computeReturnAfterWristPeak,
   computeSamplingStats,
@@ -635,8 +636,10 @@ export class TrainingSession {
    * 这些数**本来就算过**：组级特征的口径就是"先算每板、再取中位数"，
    * 而聚合时把每板丢掉了 —— 模型只能拿组级标量讲话，答不了"哪一板、差多少"。
    *
-   * 只放**确实能逐板算**的量：
-   * - 返回准备区时间（每板一个，未闭合的板如实报缺失并说明原因）；
+   * 放三类**确实能逐板算**的量：
+   * - **逐阶段时长**（引拍／前挥／还原）：由这一板自己的阶段事件相减得到（R5 后半）。
+   *   有了它模型才说得出"引拍拖太久"这类话 —— 此前没有任何一个量在描述分段；
+   * - 返回准备区时间（未闭合的板如实报缺失并说明原因）；
    * - 肘角（每板取峰值 ±80ms 中位数）—— 与组级特征同一个关注点门槛。
    *
    * **组内一致性、肘相对躯干位移刻意不放**：它们的定义就是组级概念，
@@ -646,6 +649,9 @@ export class TrainingSession {
     const { geometries } = this.currentGroupWindow();
     return this.validStrokes.map((s) => {
       const features: FeatureValue[] = [];
+
+      // 逐阶段时长：入口是**这一板自己的事件**，与分段口径同源
+      features.push(...computePhaseDurations(s.phaseEvents));
 
       if (this.config.focusId === "elbow_extension_pattern") {
         features.push(
@@ -681,7 +687,6 @@ export class TrainingSession {
       return { strokeId: s.strokeId, features };
     });
   }
-
   private computeFeatures(): FeatureValue[] {
     const features: FeatureValue[] = [];
     if (this.validStrokes.length === 0) return features;
