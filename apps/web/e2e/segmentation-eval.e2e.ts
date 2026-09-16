@@ -21,6 +21,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
 import type { StrokeEvent } from "@pingpong/contracts";
+import { boundaryToleranceMs } from "@pingpong/motion-core";
 
 const VIDEO = process.env.PPC_VERIFY_VIDEO ?? "";
 const hasVideo = VIDEO !== "" && existsSync(VIDEO);
@@ -350,13 +351,67 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
         }
         return canvas.toDataURL("image/png").split(",")[1]!;
       },
-      { videoB64: b64, everySec: 0.25, cols: 6 },
+      {
+        videoB64: b64,
+        // 可调：短挥拍要求标注精度更细，0.25s 的格子可能**不够**（见下面的自检）
+        everySec: Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? 250) / 1000,
+        cols: 6,
+      },
     );
 
     mkdirSync(OUT_DIR, { recursive: true });
     const file = resolve(OUT_DIR, "contact-sheet.png");
     writeFileSync(file, Buffer.from(png, "base64"));
     console.warn(`\n联系表已写入 ${file}\n`);
+
+    /*
+     * **自检：这张表够不够细？**
+     *
+     * 验收判据是 IoU ≥ 0.5，换算成毫秒就是"两端各偏不超过该次挥拍时长的 25%"
+     * （见 motion-core 的 boundaryToleranceMs）。所以**联系表的格子必须比这个容差更细**，
+     * 否则标注者再仔细也标不到精度 —— 表本身就是瓶颈。
+     *
+     * ⚠️ **不能拿"已检出的挥拍时长"当基准**：连续对拉时检测会**合并**相邻几板
+     * （F-022），合并后的时长**长于**真实单板 ⇒ 用它算出来的容差偏松，
+     * 会得出"够用"的错误结论。所以基准取**预期单板时长**
+     * （`PPC_EXPECTED_STROKE_MS`，默认 800ms），并把几个常见时长的容差一并打出来。
+     */
+    const stepMs = Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? 250);
+    const expectedMs = Number(process.env.PPC_EXPECTED_STROKE_MS ?? 800);
+    const observedFile = resolve(OUT_DIR, "segmentation-observed.json");
+    const detectedDurations: number[] = [];
+    if (existsSync(observedFile)) {
+      const observed = JSON.parse(readFileSync(observedFile, "utf8")) as {
+        detectedStrokes?: Array<{ startMs: number; endMs: number }>;
+      };
+      for (const s of observed.detectedStrokes ?? []) {
+        if (s.endMs - s.startMs > 0) detectedDurations.push(s.endMs - s.startMs);
+      }
+    }
+
+    console.warn(`\n标注精度自检（联系表格子 ${stepMs}ms）：`);
+    console.warn("  预期单板时长 → 两端各需标在 ±X 内（IoU ≥ 0.5 的几何要求）");
+    for (const d of [2200, 1500, 1000, 800, 600]) {
+      const need = Math.round(boundaryToleranceMs(d));
+      console.warn(
+        `    ${String(d).padStart(4)}ms → ±${String(need).padStart(3)}ms${d === expectedMs ? "   ← 自检基准" : ""}`,
+      );
+    }
+    if (detectedDurations.length > 0) {
+      console.warn(
+        `  本次检出的挥拍时长：${detectedDurations.map((d) => `${d}ms`).join("、")}` +
+          `（连续对拉时会被合并，故**长于**真实单板 —— 别拿它当基准）`,
+      );
+    }
+    if (stepMs > boundaryToleranceMs(expectedMs)) {
+      console.warn(
+        `\n⚠️ 这张表**不够细**：格子 ${stepMs}ms 粗于 ${expectedMs}ms 单板所需的 ±${Math.round(boundaryToleranceMs(expectedMs))}ms。\n` +
+          `   直接用它会**系统性低报**识别质量 —— 标不准不是标注者的问题。\n` +
+          `   要么调小 PPC_CONTACT_SHEET_STEP_MS 重新导出（如 100），要么直接对着视频标。\n`,
+      );
+    } else {
+      console.warn(`\n✓ 格子细于自检基准所需容差，可以照此标注。\n`);
+    }
     expect(png.length).toBeGreaterThan(0);
   });
 });
