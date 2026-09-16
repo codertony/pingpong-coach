@@ -39,7 +39,8 @@
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
-| 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → test → build → check:bundle |
+| 一键验收 | `[x]` | `pnpm verify` = typecheck → lint → format:check → **audit:wiring** → test → build → check:bundle |
+| 接线审计 | `[x]` | `scripts/audit-wiring.mjs`：查 motion-core 的公开导出有没有产品代码调用。**这是本仓库最容易出、测试又最难发现的一类缺陷** —— 见下方说明 |
 
 ### 已修复的真实缺陷（不是测试写错）
 
@@ -100,6 +101,35 @@ web (Playwright/真 Chrome) 54
 > **其实机器上装着 Podman，我只是没往下查**；"延迟需要真设备" →
 > 但延迟里属于本机的那一段（处理链路）本来就能测，只是原来的口径把它漏掉了。
 > 下次说"做不了"之前，先问一句：**是这件事做不了，还是我选的这条路走不通？**
+
+### 接线审计：为什么值得进 CI
+
+这一批修的缺陷里，**最值得警惕的不是"算错了"，而是"根本没被调用"**：
+
+| 缺陷 | 形态 |
+| --- | --- |
+| F-016 第一层 | `computeElbowAngleAtForwardPeak` 定义了、导出了、**有测试**，但产品代码零调用 —— 而它对应界面里**用户可选**的关注点 |
+| F-016 第二层 | mock 适配器忽略 `packet.focusId`，对任何关注点都讲返回准备区时间 |
+
+这类问题的共同点：**测试全绿也说明不了任何事**。测试断言的是函数行为，
+而零调用的函数，它的测试再完备也不影响产品。
+
+`pnpm audit:wiring` 固化**正向**那一半：列出 motion-core 的运行时导出，
+逐个在产品代码（`apps/*/src`、`knowledge/`、`configs/`）里搜调用点；
+**零调用且不在豁免清单里 → 门禁失败**。
+
+**豁免清单必须写明理由**（`scripts/audit-wiring.mjs` 的 `ALLOWED_UNWIRED`）：
+它是"我们明知这些符号当前无人调用、并且接受"的书面记录，不是让检查通过的开关。
+清单**过期也报错**（符号已被调用或已不存在），否则后来的人会被它误导。
+
+**已验证脚本能真的抓住缺陷**（不是写了个永远通过的东西）：
+
+- 拿掉一条豁免 → 报 `extractHandGeometry` 未登记，退出码 1；
+- 放一条不存在的豁免 → 报该条失效，退出码 1；
+- 正常情况退出码 0。
+
+**只查运行时导出**（`function` / `const` / `class`），**不查 `interface` / `type`** ——
+类型的"被使用"发生在编译期，用文本搜调用点没有意义，混进来只会淹没真信号。
 
 ### A7 的四个坑：只有真实构建才会暴露
 

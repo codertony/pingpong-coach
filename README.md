@@ -156,12 +156,13 @@ pnpm build          # 全量构建
 pnpm typecheck      # 全量类型检查（strict + noUncheckedIndexedAccess）
 pnpm test           # 全量单元测试
 pnpm test:e2e       # 真实浏览器端到端测试
-pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 测试 + 构建 + 体积预算）
+pnpm verify         # 一把梭门禁（类型 + lint + 格式 + 接线审计 + 测试 + 构建 + 体积预算）
 pnpm lint           # ESLint（含架构边界约束）
 pnpm lint:fix       # ESLint 自动修复
 pnpm format         # Prettier 格式化
 pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
 pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
+pnpm audit:wiring   # 检查 motion-core 的公开导出有没有调用方
 pnpm clean          # 清理构建产物
 
 # 容器（Dockerfile 在本仓库根目录，已实测构建并跑通）
@@ -217,7 +218,7 @@ pingpong-coach/
 ## 7. 测试与验证
 
 ```powershell
-pnpm verify         # 一把梭：typecheck → lint → format:check → test → build → check:bundle
+pnpm verify         # 一把梭：typecheck → lint → format:check → audit:wiring → test → build → check:bundle
 pnpm test           # 只跑单元测试
 pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome）
 ```

@@ -62,6 +62,11 @@ jobs:
       - name: 格式检查
         run: pnpm format:check
 
+      - name: 接线审计（公开导出是否有调用方）
+        # 本项目反复出现的缺陷形状不是"函数算错了"，而是**函数根本没被调用**。
+        # 零调用的函数测试全绿也说明不了任何事（见 docs/known-failures.md F-016）。
+        run: pnpm audit:wiring
+
       - name: 单元测试
         run: pnpm test
 
