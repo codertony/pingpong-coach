@@ -142,6 +142,7 @@ const FOCUS_PRIMARY_FEATURE: Record<string, string> = {
   return_to_ready_zone: "return_after_wrist_peak_ms",
   elbow_extension_pattern: "elbow_angle_at_wrist_peak_deg",
   elbow_relative_torso_drift: "elbow_relative_torso_drift_body_scale",
+  intra_group_consistency: "intra_group_consistency_cv",
 };
 
 /** 各测量的口语化说法，用于 mock 的观察文本。 */
@@ -152,6 +153,11 @@ const FEATURE_STATEMENT: Record<string, (v: number, n: number) => string> = {
     `本组 ${n} 次挥拍中，腕部速度峰值处的肘角中位数约 ${Math.round(v)} 度（180 度为伸直）`,
   elbow_relative_torso_drift_body_scale: (v) =>
     `本组肘部相对躯干的移动幅度约 ${v.toFixed(2)} 倍体尺度（已消除整体平移）`,
+  // 措辞刻意避开"稳定=做对了"：一致性只说明**重复得稳不稳**，
+  // 稳定地做错也是一致的（见 docs/spec.md 的已知限制）。
+  intra_group_consistency_cv: (v, n) =>
+    `本组 ${n} 次挥拍之间，返回准备区时间的变异系数约 ${v.toFixed(2)}` +
+    `（越小表示每一板越接近；它只说明重复得稳不稳，不代表动作做对了）`,
 };
 
 function mockCall(

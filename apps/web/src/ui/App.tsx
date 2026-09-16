@@ -20,7 +20,7 @@ import { SpeechChannel, type SpeechStatus } from "../audio/speech-channel.js";
 import { analyzeGroup, fetchHealth } from "../review/api-client.js";
 import { ReviewPanel, type ReviewItem } from "./ReviewPanel.js";
 import { MODEL_ASSET } from "../config/model-asset.js";
-import { FOCUS_OPTIONS, STROKE_TYPE_OPTIONS } from "../config/presets.js";
+import { FOCUS_OPTIONS, STROKE_TYPE_OPTIONS, CAMERA_VIEW_OPTIONS } from "../config/presets.js";
 
 type Tab = "setup" | "practice" | "review";
 
@@ -693,11 +693,16 @@ function SetupView(props: SetupProps) {
                 value={props.cameraView}
                 onChange={(e) => props.setCameraView(e.target.value)}
               >
-                <option value="front">正面</option>
-                <option value="front_right_diagonal">右前斜</option>
-                <option value="front_left_diagonal">左前斜</option>
-                <option value="right_side">右侧</option>
-                <option value="unknown">不确定</option>
+                {/*
+                  用常量渲染，**不要**把选项再手写一遍 ——
+                  手写的那一份会与 presets 漂移，而漂移了没人会发现
+                  （两边同时改的可能性远低于只改一边）。
+                */}
+                {CAMERA_VIEW_OPTIONS.map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.label}
+                  </option>
+                ))}
               </select>
             </div>
           </div>

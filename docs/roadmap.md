@@ -35,7 +35,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 176 项测试（含准备区标定、手部几何、肘角伸展） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 68 项 vitest + 54 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 72 项 vitest + 54 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -59,6 +59,7 @@
 | F-014 | 摄像头中途断开时界面继续显示"采集中 / 等待有效挥拍"，不给任何失败线索 |
 | F-015 | 界面"姿态处理 P95"用的是推理耗时而非端到端延迟，系统性低估用户感受到的延迟 |
 | F-017 | 模型 id 可由 `VITE_MODEL_ID_ASSET` 覆盖、加载路径却写死 —— 会加载 full 权重却上报 lite 的 modelId，等于伪造溯源 |
+| F-018 | 契约 `FOCUS_IDS` 有 `intra_group_consistency` 而界面没提供入口；同时它的特征每次都在算却没有任何出口 —— "算了没人看，想选也选不到" |
 | F-016 | 用户选了"肘角伸展模式"却拿不到对应反馈：① `computeElbowAngleAtForwardPeak` 定义了却零调用；② 特征名声称了一个契约里不存在的时刻；③ mock 适配器忽略 `focusId`，答非所问 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
@@ -70,10 +71,10 @@
 contracts      30
 motion-core   176
 api           135
-web (vitest)   68
+web (vitest)   72
 web (Playwright/真 Chrome) 54
 ─────────────────────────────
-合计          463
+合计          467
 ```
 
 ---
