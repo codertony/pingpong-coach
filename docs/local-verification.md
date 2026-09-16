@@ -228,6 +228,16 @@ PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
 这样"没有设备""有设备但起不来""只有某个虚拟摄像头不行"三种情况一眼分得开。
 需要真的用摄像头，所以默认 skip，不设环境变量不会跑。
 
+**连续运行稳定性（可选，20 分钟）**：验收里有一条"20 分钟练习无逐渐增长的任务队列或内存泄漏趋势"。
+需要模型资产，且**运行期间不要编辑仓库文件**（Vite HMR 会整页重载，测试会明确报出这一点）：
+
+```bash
+PPC_SOAK=1 PPC_SOAK_MINUTES=20 pnpm --filter @pingpong/web test:e2e soak
+```
+
+默认 skip，不设环境变量不会跑。它会打印堆用量趋势、未完成帧数（队列积压代理量）、
+吞吐与引擎往返延迟。实测参考值见 `docs/evaluation-log.md`。
+
 **前端**（`pnpm dev:all` 已经包含）：
 
 ```bash
