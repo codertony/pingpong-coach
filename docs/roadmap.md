@@ -84,8 +84,8 @@ web (Playwright/真 Chrome) 49
 | A4 | 🟡 性能基线 | `motion-core` 热路径 4 个函数有 < 10 ms 哨兵；本轮补了 **60fps 持续输入下的丢帧与位图守恒** 3 项。**真机端到端延迟仍未测**（需真人） | 中 |
 | A5 | ✅ 错误路径补测 | 畸形请求体、后端不可达、HTTP 500、**摄像头中途断开**（F-014，本轮补 2 项 e2e）；另有 `describeCameraError` 映射单测 | 中 |
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 135.7 KiB | 小 |
-| A7 | Docker 镜像构建验证 | Dockerfile 已存在但未在沙箱内真正 `docker build` 过 | 小 |
-| A8 | changesets 发布流程 | 已装但未配置，多包版本发布流程未打通 | 小 |
+| A7 | ⛔ Docker 镜像构建验证（**环境阻塞**） | 本机没有 `docker` 命令，仓库里也**没有 Dockerfile** —— 原始描述"已存在但未 build"与实际不符。无法执行，**不伪造构建记录**。要做得先决定是否真需要容器化 | 小 |
+| A8 | ➖ changesets 发布流程（**不适用**） | 四个包**全部 `private: true`**，根本不发布，没有版本管理需求。原描述"已装但未配置"不准确 —— 实测 `@changesets/*` 并未安装。多包版本发布是"如果将来要开源/发布"才需要的事，现在做属于无的放矢 | 小 |
 | A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度另查出并修掉一个真实缺陷**：交互控件与装饰线原先共用一个边框色，表单控件边框对自身背景只有 **1.21:1**，深色主题下很难看出输入框边界 —— 拆出 `--border-control` 提到 3.18:1，并用 `contrast.test.ts` 6 项钉住 | 小 |
 
 **建议**：A2 价值最高 —— 它是 A 类里唯一完全没动的，且"整页链路"正是 F-007/008/011 三个缺陷藏身的地方。
