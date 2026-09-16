@@ -162,7 +162,7 @@ pnpm lint:fix       # ESLint 自动修复
 pnpm format         # Prettier 格式化
 pnpm models:fetch   # 下载姿态模型到 apps/web/public/models/
 pnpm eval:replay    # 回放评测（无真实标注数据时会明确拒绝输出精度数字）
-pnpm audit:wiring   # 检查 motion-core 的公开导出有没有调用方
+pnpm audit:wiring   # 接线审计：找出"别处都没提过"的孤儿导出（--strict 用于门禁）
 pnpm clean          # 清理构建产物
 
 # 容器（Dockerfile 在本仓库根目录，已实测构建并跑通）

@@ -25,7 +25,7 @@
     "eval:replay": "node scripts/eval-replay.mjs",
     "clean": "pnpm -r exec rm -rf dist node_modules/.vite",
     "prepare": "husky",
-    "audit:wiring": "node scripts/audit-wiring.mjs"
+    "audit:wiring": "node scripts/audit-wiring.mjs --strict"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",
