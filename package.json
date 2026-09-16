@@ -29,7 +29,8 @@
     "audit:wiring": "node scripts/audit-wiring.mjs --strict",
     "check:docs": "node scripts/check-docs.mjs",
     "typecheck:scripts": "tsc --noEmit -p tsconfig.scripts.json",
-    "check:secrets": "node scripts/check-secrets.mjs"
+    "check:secrets": "node scripts/check-secrets.mjs",
+    "annotate:tolerance": "tsx scripts/annotation-tolerance.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.5",

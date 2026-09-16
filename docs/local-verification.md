@@ -69,7 +69,7 @@ pnpm verify
 
 ```
 packages/contracts  Tests   32 passed (32)
-packages/motion-core Tests 215 passed (215)
+packages/motion-core Tests 218 passed (218)
 apps/api            Tests  178 passed | 1 skipped (179)
 apps/web            Tests  105 passed (105)
 ...
@@ -80,7 +80,7 @@ apps/web            Tests  105 passed (105)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **531**）
+- [ ] 四组测试数字与上面完全一致（总共 **534**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -432,6 +432,14 @@ curl http://127.0.0.1:8787/api/health
 - [ ] 每段都填了上述信息
 
 **素材放在哪**：`evaluation/` 目录下，建议 `evaluation/raw/`。
+
+### 标注要标多准？先跑这个
+
+```bash
+pnpm annotate:tolerance
+```
+
+验收判据是 IoU ≥ 0.5，换算成毫秒就是**两端各偏不超过该次挥拍时长的 25%**（1.9 秒的球 → ±475 ms）。按「两端同时偏」那一列标 —— 只偏一端时容差大得多，拿它当目标会经常掉出门槛。
 
 ### 拿到素材后：跑回放评测与阈值诊断
 

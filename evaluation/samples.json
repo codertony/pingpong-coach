@@ -1,12 +1,10 @@
 {
   "$comment": "真实样本清单。真实视频与含个人信息的派生数据保存在 Git 之外，这里只记录说明、脱敏清单与哈希。禁止把视频文件本身提交进仓库。",
-
   "dataPolicy": {
     "videoLocation": "仓库外任意目录（例如 ~/pingpong-samples/）",
     "inRepo": ["数据说明", "脱敏清单", "标注 schema", "文件哈希", "取得方式"],
     "notInRepo": ["原始视频", "含人脸的截图", "任何可识别个人身份的信息"]
   },
-
   "annotationSchema": {
     "$comment": "人工标注分三层。第三层不能代替第二层。",
     "layer1_visibleFacts": {
@@ -22,7 +20,6 @@
       "fields": ["helpful", "understood", "willingToContinue"]
     }
   },
-
   "$howToEvaluate": {
     "$comment": "分段指标怎么来。① 导出 ② 人工标注 ③ 跑指标，三步都必须做完，缺标注 `pnpm eval:replay` 就不会输出任何准确率数字。④ 是可选的：不改任何阈值，只把「准备区半径该调到多少」缩小成一个区间。",
     "step1_exportObservation": {
@@ -36,8 +33,17 @@
     },
     "step2_annotate": {
       "what": "照着 contact-sheet.png 逐次挥拍读时间戳，写进本清单里该样本的 annotation.strokes",
-      "format": { "strokes": [{ "startMs": 1200, "endMs": 2100 }] },
-      "honesty": "标注者是谁必须写进 annotatorId。模型生成的标注只能当**估计**，不能当人工真值 —— 它至少要与真人标注分开报告。"
+      "format": {
+        "strokes": [
+          {
+            "startMs": 1200,
+            "endMs": 2100
+          }
+        ]
+      },
+      "honesty": "标注者是谁必须写进 annotatorId。模型生成的标注只能当**估计**，不能当人工真值 —— 它至少要与真人标注分开报告。",
+      "precision": "标多准才算命中：验收判据是 temporal IoU ≥ 0.5，换算成毫秒就是**两端各偏不超过该次挥拍时长的 25%**（1.9 s 的球 → ±475 ms）。跑 `pnpm annotate:tolerance` 可以按你自己的时长算。**按\"两端同时偏\"这一列标** —— 只偏一端时容差大得多，拿它当目标会经常掉出门槛。",
+      "whyPrecisionMatters": "这条是从 IoU 定义**推出来的**（交集 L−2d ÷ 并集 L ≥ 0.5 ⟺ d ≤ L/4），不是拟合的经验值；它只描述几何关系，与识别质量无关。"
     },
     "step3_run": {
       "command": "pnpm eval:replay --manifest evaluation/samples.json",
@@ -54,9 +60,7 @@
       "caveat": "样本量只有一两段素材时，区间仅供参考，**不足以定值**。"
     }
   },
-
   "samples": [],
-
   "notes": [
     "按方案 11.1：先准备 6–10 段约 10–20 秒的练习片段用于 P0/P1。",
     "样本需覆盖：同一目标下的正常执行、目标问题、遮挡/模糊、捡球或走动。",

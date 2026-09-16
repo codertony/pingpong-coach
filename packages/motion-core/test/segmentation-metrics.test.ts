@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import {
   IOU_MATCH_THRESHOLD,
+  boundaryToleranceMs,
   matchSegments,
   temporalIoU,
   type TimeWindow,
@@ -163,5 +164,30 @@ describe("matchSegments · 边界误差", () => {
     expect(r.matched).toHaveLength(3);
     expect(r.boundaryErrorMs.startMean).toBeCloseTo((10 + 30 + 60) / 3, 10);
     expect(r.boundaryErrorMs.startMedian).toBe(30);
+  });
+});
+
+describe("boundaryToleranceMs — 标注要标多准（给人工标注者的指引）", () => {
+  it("容差 = 时长 × (1 − 门槛) / 2；门槛 0.5 时正好是时长的 1/4", () => {
+    expect(boundaryToleranceMs(1900)).toBeCloseTo(475, 6);
+    expect(boundaryToleranceMs(1900)).toBeCloseTo(1900 / 4, 6);
+    expect(boundaryToleranceMs(600)).toBeCloseTo(150, 6);
+  });
+
+  it("**与 IoU 实现一致**：在容差处 IoU 正好压线，再多偏一点就掉出门槛", () => {
+    const L = 1900;
+    const d = boundaryToleranceMs(L);
+    const truth = { startMs: 1000, endMs: 1000 + L };
+    const atTolerance = { startMs: 1000 + d, endMs: 1000 + L - d };
+    expect(temporalIoU(truth, atTolerance)).toBeCloseTo(IOU_MATCH_THRESHOLD, 6);
+
+    const beyond = { startMs: 1000 + d + 1, endMs: 1000 + L - d - 1 };
+    expect(temporalIoU(truth, beyond)).toBeLessThan(IOU_MATCH_THRESHOLD);
+  });
+
+  it("退化输入给 0，不产生负数或 NaN", () => {
+    for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(boundaryToleranceMs(bad)).toBe(0);
+    }
   });
 });

@@ -42,6 +42,35 @@ function overlapMs(a: TimeWindow, b: TimeWindow): number {
  * 并集为 0（两侧都是零长度区间）时返回 0 —— 不返回 NaN，
  * 因为零长度的"挥拍"不是命中，而 NaN 会污染下游的求平均。
  */
+/**
+ * 人工标注的**边界容差**：两端各偏多少毫秒，IoU 仍 ≥ 门槛。
+ *
+ * ## 推导（不是拟合）
+ *
+ * 设挥拍时长 L，两端各向内偏 d（最常见的标注误差形态）：交集 = L − 2d，
+ * 并集仍为 L（标注区间被真值包含），于是
+ *
+ *     IoU = (L − 2d) / L ≥ 门槛   ⟺   d ≤ L · (1 − 门槛) / 2
+ *
+ * 门槛 0.5 时就是 **L / 4** —— 即「两端各标在时长的 1/4 以内就算命中」。
+ *
+ * ## 为什么要有它
+ *
+ * 验收定义只说了"temporal IoU ≥ 0.5 计命中"，但没告诉标注者**要标多准**。
+ * 这个函数把门槛翻译成毫秒，让标注任务从"尽量准"变成"1.9 秒的球标在 ±475ms 内"。
+ *
+ * ⚠️ 它只描述**几何关系**，与识别质量无关；也不改变任何阈值。
+ * 另外：只偏**一端**时容差大得多（IoU ≥ 0.5 在单边近似要求 d ≤ L，即几乎无约束），
+ * 所以人工指引应当按**两端同时偏**这个更严的情形给。
+ */
+export function boundaryToleranceMs(
+  durationMs: number,
+  threshold: number = IOU_MATCH_THRESHOLD,
+): number {
+  if (!Number.isFinite(durationMs) || durationMs <= 0) return 0;
+  return (durationMs * (1 - threshold)) / 2;
+}
+
 export function temporalIoU(a: TimeWindow, b: TimeWindow): number {
   const inter = overlapMs(a, b);
   const union = spanMs(a) + spanMs(b) - inter;
