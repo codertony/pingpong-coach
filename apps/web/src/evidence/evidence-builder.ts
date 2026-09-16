@@ -114,15 +114,38 @@ export function buildKeyframes(
 /**
  * 选择代表性关键帧：优先覆盖引拍、向前挥拍与还原。
  * 最多 6 张（方案 9.2 的初始预算）。
+ *
+ * ⚠️ **只从这一板自己的证据帧里挑**（`stroke.evidenceFrameIds`）。
+ *
+ * 为什么：契约在 `evidence.ts` 里写死了一条约束 ——
+ * "`keyframes[].frameId` 必须与 `strokes[].evidenceFrameIds` 对齐，
+ * **不能拿后来的图片配前一帧骨架**"。
+ * 而只按时间窗过滤是**做不到**这条的：时间窗里还包含分段器没有收进这一板的帧
+ * （例如开启挥拍之前那段准备区驻留）。实测（见 F-029）：
+ * 18 张关键帧里有 **3 张**的 frameId 不在任何一板的 evidenceFrameIds 里。
+ *
+ * 后果不只是"违反文档"：服务端的 `validate.ts` 会把关键帧 id 并进**可引用集合**，
+ * 于是模型可以引用一张**不属于它正在讲的那一板**的图。
+ * 所以这里按约束收窄候选，而不是去把契约那句话改松 ——
+ * 后者属于"悄悄降低验收条件"。
  */
 export function selectRepresentativeFrames(
-  stroke: { startMs: number; endMs: number | null; anchor: { timeMs: number } },
+  stroke: {
+    startMs: number;
+    endMs: number | null;
+    anchor: { timeMs: number };
+    /** 这一板的证据帧 id。只有它们有资格当关键帧 */
+    evidenceFrameIds: readonly string[];
+  },
   candidates: KeyframeCandidate[],
   maxCount = 6,
 ): Array<{ frameId: string; role: EvidenceKeyframe["role"] }> {
+  const allowed = new Set(stroke.evidenceFrameIds);
   const inRange = candidates.filter(
     (c) =>
-      c.sourceTimeMs >= stroke.startMs && (stroke.endMs == null || c.sourceTimeMs <= stroke.endMs),
+      allowed.has(c.frameId) &&
+      c.sourceTimeMs >= stroke.startMs &&
+      (stroke.endMs == null || c.sourceTimeMs <= stroke.endMs),
   );
   if (inRange.length === 0) return [];
 

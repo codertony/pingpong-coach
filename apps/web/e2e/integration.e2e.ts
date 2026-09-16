@@ -96,31 +96,59 @@ test.describe("前后端真实串联", () => {
     expect(outcome!.error!.details.join(" ")).toContain("不存在");
   });
 
-  test("伪造关键帧与挥拍的对齐关系也会被拦下", async ({ page }) => {
+  test("带图片的证据包能被真实后端收下（图片链路第一次真的走到服务端）", async ({ page }) => {
     const outcome = await page.evaluate(async () => {
-      const packet = await window.__fixture.runSyntheticGroup({ strokes: 3 });
+      const packet = await window.__fixture.runSyntheticGroup({ strokes: 3, withKeyframes: true });
       if (!packet) return null;
-      // 篡改：把关键帧的 frameId 改成挥拍证据里不存在的值，制造"图文错配"。
-      // 契约测试里有一条显式检查这个关系（见 contracts/test/consistency.test.ts），
-      // 这里验的是服务端真的会执行它。
-      const forged = {
-        ...packet,
-        keyframes: packet.keyframes.map((k) => ({
-          ...k,
-          frameId: "frame_that_does_not_exist",
-        })),
+      return {
+        packet: { keyframeCount: packet.keyframes.length },
+        res: await window.__fixture.analyzeGroup(packet),
       };
-      return window.__fixture.analyzeGroup(forged as never);
     });
 
-    expect(outcome).not.toBeNull();
-    // 要么明确拒绝，要么如实降级 —— 绝不能若无其事地给出技术判定
-    const rejected = outcome!.error != null || outcome!.feedback === null;
-    const degraded =
-      outcome!.feedback != null &&
-      (outcome!.feedback.rejectedClaims.length > 0 ||
-        outcome!.feedback.status === "observation_only");
-    expect(rejected || degraded).toBe(true);
+    expect(outcome, "没能产出证据包").not.toBeNull();
+    // 前置条件：包里**真的**有图 —— 否则这条又会变成"测了个空数组"
+    expect(
+      outcome!.packet.keyframeCount,
+      "证据包里没有关键帧，这条用例测不到图片链路（F-028 之前它一直是空的）",
+    ).toBeGreaterThan(0);
+    expect(
+      outcome!.res.error,
+      `带图片的包被后端拒了：${JSON.stringify(outcome!.res.error)}`,
+    ).toBeNull();
+    expect(outcome!.res.feedback).not.toBeNull();
+  });
+
+  test("伪造关键帧与挥拍的对齐关系会被服务端拦下", async ({ page }) => {
+    const outcome = await page.evaluate(async () => {
+      const packet = await window.__fixture.runSyntheticGroup({ strokes: 3, withKeyframes: true });
+      if (!packet) return null;
+      if (packet.keyframes.length === 0) return { noKeyframes: true } as const;
+      // 篡改：把第一张关键帧的 frameId 改成任何挥拍证据里都不存在的值，制造"图文错配"。
+      //
+      // ⚠️ 这条用例原先**什么都没伪造**：那时包里 `keyframes` 恒为 `[]`，
+      // `[].map()` 还是 `[]`，改了个寂寞；而它的通过条件是
+      // "被拒 **或** 降级为 observation_only"，而 mock 模式**本来就**回
+      // observation_only —— 于是它一直"通过"，却从未验证过服务端。
+      // 现在包里真的有图了，篡改才有意义。
+      const forged = {
+        ...packet,
+        keyframes: packet.keyframes.map((k, i) =>
+          i === 0 ? { ...k, frameId: "frame_that_does_not_exist" } : k,
+        ),
+      };
+      return { forged: true as const, res: await window.__fixture.analyzeGroup(forged as never) };
+    });
+
+    expect(outcome, "没能产出证据包").not.toBeNull();
+    if (outcome && "noKeyframes" in outcome) {
+      throw new Error("包里没有关键帧，无法伪造 —— 前置条件不成立");
+    }
+    // 这次只接受**明确拒绝**：降级不算通过，因为降级说明它被放行了
+    expect(
+      outcome!.res.error,
+      "不对齐的包被放行了（既没报错，还给了反馈）—— 契约里的「必须对齐」没有生效",
+    ).not.toBeNull();
   });
 
   test("后端不可达时不阻塞本地链路，且错误码可识别", async ({ page }) => {

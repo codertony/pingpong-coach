@@ -126,10 +126,13 @@ describe("selectRepresentativeFrames", () => {
     height: 100,
     pinned: false,
   }));
+  /** 全部候选的 id —— 这些用例测的是"挑哪几张"，不是"有没有资格当关键帧"，
+   *  所以把资格给全，保持挑选结果不变。对齐约束另有专门的用例。 */
+  const allIds = candidates.map((c) => c.frameId);
 
   it("最多返回 6 张（初始预算）", () => {
     const picked = selectRepresentativeFrames(
-      { startMs: 0, endMs: 950, anchor: { timeMs: 500 } },
+      { startMs: 0, endMs: 950, anchor: { timeMs: 500 }, evidenceFrameIds: allIds },
       candidates,
     );
     expect(picked.length).toBeLessThanOrEqual(6);
@@ -138,7 +141,7 @@ describe("selectRepresentativeFrames", () => {
 
   it("覆盖引拍、向前挥拍与还原三个阶段", () => {
     const picked = selectRepresentativeFrames(
-      { startMs: 0, endMs: 950, anchor: { timeMs: 500 } },
+      { startMs: 0, endMs: 950, anchor: { timeMs: 500 }, evidenceFrameIds: allIds },
       candidates,
     );
     const roles = new Set(picked.map((p) => p.role));
@@ -149,7 +152,7 @@ describe("selectRepresentativeFrames", () => {
 
   it("不重复选择同一帧", () => {
     const picked = selectRepresentativeFrames(
-      { startMs: 0, endMs: 950, anchor: { timeMs: 500 } },
+      { startMs: 0, endMs: 950, anchor: { timeMs: 500 }, evidenceFrameIds: allIds },
       candidates,
     );
     const ids = picked.map((p) => p.frameId);
@@ -158,7 +161,7 @@ describe("selectRepresentativeFrames", () => {
 
   it("所选帧都落在挥拍时间区间内", () => {
     const picked = selectRepresentativeFrames(
-      { startMs: 200, endMs: 600, anchor: { timeMs: 400 } },
+      { startMs: 200, endMs: 600, anchor: { timeMs: 400 }, evidenceFrameIds: allIds },
       candidates,
     );
     for (const p of picked) {
@@ -170,7 +173,7 @@ describe("selectRepresentativeFrames", () => {
 
   it("区间内没有候选时返回空", () => {
     const picked = selectRepresentativeFrames(
-      { startMs: 5000, endMs: 6000, anchor: { timeMs: 5500 } },
+      { startMs: 5000, endMs: 6000, anchor: { timeMs: 5500 }, evidenceFrameIds: allIds },
       candidates,
     );
     expect(picked).toEqual([]);
@@ -178,10 +181,32 @@ describe("selectRepresentativeFrames", () => {
 
   it("endMs 为 null（未闭合）时仍能选出帧", () => {
     const picked = selectRepresentativeFrames(
-      { startMs: 0, endMs: null, anchor: { timeMs: 300 } },
+      { startMs: 0, endMs: null, anchor: { timeMs: 300 }, evidenceFrameIds: allIds },
       candidates,
     );
     expect(picked.length).toBeGreaterThan(0);
+  });
+
+  it("**只从这一板的证据帧里挑**（契约要求与 evidenceFrameIds 对齐，F-029）", () => {
+    // 只给前 5 个 id 资格。时间窗覆盖全部 20 个，但资格只有 5 个 ——
+    // 若实现退化成"只看时间窗"，就会挑中没资格的帧。
+    const allowed = candidates.slice(0, 5).map((c) => c.frameId);
+    const picked = selectRepresentativeFrames(
+      { startMs: 0, endMs: 950, anchor: { timeMs: 500 }, evidenceFrameIds: allowed },
+      candidates,
+    );
+    expect(picked.length).toBeGreaterThan(0);
+    for (const p of picked) {
+      expect(allowed, `选中了 ${p.frameId}，但它不在这板的证据帧里`).toContain(p.frameId);
+    }
+  });
+
+  it("一个资格帧都没有时返回空，**不退回**到只看时间窗", () => {
+    const picked = selectRepresentativeFrames(
+      { startMs: 0, endMs: 950, anchor: { timeMs: 500 }, evidenceFrameIds: [] },
+      candidates,
+    );
+    expect(picked).toEqual([]);
   });
 });
 

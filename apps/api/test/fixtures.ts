@@ -19,7 +19,11 @@ export function makeStroke(overrides: Partial<StrokeEvent> = {}): StrokeEvent {
     anchor: { type: "wrist_speed_peak", timeMs: 1520 },
     impactTimeMs: null,
     complete: true,
-    evidenceFrameIds: ["kf-1", "kf-2", "kf-3"],
+    // 这一栏是**姿态帧**的 frameId（与下面的 keyframes[].frameId 对齐），
+    // 不是关键帧的 id —— 原先这里写的是 ["kf-1","kf-2","kf-3"]（那是关键帧的 id），
+    // 与契约里"keyframes[].frameId 必须与 strokes[].evidenceFrameIds 对齐"不符。
+    // 一直没被发现，是因为当时 schema 里根本没有执行那条约束（见 F-029）。
+    evidenceFrameIds: ["f-1", "f-2", "f-3"],
     reasons: [],
     ...overrides,
   };

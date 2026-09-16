@@ -59,8 +59,15 @@ describe("analyze — 输入校验", () => {
   });
 
   it("缺少 strokes 字段（空数组）依然通过契约（契约允许 0 次挥拍）", async () => {
-    const res = await analyze(makePacket({ strokes: [] }), deps());
+    // 0 次挥拍时也**不能有关键帧**：关键帧必须属于某一板的证据帧
+    // （契约的 `.refine`，见 F-029）。只清 strokes 会留下孤儿图片。
+    const res = await analyze(makePacket({ strokes: [], keyframes: [] }), deps());
     expect(res.ok).toBe(true);
+  });
+
+  it("0 次挥拍却带着关键帧时被拒（孤儿图片没有归属的板）", async () => {
+    const res = await analyze(makePacket({ strokes: [] }), deps());
+    expect(res.ok, "没有挥拍却有图片，契约里的对齐约束应当拒绝它").toBe(false);
   });
 });
 

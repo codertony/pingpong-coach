@@ -140,20 +140,33 @@ test.describe("关键帧图片链路（F-028）", () => {
       const telemetry = session.telemetry;
       session.dispose();
 
+      const kf = packet as {
+        keyframes: Array<{ id: string; frameId: string; jpegBase64: string }>;
+        strokes: Array<{ evidenceFrameIds: string[] }>;
+      } | null;
+      const strokeFrameIds = new Set(kf?.strokes.flatMap((s) => s.evidenceFrameIds) ?? []);
+
       return {
         completed: packet != null,
         // 只回传形状与体积，不回传 base64 本身（那会是几 MB 的字符串）
-        keyframeCount: packet ? (packet as { keyframes: unknown[] }).keyframes.length : 0,
-        keyframeBytes: packet
-          ? (packet as { keyframes: Array<{ jpegBase64: string }> }).keyframes.map(
-              (k) => k.jpegBase64.length,
-            )
-          : [],
+        keyframeCount: kf ? kf.keyframes.length : 0,
+        keyframeBytes: kf ? kf.keyframes.map((k) => k.jpegBase64.length) : [],
+        // 契约里写着"keyframes[].frameId 必须与 strokes[].evidenceFrameIds 对齐"
+        alignedKeyframes: kf ? kf.keyframes.filter((x) => strokeFrameIds.has(x.frameId)).length : 0,
+        strokeEvidenceIdCount: strokeFrameIds.size,
         keyframesMissing: telemetry.keyframesMissing,
       };
     });
 
     expect(out.completed, "没能在限定帧数内成组，这条测不到").toBe(true);
+    // 契约要求：keyframes[].frameId 必须与 strokes[].evidenceFrameIds 对齐。
+    // 实测过未收窄候选时 18 张里有 3 张不对齐（见 F-029），现在由选择器本身保证。
+    expect(
+      out.alignedKeyframes,
+      `关键帧里有 ${out.keyframeCount - out.alignedKeyframes} 张的 frameId ` +
+        `不在任何一板的 evidenceFrameIds 里 —— 契约要求对齐，而服务端会把关键帧 id ` +
+        `并进可引用集合，于是模型能引用一张不属于它正在讲的那一板的图`,
+    ).toBe(out.keyframeCount);
     expect(
       out.keyframeBytes.length,
       "证据包里的 keyframes 是空的 —— 图片链路还是断的（这正是 F-028）",

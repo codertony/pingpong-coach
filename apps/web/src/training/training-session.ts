@@ -551,7 +551,14 @@ export class TrainingSession {
     // 选代表性关键帧（最多 6 张）
     const candidates = this.validStrokes.flatMap((s) =>
       selectRepresentativeFrames(
-        { startMs: s.startMs, endMs: s.endMs, anchor: s.anchor },
+        // 必须把 evidenceFrameIds 传进去：它决定"哪些帧有资格当关键帧"，
+        // 契约要求关键帧与这一板的证据帧对齐（见 F-029）
+        {
+          startMs: s.startMs,
+          endMs: s.endMs,
+          anchor: s.anchor,
+          evidenceFrameIds: s.evidenceFrameIds,
+        },
         // 这里用姿态帧代替真实图片候选，真实图片压缩在 capture 层完成
         poses
           .filter(

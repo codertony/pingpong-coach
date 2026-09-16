@@ -91,6 +91,8 @@ declare global {
       runSyntheticGroup: (opts?: {
         strokes?: number;
         handedness?: "left" | "right";
+        /** 为每一帧放入假图片像素，让 `keyframes` 真的非空（F-028/F-029） */
+        withKeyframes?: boolean;
       }) => Promise<EvidencePacket | null>;
       /**
        * 关键帧采集（F-028）。暴露它们是为了让**真实浏览器**能证明
@@ -155,6 +157,15 @@ async function runSyntheticGroup(
   opts: {
     strokes?: number;
     handedness?: "left" | "right";
+    /**
+     * 是否为每一帧放入假的图片像素（F-028/F-029）。
+     *
+     * 默认 false：不放大图片，包里的 `keyframes` 就是空数组 ——
+     * 这也是为什么此前那条"伪造关键帧对齐"的用例**什么都没伪造**
+     * （`[].map()` 还是 `[]`），却一直通过。
+     * 打开它之后，关键帧链路才会真的被走到。
+     */
+    withKeyframes?: boolean;
   } = {},
 ): Promise<EvidencePacket | null> {
   const strokesWanted = opts.strokes ?? 3;
@@ -256,8 +267,14 @@ async function runSyntheticGroup(
         score: 0.9,
         visible: true,
       };
+      const frameId = `e2e_f${cycle}_${t}`;
+      if (opts.withKeyframes) {
+        // 放的是一小段假字节：本夹具测的是"关键帧有没有进包、对不对齐"，
+        // 不是 JPEG 编码本身（那由 keyframe-capture.e2e.ts 用真实位图覆盖）。
+        session.addFramePixels(frameId, t, new Uint8Array([1, 2, 3, 4]), 960, 540);
+      }
       session.pushPoseResult({
-        frameId: `e2e_f${cycle}_${t}`,
+        frameId,
         sourceEpoch: 0,
         sourceTimeMs: t,
         receivedAtMonoMs: t,

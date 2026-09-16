@@ -157,50 +157,48 @@ describe("EvidencePacket 与 strokeType 定义同源", () => {
 });
 
 describe("证据包关键帧与挥拍引用必须能对齐", () => {
-  it("keyframes[].frameId 必须落在 strokes[].evidenceFrameIds 中（防止图文错配）", () => {
-    // 这条不是 schema 能强制的，但它是设计上最要紧的对齐关系之一：
-    // 「不能拿后来的图片配前一帧骨架」。这里记录为显式检查，
-    // 供上层（analyze / evidence-builder）参考实现。
-    const packet = {
-      schemaVersion: SCHEMA_VERSION,
-      requestId: "r",
-      sessionId: "s",
-      groupId: "g",
-      focusId: FOCUS_IDS[0],
-      strokeType: "forehand_drive",
-      handedness: "right",
-      cameraView: CAMERA_VIEWS[0],
-      strokes: [
-        {
-          strokeId: "st-1",
-          startMs: 0,
-          endMs: 100,
-          anchor: { type: "wrist_speed_peak", timeMs: 50 },
-          impactTimeMs: null,
-          complete: true,
-          evidenceFrameIds: ["f-1"],
-          reasons: [],
-        },
-      ],
-      features: [],
-      keyframes: [
-        {
-          id: "kf-1",
-          sourceTimeMs: 50,
-          jpegBase64: "x",
-          frameId: "f-1",
-          width: 100,
-          height: 100,
-          role: "forward",
-        },
-      ],
-      ruleVersion: RULE_VERSION,
-      referenceId: null,
-      limitations: [],
-      readyZone: null,
-    };
+  /** 一板挥拍 + 一张对齐的关键帧；下面用它在"对齐/不对齐"之间切换。 */
+  const alignedPacket = () => ({
+    schemaVersion: SCHEMA_VERSION,
+    requestId: "r",
+    sessionId: "s",
+    groupId: "g",
+    focusId: FOCUS_IDS[0],
+    strokeType: "forehand_drive",
+    handedness: "right",
+    cameraView: CAMERA_VIEWS[0],
+    strokes: [
+      {
+        strokeId: "st-1",
+        startMs: 0,
+        endMs: 100,
+        anchor: { type: "wrist_speed_peak", timeMs: 50 },
+        impactTimeMs: null,
+        complete: true,
+        evidenceFrameIds: ["f-1"],
+        reasons: [],
+      },
+    ],
+    features: [],
+    keyframes: [
+      {
+        id: "kf-1",
+        sourceTimeMs: 50,
+        jpegBase64: "x",
+        frameId: "f-1",
+        width: 100,
+        height: 100,
+        role: "forward" as const,
+      },
+    ],
+    ruleVersion: RULE_VERSION,
+    referenceId: null,
+    limitations: [],
+    readyZone: null,
+  });
 
-    const parsed = evidencePacketSchema.safeParse(packet);
+  it("对齐的包通过校验", () => {
+    const parsed = evidencePacketSchema.safeParse(alignedPacket());
     expect(parsed.success).toBe(true);
     if (parsed.success) {
       const strokeFrameIds = new Set(parsed.data.strokes.flatMap((s) => s.evidenceFrameIds));
@@ -208,5 +206,28 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
         expect(strokeFrameIds.has(kf.frameId)).toBe(true);
       }
     }
+  });
+
+  it("**不对齐的包被拒绝**（不能拿后来的图片配前一帧骨架）", () => {
+    // 这条以前做不到，注释里写着"不是 schema 能强制的" —— 而现在由
+    // `evidencePacketSchema` 的 `.refine` 强制。
+    //
+    // 为什么值得强制：服务端的 `validate.ts` 会把关键帧 id 并进**可引用集合**，
+    // 于是模型可以引用一张**不属于它正在讲的那一板**的图。
+    // 而客户端侧也已收窄候选（只从本板证据帧里挑，见 F-029），正常链路撞不上。
+    const misaligned = alignedPacket();
+    misaligned.keyframes[0]!.frameId = "f-不存在";
+
+    const parsed = evidencePacketSchema.safeParse(misaligned);
+    expect(parsed.success, "关键帧与挥拍证据不对齐，却通过了校验").toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues.some((i) => i.path.includes("keyframes"))).toBe(true);
+    }
+  });
+
+  it("没有关键帧时不受这条约束影响（空数组恒满足）", () => {
+    const noKeyframes = alignedPacket();
+    noKeyframes.keyframes = [];
+    expect(evidencePacketSchema.safeParse(noKeyframes).success).toBe(true);
   });
 });

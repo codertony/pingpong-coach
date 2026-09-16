@@ -35,7 +35,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 207 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化） |
 | 后端 + Mock 适配器 | `[x]` | api 135 项测试 |
-| 前端采集链路 | `[x]` | web 87 项 vitest + 67 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 89 项 vitest + 68 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -71,6 +71,7 @@
 | F-027 | 同一文件的另外三个块：`quality` **一个字都没被校**（有 `DEFAULT_QUALITY_CONFIG` 可对）；`evidenceBudget` 的 **`maxImageLongEdgePx: 960` 代码里没有任何地方读它**（关键帧没被降采样），其余四个值散在别的包 / 名字不同 / 藏在函数默认值里；`latency` 只是目标值。另外 `featureFlags` 六个开关与 `budgets` 里的 `sessionModelCallsPer20Min` **代码里 grep 零引用**（改了不会生效，而它们长得就像开关）。修法是两分：能校的补双向校验，**不能校的强制在文件里写明「未被校验」** —— 挨着已校验块的块会继承"看起来有人守"的印象 |
 | F-022 | 连续对拉时**相邻几板被合并成一次挥拍**（少算）。已用**合成数据（已知真值）**量化：① 合并的实际交叉点在 **~200ms 墙上时间**，而不是名义上的 `returnStableMinMs=120`（每板白吃一帧 + 必须连续在区内）；② 回位落点只要**在区外**，检出从"数得少"直接掉到 **0 板**（`beginStroke` 开不了头），中间没有过渡；③ 合并只会少算不会多算。真实回位距离 0.29~0.40 正压在半径 0.30 上，这就是 8.15s 只闭合 2 次的原因。**该先校准准备区半径**，但最终取值仍需人工标注 |
 | F-028 | **关键帧缓存从来没有任何产品代码写入** → 证据包里**一张图都没有**，"多模态调用"实际是纯文本。全仓库搜 `cache.add(`：9 处**全在测试里**；产品里唯一的实例只被调过 `clear()`。契约里 `keyframes` 没有 `.min(1)`，所以空包合法、全线无报错；调用方还把算出来的 `missing` 直接丢掉 → **完全静默**。**已修复**：采集侧每 3 帧编一张 JPEG（缩放到声明的 960 长边）入缓存，成组时回溯挑选。10 项单测 + 2 项真实浏览器 e2e（含"成组后的包**真的有图**"）+ 双向的"不许静默"回归。**仍未验证**：接上图片之后建议质量是否更好（需真实模型 Key）|
+| F-029 | 「关键帧必须与挥拍证据对齐」**只在契约注释里**，而客户端产出的包真的违反它（实测 18 张里 3 张不对齐）；服务端会把关键帧 id 并进**可引用集合**，于是模型能引用不属于该板的图。**覆盖它的两个用例都是空的**：契约那条拿一个本来就对齐的手写包去 parse；e2e 那条「伪造对齐关系会被拦下」**什么都没伪造**（包里 keyframes 恒为 `[]`），而通过条件（被拒**或**降级）被 mock 的默认响应满足。三处一起修：客户端只从本板证据帧里挑、契约加 `.refine`、两个空用例改成真的。加 refine 当场翻出 17 个 API 测试在构造违反契约的包（把关键帧 id 当成姿态帧 id 填进 evidenceFrameIds）|
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -78,13 +79,13 @@
 ### 测试总量
 
 ```
-contracts      30
+contracts      32
 motion-core   207
-api           135
-web (vitest)   87
-web (Playwright/真 Chrome) 67
+api           136
+web (vitest)   89
+web (Playwright/真 Chrome) 68
 ─────────────────────────────
-合计          526
+合计          532
 ```
 
 ---
