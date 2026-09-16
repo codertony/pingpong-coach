@@ -157,7 +157,7 @@ pingpong-coach/
 | 5 镜像不改左右标签 | `web/e2e/canvas.e2e.ts` 用像素质心断言镜像对称 | 左右混淆 |
 | 6 角度必须先乘回宽高 | `motion-core/test/geometry.test.ts` 6 个用例 | 60° 被算成 72°（F-004） |
 | 7 禁用离线平滑 | ⚠️ **不是测试**：ESLint `no-restricted-syntax` 拦 `.reverse()`（形态启发式）+ **结构保证**（push 即返回、不保留历史 ⇒ 做不到回头改写）。**这条红线无法用测试证明**，见 F-037 | 用了未来数据；或有人加了"缓冲后统一平滑" |
-| 8 输出必须校验 | `api/test/validate.test.ts` + `analyze.test.ts` | 伪造证据被播报 |
+| 8 输出必须校验 | `api/test/validate.test.ts` + `analyze.test.ts`。**真实模型下的实测**：原始输出 8/8 自发遵守四条红线（且 6/6 未被剔结论）⇒ 当前它多数时候是**兜底**而非救火 —— 但**不能因此放松**（见 evaluation-log 事实 7）| 伪造证据被播报 |
 | 9 模型不阻塞本地链路 | `analyze.test.ts`：模型失败仍返回 `httpStatus: 200` | 一个接口挂了整条链路停摆 |
 | 10 mock 必须可见 | `server.test.ts` 断言 `/api/health` 标明 mock | mock 结果被当成真实数据 |
 | 11 密钥只在服务端 | `prompt.test.ts` 断言 prompt 内无 API key | 密钥泄漏 |
