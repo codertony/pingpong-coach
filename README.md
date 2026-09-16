@@ -377,6 +377,11 @@ E2E_STAGE2_PORT=8991 pnpm test:e2e
    **事件定位**（这一板的**过程**有没有被找对：逐类事件时刻误差）。一板可以被完整找到
    而阶段时刻全错，合成一个分数只会让两者互相掩盖。
 
+   **结果按标注者分开报告，且不提供跨标注者的合计**：`annotation.annotatorId` 必须写
+   （写人名，或模型标注写 `model:<名字>@<版本>#<提示词版本>`）。模型生成的标注只能当
+   **估计**，混进人工真值里报出来的"准确率"是不可信的 —— 所以脚本按标注者分组输出，
+   缺 `annotatorId` 的样本单列一组并告警。
+
 4. 依据实测结果**修正**暂定阈值 —— 规则阈值在 `packages/motion-core/src/rules.ts` 的
    `DEFAULT_THRESHOLDS`、分段阈值在 `src/segmentation.ts` 的 `DEFAULT_SEGMENTATION`，
    并同步 `configs/thresholds.json`；

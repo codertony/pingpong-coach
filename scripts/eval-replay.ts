@@ -26,6 +26,7 @@ import {
   eventPercentileOfSorted,
   eventTimeErrors,
   matchSegments,
+  type EventTimeErrorRow,
   type TimedEvent,
   type TimeWindow,
 } from "@pingpong/motion-core";
@@ -48,8 +49,14 @@ interface Sample {
   id?: unknown;
   label?: unknown;
   racketSideVisibility?: unknown;
-  /** 人工标注的真值：挥拍窗口 + 阶段事件 */
-  annotation?: { strokes?: RawStroke[]; events?: RawEvent[] };
+  /**
+   * 人工/模型标注的真值：挥拍窗口 + 阶段事件 + **标注者**。
+   *
+   * `annotatorId` 不是可选项（`evaluation/samples.json` 的 honesty 一栏写明：
+   * 标注者是谁必须写下来；模型标注只能当估计，至少要与真人标注**分开报告**）。
+   * 这里允许它缺失，但缺了会被单列成一组并告警 —— 不许悄悄并进任何一边。
+   */
+  annotation?: { strokes?: RawStroke[]; events?: RawEvent[]; annotatorId?: unknown };
   /** 由 `e2e/segmentation-eval.e2e.ts` 导出的观测结果（含 detectedStrokes） */
   observedFile?: unknown;
 }
@@ -247,34 +254,59 @@ async function main(): Promise<void> {
   for (const [k, v] of byVisibility) console.log(`  ${k}: ${v}`);
 
   // ── 逐样本评估 ──
-  let sumMatched = 0;
-  let sumDetected = 0;
-  let sumTruth = 0;
   let evaluated = 0;
   const skipped: string[] = [];
   const perSample: Array<Record<string, unknown>> = [];
+
+  interface EventAgg {
+    errors: number[];
+    matched: number;
+    missed: number;
+    spurious: number;
+  }
+  interface AnnotatorAgg {
+    matched: number;
+    detected: number;
+    truth: number;
+    samples: number;
+    events: Map<string, EventAgg>;
+  }
+
+  /*
+   * **按标注者分开累计**，而不是一个总数。
+   *
+   * 为什么必须分开：模型生成的标注只能当**估计**，不能当人工真值
+   * （`evaluation/samples.json` 的 honesty 一栏与标注协议 §C 都写明了）。
+   * 合成一个数之后，读的人只会看到一个"准确率"，而它里面混着估计。
+   */
+  const perAnnotator = new Map<string, AnnotatorAgg>();
+  const aggOf = (key: string): AnnotatorAgg => {
+    let cur = perAnnotator.get(key);
+    if (!cur) {
+      cur = { matched: 0, detected: 0, truth: 0, samples: 0, events: new Map() };
+      perAnnotator.set(key, cur);
+    }
+    return cur;
+  };
+  /** 没写 annotatorId 的样本单独成组 —— 不能悄悄并进任何一边 */
+  const UNKNOWN_ANNOTATOR = "（未注明 annotatorId）";
 
   /*
    * 事件误差的**合并**统计：把各样本的**原始误差**并到一起再取分位。
    * 不是"各样本的分位数再取平均" —— 那与"样本量与挥拍数无关地等权"是同一个口径错误。
    */
-  const pooledEvents = new Map<
-    string,
-    { errors: number[]; matched: number; missed: number; spurious: number }
-  >();
-  const poolEvent = (
-    type: string,
-    errors: number[],
-    matched: number,
-    missed: number,
-    spurious: number,
-  ): void => {
-    const cur = pooledEvents.get(type) ?? { errors: [], matched: 0, missed: 0, spurious: 0 };
-    cur.errors.push(...errors);
-    cur.matched += matched;
-    cur.missed += missed;
-    cur.spurious += spurious;
-    pooledEvents.set(type, cur);
+  const poolEvent = (agg: AnnotatorAgg, e: EventTimeErrorRow): void => {
+    const cur = agg.events.get(e.eventType) ?? {
+      errors: [],
+      matched: 0,
+      missed: 0,
+      spurious: 0,
+    };
+    cur.errors.push(...e.signedErrorsMs);
+    cur.matched += e.matched;
+    cur.missed += e.missed;
+    cur.spurious += e.spurious;
+    agg.events.set(e.eventType, cur);
   };
 
   for (const [i, s] of samples.entries()) {
@@ -315,11 +347,24 @@ async function main(): Promise<void> {
       continue;
     }
 
+    const annotatorKey =
+      typeof s.annotation?.annotatorId === "string" && s.annotation.annotatorId.trim() !== ""
+        ? s.annotation.annotatorId
+        : UNKNOWN_ANNOTATOR;
+    if (annotatorKey === UNKNOWN_ANNOTATOR) {
+      console.warn(
+        `! ${id}: 没有 annotatorId —— 该样本的数字会被单列在「${UNKNOWN_ANNOTATOR}」下，` +
+          `不得与人工真值合并引用（协议要求标注者是谁必须写下来）`,
+      );
+    }
+
     const r = matchSegments(detected, truth);
     evaluated++;
-    sumMatched += r.matched.length;
-    sumDetected += detected.length;
-    sumTruth += truth.length;
+    const agg = aggOf(annotatorKey);
+    agg.matched += r.matched.length;
+    agg.detected += detected.length;
+    agg.truth += truth.length;
+    agg.samples++;
 
     perSample.push({
       id,
@@ -416,7 +461,7 @@ async function main(): Promise<void> {
             `带符号中位 ${fmt(e.signedMedianMs, 1)}ms` +
             (detectedOnly ? "（该类型标注侧没有对应项，多半是两侧词表差异，不是乱报）" : ""),
         );
-        poolEvent(e.eventType, e.signedErrorsMs, e.matched, e.missed, e.spurious);
+        poolEvent(agg, e);
       }
     }
   }
@@ -446,27 +491,39 @@ async function main(): Promise<void> {
     `已评估 ${evaluated} / ${samples.length} 个样本` +
       (skipped.length ? `，未计入 ${skipped.length} 个：${skipped.join("、")}` : ""),
   );
-  // 分母是**累计的全部**检出与真值 —— 不因为误检/漏检而从分母里剔除
-  console.log(`合并计数：命中 ${sumMatched} / 检出 ${sumDetected} / 真值 ${sumTruth}`);
-  console.log(`合并 precision：${fmt(sumDetected === 0 ? null : sumMatched / sumDetected)}`);
-  console.log(`合并 recall：${fmt(sumTruth === 0 ? null : sumMatched / sumTruth)}`);
 
   /*
-   * 合并的**事件定位**表。分位数建立在**并起来的原始误差**上 ——
-   * 把各样本的分位数再平均是常见的口径错误（样本量与事件数会被抹平）。
+   * ── 按标注者分开报告 ──
+   *
+   * **刻意不给一个跨标注者的合计**：模型生成的标注只能当**估计**，与人工真值混成
+   * 一个数之后，读的人只看到一个"准确率"，而它里面掺着估计
+   * （`evaluation/samples.json` 的 honesty 一栏与标注协议 §C 都写明了这条）。
+   * 分母仍是**累计的全部**检出与真值 —— 不因为误检/漏检而从分母里剔除。
    */
-  if (pooledEvents.size > 0) {
-    console.log("\n合并事件定位（各样本的原始误差**并起来**再取分位，不是把分位数平均）：");
-    for (const [type, p] of [...pooledEvents.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  console.log("\n按标注者分开报告（**不提供跨标注者合计** —— 估计与真值不能混成一个数）：");
+  for (const [annotator, agg] of perAnnotator) {
+    const isModel = /^model[:@]/.test(annotator);
+    console.log(`\n  ── ${annotator}${isModel ? "（模型标注：只能当估计）" : ""} ──`);
+    console.log(`    样本 ${agg.samples} 个`);
+    console.log(`    合并计数：命中 ${agg.matched} / 检出 ${agg.detected} / 真值 ${agg.truth}`);
+    console.log(
+      `    合并 precision：${fmt(agg.detected === 0 ? null : agg.matched / agg.detected)}`,
+    );
+    console.log(`    合并 recall：${fmt(agg.truth === 0 ? null : agg.matched / agg.truth)}`);
+
+    if (agg.events.size === 0) {
+      console.log("    事件定位：没有同时具备事件标注与事件观测的样本");
+      continue;
+    }
+    console.log("    合并事件定位（原始误差**并起来**再取分位，不是把分位数平均）：");
+    for (const [type, p] of [...agg.events.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
       const abs = p.errors.map((v) => Math.abs(v)).sort((a, b) => a - b);
       console.log(
-        `  ${type}: 命中 ${p.matched}，漏 ${p.missed}，误 ${p.spurious}；` +
+        `      ${type}: 命中 ${p.matched}，漏 ${p.missed}，误 ${p.spurious}；` +
           `绝对误差 P50 ${fmt(eventPercentileOfSorted(abs, 0.5), 1)}ms / ` +
           `P95 ${fmt(eventPercentileOfSorted(abs, 0.95), 1)}ms`,
       );
     }
-  } else {
-    console.log("\n事件定位：没有任何样本同时具备**事件标注**与**事件观测**，故不输出事件指标。");
   }
 
   console.log(
