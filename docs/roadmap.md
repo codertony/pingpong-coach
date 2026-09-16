@@ -34,7 +34,7 @@
 | 数据契约（zod） | `[x]` | contracts 30 项测试 |
 | 纯计算核心 | `[x]` | motion-core 169 项测试（含准备区标定与手部几何） |
 | 后端 + Mock 适配器 | `[x]` | api 130 项测试 |
-| 前端采集链路 | `[x]` | web 57 项 vitest + 47 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 60 项 vitest + 49 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：verify + e2e 两个 job |
@@ -52,6 +52,8 @@
 | F-007 | 模块 Worker 里加载不了 WASM 运行时，真实推理在本机完全起不来 |
 | F-008 | 采集流从未接到界面上的 `<video>`，练习页只有黑屏 |
 | F-010 | 镜像只做了一半，骨架与人物左右相反（直接违反红线 5 要保护的行为） |
+| F-013 | 导入视频时预览未镜像，骨架与人物左右相反（**仍 OPEN**，取决于素材是自拍还是他人拍摄） |
+| F-014 | 摄像头中途断开时界面继续显示"采集中 / 等待有效挥拍"，不给任何失败线索 |
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -62,10 +64,10 @@
 contracts      30
 motion-core   169
 api           130
-web (vitest)   57
-web (Playwright/真 Chrome) 47
+web (vitest)   60
+web (Playwright/真 Chrome) 49
 ─────────────────────────────
-合计          433
+合计          438
 ```
 
 ---
@@ -79,8 +81,8 @@ web (Playwright/真 Chrome) 47
 | A1 | ✅ 前端组件级测试（部分完成） | 已引入 `@testing-library/react` + jsdom，新增 App / ReviewPanel 共 8 项渲染测试；**采集状态流转与摄像头错误态仍未覆盖** | 中 |
 | A2 | 🟡 端到端串联测试（部分完成） | `e2e/integration.e2e.ts` 4 项：**真实浏览器 → vite 代理 → 真实 Fastify 进程 → 真实响应**，全程不用 `page.route`。覆盖 mock 徽标、真实 `TrainingSession` 产出的包被后端收下并返回受校验反馈、图文错配被拦、后端不可达不阻塞本地。**红线 8 的"模型输出经服务端校验"那一段仍未覆盖**（见下方说明） | 中 |
 | A3 | ✅ 边界与模糊测试 | 已对 api 与 contracts 各加 3 项模糊测试，断言畸形输入绝不 500 / 绝不 throw | 小 |
-| A4 | 🟡 性能基线 | 已给 `motion-core` 每帧热路径的四个函数定出 < 10 ms 哨兵；**`FrameScheduler` 在 60fps 下的丢帧率仍未覆盖** | 中 |
-| A5 | 🟡 错误路径补测 | 已覆盖畸形请求体、后端不可达、HTTP 500；**网络中途断开与摄像头中途被拔仍未覆盖** | 中 |
+| A4 | 🟡 性能基线 | `motion-core` 热路径 4 个函数有 < 10 ms 哨兵；本轮补了 **60fps 持续输入下的丢帧与位图守恒** 3 项。**真机端到端延迟仍未测**（需真人） | 中 |
+| A5 | ✅ 错误路径补测 | 畸形请求体、后端不可达、HTTP 500、**摄像头中途断开**（F-014，本轮补 2 项 e2e）；另有 `describeCameraError` 映射单测 | 中 |
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 135.7 KiB | 小 |
 | A7 | Docker 镜像构建验证 | Dockerfile 已存在但未在沙箱内真正 `docker build` 过 | 小 |
 | A8 | changesets 发布流程 | 已装但未配置，多包版本发布流程未打通 | 小 |

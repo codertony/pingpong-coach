@@ -39,6 +39,8 @@ export interface CaptureOptions {
   /** 显式指定的摄像头设备；不给则用系统默认 */
   deviceId?: string;
   facingMode?: "user" | "environment";
+  /** 运行期故障（目前只有摄像头中途断开）。不提供时故障不会被上报。 */
+  onFault?: CaptureFaultHandler;
 }
 
 export interface CaptureHandle {
@@ -47,6 +49,23 @@ export interface CaptureHandle {
   actualFps: number | null;
   video: HTMLVideoElement;
 }
+
+/**
+ * 采集源的运行期故障回调。
+ *
+ * 目前只有一种：**媒体轨道中途结束**（摄像头被拔掉、被别的程序抢占、
+ * 设备休眠）。这不是"启动失败"——启动是成功的，失败发生在中途，
+ * 所以 `startCapture` 的 catch 拦不到它。
+ *
+ * 为什么必须上报：轨道结束后视频停在最后一帧、`readyState` 变成 `ended`，
+ * 但界面**没有任何变化** —— 徽标照样显示"采集中"、状态栏照样说"等待有效挥拍"。
+ * 用户会一直干等一个永远不会再来的画面。实测确认过这个行为。
+ */
+export type CaptureFaultHandler = (fault: {
+  code: "camera_disconnected";
+  message: string;
+  hint: string;
+}) => void;
 
 /** 原始错误摘要。不做归类和翻译 —— 那是 message/hint 的事。 */
 function rawDetail(err: unknown): string {
@@ -182,6 +201,50 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
   let rafHandle: number | null = null;
   let lastMediaTimeMs = -1;
 
+  /*
+   * 摄像头中途不可用的检测。**两条路都要**，实测确认缺一不可：
+   *
+   * 1. 事件 `ended` / `mute` —— 设备被拔掉 / 被抢占 / 休眠时浏览器通常派发；
+   * 2. 周期性存活探测 —— 因为**事件并不可靠**：实测 `track.stop()` 会让
+   *    `readyState` 立刻变成 `ended`，却**不派发任何事件**。真正拔设备时
+   *    浏览器是否派发取决于实现，光靠事件会漏。
+   *
+   * 不检测的后果（实测确认过）：画面停在最后一帧，而徽标照样显示"采集中"、
+   * 状态栏照样说"等待有效挥拍" —— 用户一直干等一个不会再来的画面。
+   *
+   * 停止训练时我们**自己**会 stop 轨道，那也会让 readyState 变 ended。
+   * 用 `running` 区分"用户主动停"与"设备自己掉"。
+   */
+  let faultReported = false;
+  const reportFault = () => {
+    if (!running || faultReported) return;
+    faultReported = true;
+    options.onFault?.({
+      code: "camera_disconnected",
+      message: "摄像头已断开",
+      hint:
+        "画面停在最后一帧、采集已经停止。检查设备是否被拔掉或被其它程序占用，" +
+        "然后重新开始训练。",
+    });
+  };
+
+  const tracks = stream?.getVideoTracks() ?? [];
+  for (const track of tracks) {
+    track.addEventListener("ended", reportFault);
+    track.addEventListener("mute", reportFault);
+  }
+
+  // 存活探测：每 500ms 检查一次轨道是否还活着。开销可忽略（读一个枚举值）。
+  const livenessTimer = window.setInterval(() => {
+    if (!running) return;
+    for (const track of tracks) {
+      if (track.readyState === "ended") {
+        reportFault();
+        return;
+      }
+    }
+  }, 500);
+
   const hasVideoFrameCallback =
     typeof (
       video as HTMLVideoElement & {
@@ -259,7 +322,13 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
       ).cancelVideoFrameCallback?.(callbackHandle);
     }
     if (rafHandle != null) cancelAnimationFrame(rafHandle);
-    // 停止训练时关闭摄像头并释放轨道
+    window.clearInterval(livenessTimer);
+    // 停止训练时关闭摄像头并释放轨道。
+    // 先摘掉监听器：停止本身也会让轨道 ended，不摘就会把自己的停止上报成"设备断开"。
+    for (const track of tracks) {
+      track.removeEventListener("ended", reportFault);
+      track.removeEventListener("mute", reportFault);
+    }
     if (stream) {
       for (const track of stream.getTracks()) track.stop();
       stream = null;

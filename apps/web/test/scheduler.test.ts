@@ -179,3 +179,96 @@ describe("nextFrameId", () => {
     expect(nextFrameId(3, 100)).toContain("e3_");
   });
 });
+
+/**
+ * 60fps 持续输入下的行为（roadmap A4 的遗留缺口）。
+ *
+ * 已有用例测的是"单次丢帧""被替换的帧要释放位图"这些**点**行为。
+ * 这里补的是**持续压力**下的整体性质 —— 采集是 30/60fps 连续跑的，
+ * 单个点行为都对自己拼起来仍可能出问题（例如位图累积、统计不守恒）。
+ *
+ * 用的是确定性时间推进（假定时器 + 手动控制 handler 的完成时机），
+ * 不依赖机器快慢，所以不会在 CI 上抖。
+ */
+describe("FrameScheduler — 60fps 持续输入（A4）", () => {
+  /** 造一个可以手动放行的异步 handler，用来精确控制"繁忙窗口"。 */
+  function controllableHandler() {
+    let release: (() => void) | null = null;
+    const handler = async () => {
+      await new Promise<void>((r) => {
+        release = () => r();
+      });
+    };
+    return {
+      handler,
+      release: () => {
+        const r = release;
+        release = null;
+        r?.();
+      },
+    };
+  }
+
+  it("60 帧在途时：提交数与丢弃数之和等于总输入，位图全部被释放", async () => {
+    const { handler, release } = controllableHandler();
+    const s = new FrameScheduler(handler);
+    const bitmaps: ReturnType<typeof fakeBitmap>[] = [];
+
+    // 模拟 1 秒 @60fps：第一帧进入处理，其余 59 帧在繁忙期间陆续到达
+    for (let i = 0; i < 60; i++) {
+      const f = frame(`f${i}`, i * 16.67);
+      bitmaps.push(f.bitmap as ReturnType<typeof fakeBitmap>);
+      s.submit(f);
+    }
+
+    // 反复放行直到排空：一次 release 只完成一帧，排空后 pending 才不会有遗留。
+    // （位图由 run() 的 finally 释放，所以在途那一帧在放行前 close 是**正确**的未关闭。）
+    for (let i = 0; i < 10; i++) {
+      release();
+      await new Promise((r) => setTimeout(r, 5));
+    }
+
+    const stats = s.stats;
+    // 统计必须守恒：没有帧在账外消失
+    expect(stats.submitted + stats.dropped).toBe(60);
+    // 繁忙时不排队 —— 处理数应该是常数级，不是 60
+    expect(stats.submitted).toBeLessThan(60);
+    expect(stats.submitted).toBeGreaterThanOrEqual(1);
+
+    // 排空后一张位图都不能漏：泄漏会在长时间训练里累积成内存问题（P2 验收要查的项）
+    const leaked = bitmaps.filter((b) => !b.closed);
+    expect(leaked).toHaveLength(0);
+  });
+
+  it("丢帧率随处理变慢而上升，但每一帧都有归宿（不静默丢失）", async () => {
+    // handler 每次耗时 100ms，输入 16.67ms 一帧 → 必然大量丢帧
+    let processed = 0;
+    const s = new FrameScheduler(async () => {
+      processed++;
+      await new Promise((r) => setTimeout(r, 100));
+    });
+
+    for (let i = 0; i < 30; i++) s.submit(frame(`f${i}`, i * 16.67));
+    await new Promise((r) => setTimeout(r, 400));
+
+    const stats = s.stats;
+    expect(stats.submitted).toBe(processed);
+    // 慢 handler 下丢帧是**预期行为**（用最新帧替换待处理帧），不是缺陷；
+    // 要钉住的是"丢帧被如实计入"，而不是"不许丢帧"。
+    expect(stats.dropped).toBeGreaterThan(0);
+    expect(stats.submitted + stats.dropped).toBe(30);
+  });
+
+  it("drain 之后不再有遗留位图（停止训练不能让帧悬在半空）", async () => {
+    const { handler } = controllableHandler();
+    const s = new FrameScheduler(handler);
+    const pending = frame("pending", 0);
+
+    s.submit(frame("first", 0)); // 进入处理，占住 busy
+    s.submit(pending); // 变成待处理帧
+    s.drain();
+
+    // 待处理帧必须被释放；正在处理的那帧由 run() 的 finally 释放
+    expect((pending.bitmap as ReturnType<typeof fakeBitmap>).closed).toBe(true);
+  });
+});

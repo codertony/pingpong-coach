@@ -72,7 +72,7 @@ pnpm verify
 packages/contracts  Tests   30 passed (30)
 packages/motion-core Tests 169 passed (169)
 apps/api            Tests  130 passed (130)
-apps/web            Tests   57 passed (57)
+apps/web            Tests   60 passed (60)
 ...
 ✓ built in ~2s
 ✓ 依赖体积在预算内。
@@ -81,7 +81,7 @@ apps/web            Tests   57 passed (57)
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **386**）
+- [ ] 四组测试数字与上面完全一致（总共 **389**）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -95,7 +95,7 @@ apps/web            Tests   57 passed (57)
 pnpm test:e2e
 ```
 
-**预期**：`47 passed`，约 20 秒。
+**预期**：`49 passed`，约 25 秒。
 
 > 端到端测试会**自己起两个进程**：vite（端口 5199）和一个**真实的 API 进程**
 > （端口 8788，mock 模式）。后者是为了让"前端 → 代理 → 真实后端"这条链路
@@ -115,7 +115,7 @@ pnpm test:e2e
 CHROMIUM_PATH="/c/Program Files/Google/Chrome/Application/chrome.exe" pnpm test:e2e
 ```
 
-- [ ] 47 项全部通过
+- [ ] 49 项全部通过
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________

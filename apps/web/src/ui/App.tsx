@@ -152,8 +152,13 @@ export function App() {
     );
   }, []);
 
-  /** 停止训练：关闭摄像头、终止 Worker、取消语音。 */
-  const stop = useCallback(() => {
+  /**
+   * 停止训练：关闭摄像头、终止 Worker、取消语音。
+   *
+   * `message` 让调用方能覆盖状态栏文案 —— 设备故障时"已停止"会掩盖真正的原因，
+   * 而练习页唯一能看到的解释就是那一行状态栏。
+   */
+  const stop = useCallback((message = "已停止") => {
     captureRef.current?.stop();
     captureRef.current = null;
     schedulerRef.current?.drain();
@@ -165,7 +170,7 @@ export function App() {
     sessionRef.current?.dispose();
     sessionRef.current = null;
     setRunning(false);
-    setStatusText("已停止");
+    setStatusText(message);
   }, []);
 
   useEffect(() => stop, [stop]);
@@ -297,6 +302,26 @@ export function App() {
         onFrame: (frame) => scheduler.submit(frame),
         requestedFps: 60,
         videoFile: videoFile ?? undefined,
+        /**
+         * 摄像头中途断开：必须真的停下来，并如实说明。
+         *
+         * 不处理的后果（实测确认过）：轨道 `readyState` 变成 `ended`、
+         * 画面停在最后一帧，而徽标照样显示"采集中"、状态栏照样说
+         * "等待有效挥拍" —— 用户会一直干等一个不会再来的画面。
+         *
+         * 这里复用 stop() 走完整的收尾路径（关轨道、终止 Worker、取消语音），
+         * 而不是只改一句文案 —— 半停状态比不停更容易误导。
+         */
+        onFault: (fault) => {
+          setCaptureError({
+            code: "camera_unavailable",
+            message: fault.message,
+            hint: fault.hint,
+          });
+          // 注意：不能用 stop() —— 它会把状态栏设成"已停止"，
+          // 而摄像头断开时用户就在练习页，唯一能看到的解释就是这行状态栏。
+          stop("摄像头已断开，采集已停止");
+        },
       });
       captureRef.current = handle;
       // 授权成功后浏览器才返回设备名，这里补一次枚举把名称填上
@@ -905,7 +930,12 @@ interface PracticeProps {
   setSpeechEnabled: (v: boolean) => void;
   speechStatus: SpeechStatus;
   onStart: () => void;
-  onStop: () => void;
+  /**
+   * 停止训练。`message` 可选 —— 设备故障等场景需要覆盖状态栏文案。
+   * 注意：绑到按钮上时必须包一层箭头函数，否则 React 会把 MouseEvent
+   * 当成 message 传进来，状态栏会显示成 "[object Object]"。
+   */
+  onStop: (message?: string) => void;
   onSetReadyZoneToWrist: () => void;
   onCalibrateReadyZone: () => void;
   handedness: "left" | "right";
@@ -951,7 +981,7 @@ function PracticeView(props: PracticeProps) {
                   开始
                 </button>
               ) : (
-                <button className="danger" onClick={props.onStop}>
+                <button className="danger" onClick={() => props.onStop()}>
                   停止
                 </button>
               )}
