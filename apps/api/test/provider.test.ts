@@ -165,6 +165,64 @@ describe("callModel — live 模式成功路径", () => {
     expect(result.usage).toEqual({ inputTokens: 120, outputTokens: 40 });
   });
 
+  /**
+   * 结束原因必须**透出到调用方**（F-038 的第一半）。
+   *
+   * 推理模型会把 token 预算花在推理上，预算不够时正文被截断 ——
+   * 而截断的表现是"JSON 不合法"。上层要能区分"模型乱输出"与"预算不够"，
+   * 就必须拿得到 `finish_reason`。丢掉它，运维只会看到 JSON 解析失败。
+   */
+  it("透出提供商的 finish_reason（截断时是 length）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"status":"obs' }, finish_reason: "length" }],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+
+    const result = await callModel(liveConfig(), makePacket(), [], noAllowed);
+
+    expect(result.finishReason).toBe("length");
+  });
+
+  it("正常结束时为 stop；没有该字段时如实为 null（不猜）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                { message: { content: '{"status":"observation_only"}' }, finish_reason: "stop" },
+              ],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    expect((await callModel(liveConfig(), makePacket(), [], noAllowed)).finishReason).toBe("stop");
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: '{"status":"observation_only"}' } }],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          ),
+      ),
+    );
+    expect((await callModel(liveConfig(), makePacket(), [], noAllowed)).finishReason).toBeNull();
+  });
+
   it("请求体包含图片，且以 data URL 形式携带 base64", async () => {
     let captured: Record<string, unknown> | null = null;
     vi.stubGlobal(

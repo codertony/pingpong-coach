@@ -65,11 +65,11 @@
       "maxSpeechChars": 30
     },
     "latency": {
-      "$comment": "初始目标，需真实设备测量验证。⚠️ **这些值未被校验**：它们是目标值而非从代码里读出的常量，没有任何测试守着。其中姿态处理延迟已在合成 30fps 输入下实测过一次（中位 25ms / p95 29ms，见 evaluation-log），其余仍未验证。",
+      "$comment": "初始目标，需真实设备测量验证。⚠️ **这些值未被校验**：它们是目标值而非从代码里读出的常量，没有任何测试守着。其中姿态处理延迟已在合成 30fps 输入下实测过一次（中位 25ms / p95 29ms，见 evaluation-log）；**模型反馈延迟已在真实模型上实测过一次**（2026-09-16，deepseek-flash：中位 3928ms、max 4753ms，见 evaluation-log），据此把代码默认超时从 4000ms 提到 15000ms —— 原值正落在实测中位数上，等于配了个必然间歇失败的默认值。`modelTimeoutMs` 这一项现在**有依据**了，但仍不是自动校验的。",
       "poseProcessingP95Ms": 150,
       "localFeedbackP95Ms": 1000,
       "modelFeedbackP95Ms": 5000,
-      "modelTimeoutMs": 4000
+      "modelTimeoutMs": 15000
     }
   },
   "featureFlags": {

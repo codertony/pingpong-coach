@@ -188,6 +188,77 @@ describe("analyze — 模型失败不阻塞本地链路", () => {
     if (!res.ok) expect(res.code).toBe("model_invalid_json");
   });
 
+  /**
+   * 真实模型上实测到的形态（deepseek-flash，2026-09-16）：
+   * **推理模型先把 token 预算花在推理上**，预算不够时正文被**腰斩**，
+   * 而腰斩的表现就是"JSON 不合法"。两条路径必须报**不同的码** ——
+   * 都报 `model_invalid_json` 会把排查引到解析上，而真正要调的是预算。
+   */
+  it("被 token 预算截断时报 model_truncated，而不是 model_invalid_json", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [
+                {
+                  // 正文写到一半就断了 —— 这是截断的真实样子
+                  message: { content: '{"status":"observation_only","observation":"事实：本组仅' },
+                  finish_reason: "length",
+                },
+              ],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const d = deps({
+      modelMode: "live",
+      modelBaseUrl: "https://x.invalid/v1",
+      modelApiKey: "k",
+      modelId: "m",
+      modelMaxTokens: 400,
+    });
+    const res = await analyze(makePacket(), d);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) {
+      expect(res.code).toBe("model_truncated");
+      // 报错文案必须**指出该动哪个旋钮**，否则等于只说"失败了"
+      expect(res.message).toContain("max_tokens=400");
+      expect(res.details?.join(" ")).toContain("MODEL_MAX_TOKENS");
+      expect(res.httpStatus).toBe(200);
+    }
+  });
+
+  it("同样是不合法 JSON，但结束原因不是 length 时仍报 model_invalid_json（不误报截断）", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              choices: [{ message: { content: "这不是 JSON" }, finish_reason: "stop" }],
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+
+    const d = deps({
+      modelMode: "live",
+      modelBaseUrl: "https://x.invalid/v1",
+      modelApiKey: "k",
+      modelId: "m",
+    });
+    const res = await analyze(makePacket(), d);
+
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.code).toBe("model_invalid_json");
+  });
+
   it("模型返回被 Markdown 代码块包裹的 JSON 也能被容错解析", async () => {
     const payload = JSON.stringify({
       status: "observation_only",

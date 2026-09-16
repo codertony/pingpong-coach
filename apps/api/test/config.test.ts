@@ -85,8 +85,8 @@ describe("loadConfig — 数值项与缺省值", () => {
     const c = loadConfig();
     expect(c.port).toBe(8787);
     expect(c.host).toBe("127.0.0.1");
-    expect(c.modelTimeoutMs).toBe(4000);
-    expect(c.modelMaxTokens).toBe(400);
+    expect(c.modelTimeoutMs).toBe(15_000);
+    expect(c.modelMaxTokens).toBe(2000);
     expect(c.maxRequestBytes).toBe(2 * 1024 * 1024);
     expect(c.dedupeTtlMs).toBe(30_000);
   });
@@ -104,7 +104,7 @@ describe("loadConfig — 数值项与缺省值", () => {
     process.env.MODEL_TIMEOUT_MS = "-5";
     const c = loadConfig();
     expect(c.port).toBe(8787);
-    expect(c.modelTimeoutMs).toBe(4000);
+    expect(c.modelTimeoutMs).toBe(15_000);
   });
 
   it("小数数值被向下取整为整数", () => {

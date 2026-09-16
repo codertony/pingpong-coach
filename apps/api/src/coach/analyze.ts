@@ -171,6 +171,22 @@ async function runAnalysis(
   }
 
   if (parseError != null) {
+    // 截断不等于"模型乱输出 JSON"。**推理模型会把 token 预算花在推理上**，
+    // 于是预算不够时正文被腰斩，报出来的却是 JSON 解析失败 ——
+    // 只看那个 code 会去查解析，而真正要调的是预算。
+    // 实测（deepseek-flash）：默认 max_tokens=400 被推理吃光，正文在第 192 字符处断。
+    if (result.finishReason === "length") {
+      throw new AnalysisError(
+        "model_truncated",
+        `模型输出被 token 预算截断（max_tokens=${config.modelMaxTokens}）`,
+        200,
+        [
+          parseError,
+          result.raw.slice(0, 200),
+          "推理模型会先消耗推理 token，正文可能因此被截断。调大 MODEL_MAX_TOKENS 后重试。",
+        ],
+      );
+    }
     throw new AnalysisError("model_invalid_json", "模型返回内容不是合法 JSON", 200, [
       parseError,
       result.raw.slice(0, 200),

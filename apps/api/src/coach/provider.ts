@@ -23,6 +23,16 @@ export interface ModelCallResult {
   elapsedMs: number;
   /** 提供商返回的 token 用量（若有） */
   usage: { inputTokens: number | null; outputTokens: number | null };
+  /**
+   * 提供商的结束原因（`stop` / `length` / 其它）。
+   *
+   * 为什么要透出来：**推理模型会把 token 预算花在推理上**，
+   * 于是 `max_tokens` 不够时正文被**截断**，而截断的表现是"JSON 不合法"。
+   * 只报 `model_invalid_json` 会把运维引到解析上，而真正的原因在预算上。
+   * 实测（deepseek-flash）：默认 `max_tokens=400` 被推理吃光 → 正文在
+   * 第 192 个字符处断掉。见 `docs/evaluation-log.md`。
+   */
+  finishReason: string | null;
 }
 
 /**
@@ -85,11 +95,13 @@ export async function callModel(
         mock: false,
         elapsedMs: Date.now() - started,
         usage: { inputTokens: null, outputTokens: null },
+        // HTTP 都没通，谈不上结束原因
+        finishReason: null,
       };
     }
 
     const json = (await res.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
       usage?: { prompt_tokens?: number; completion_tokens?: number };
     };
     const raw = json.choices?.[0]?.message?.content ?? null;
@@ -104,6 +116,8 @@ export async function callModel(
         inputTokens: json.usage?.prompt_tokens ?? null,
         outputTokens: json.usage?.completion_tokens ?? null,
       },
+      // `length` = 被 token 预算截断（推理模型常见）。上层据此给出**有指向的**报错。
+      finishReason: json.choices?.[0]?.finish_reason ?? null,
     };
   } catch (err) {
     const aborted = (err as Error).name === "AbortError";
@@ -114,6 +128,7 @@ export async function callModel(
       mock: false,
       elapsedMs: Date.now() - started,
       usage: { inputTokens: null, outputTokens: null },
+      finishReason: null,
     };
   } finally {
     clearTimeout(timer);
@@ -206,6 +221,7 @@ function mockCall(
     error: null,
     errorDetail: null,
     mock: true,
+    finishReason: null,
     // mock 不参与真实延迟统计，这里仅记录本地构造耗时
     elapsedMs: Date.now() - started,
     usage: { inputTokens: null, outputTokens: null },

@@ -54,6 +54,9 @@ export const ERROR_CODES = [
   "model_timeout",
   "model_unavailable",
   "model_invalid_json",
+  // 与上一个分开：截断的表现也是"JSON 不合法"，但原因在 token 预算上
+  // （推理模型先花推理 token），报同一个码会把排查引到解析上去。
+  "model_truncated",
   "model_forbidden_claim",
   "stale_session_response",
   "disallowed_drill",
