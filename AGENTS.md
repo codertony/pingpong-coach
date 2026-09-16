@@ -12,7 +12,7 @@
 | 为什么这样选、何时替换 | `docs/decisions.md` |
 | 实测结果（事实 / 推测 / 未验证） | `docs/evaluation-log.md` |
 | 已知失败与修复 | `docs/known-failures.md` |
-| 阈值与功能开关 | `configs/thresholds.json`（**规范快照，不被运行时读取**；实际标定值在 `packages/motion-core/src/rules.ts` 的 `DEFAULT_THRESHOLDS`，两边由测试守着一致） |
+| 阈值与功能开关 | `configs/thresholds.json`（**规范快照，不被运行时读取**；实际标定值分两处，都在 `packages/motion-core`：规则阈值在 `src/rules.ts` 的 `DEFAULT_THRESHOLDS`、分段阈值在 `src/segmentation.ts` 的 `DEFAULT_SEGMENTATION`。快照与代码由测试**双向**守着一致） |
 | 训练知识条目 | `knowledge/*.json` |
 | 模型资产清单 | `models/manifest.json` |
 

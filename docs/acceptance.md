@@ -52,7 +52,8 @@
 
 | 日期 | 项目 | 原值 | 新值 | 理由 | 版本 |
 | --- | --- | --- | --- | --- | --- |
-| 2026-09-15 | 初始阈值集 | — | 见 `packages/motion-core/src/rules.ts` 的 `DEFAULT_THRESHOLDS`（`configs/thresholds.json` 是同一份值的规范快照，**不被运行时读取**；两边由测试守着一致） | 方案拟定值，尚未实测校准 | 1.0.0 |
+| 2026-09-15 | 初始阈值集 | — | 见 `packages/motion-core`：规则阈值 `src/rules.ts` 的 `DEFAULT_THRESHOLDS`、分段阈值 `src/segmentation.ts` 的 `DEFAULT_SEGMENTATION`（`configs/thresholds.json` 是同一份值的规范快照，**不被运行时读取**；两边由测试**双向**守着一致） | 方案拟定值，尚未实测校准 | 1.0.0 |
+| 2026-09-16 | 分段阈值快照补齐 | — | 无值变更。补上快照里**漏写的 `maxGapMs`**，并把数值默认值从 `apps/web` 移到 `motion-core`，让一致性检查够得着它们（F-026） | 修的是"快照与代码脱节"，不是标定。**未改动任何阈值数值** | 1.0.0 |
 
 > 未在真实设备上运行姿态模型，也未完成动作准确率测试。
 > 表中性能、质量阈值和工期均为**拟定目标**，不是实测结果。

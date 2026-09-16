@@ -46,11 +46,13 @@
       "minUsableFrameRatio": 0.8
     },
     "segmentation": {
+      "$comment": "分段阈值。**真值在 packages/motion-core 的 DEFAULT_SEGMENTATION**，本块是规范快照、不被运行时读取；两边由 thresholds-consistency.test.ts 双向守着一致。注意 readyZoneRadiusBodyScale 与 returnStableMinMs 是当前最需要标定的两个（见 known-failures F-022 补测：回位距离 0.29~0.40 正压在半径 0.30 上，且名义 120ms 实际需约 200ms）。",
       "readyZoneRadiusBodyScale": 0.3,
       "readyStableMinMs": 120,
       "backswingMinDisplacementBodyScale": 0.2,
       "forwardMinSpeedBodyScalePerSec": 0.5,
       "returnStableMinMs": 120,
+      "maxGapMs": 250,
       "maxStrokeDurationMs": 3000
     },
     "rules": {

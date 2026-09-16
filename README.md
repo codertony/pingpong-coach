@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动分组挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**，工程护栏（lint/格式/CI/提交门禁）已补齐，
-**442 项单元测试 + 65 项浏览器测试全部通过**。
+**445 项单元测试 + 65 项浏览器测试全部通过**。
 模型调用默认为 `mock` 模式（没有真实 API Key 也能跑完整链路）。
 
 > ⚠️ 这是一份**契约完整、可编译、可测试**的骨架，不是已验证产品。
@@ -230,15 +230,15 @@ pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome�
 
 `pnpm verify` 是**提交前门禁的唯一入口**，CI 用的就是它。
 
-当前共 **507 项测试**（442 单元 + 65 浏览器）：
+当前共 **510 项测试**（445 单元 + 65 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 30 | — |
-| `@pingpong/motion-core` | 202 | — |
+| `@pingpong/motion-core` | 205 | — |
 | `@pingpong/api` | 135 | — |
 | `@pingpong/web` | 75 | 65 |
-| **合计** | **442** | **65** |
+| **合计** | **445** | **65** |
 
 **这些测试证明的是什么**：
 
@@ -323,9 +323,10 @@ PPC_PROBE_CAMERA=1 pnpm --filter @pingpong/web test:e2e camera-enumeration
    ```
 
    **没有人工标注时它会明确拒绝输出任何准确率数字** —— 没真值的指标是编造的。
-4. 依据实测结果**修正**暂定阈值 —— 改 `packages/motion-core/src/rules.ts` 的
-   `DEFAULT_THRESHOLDS`，并同步 `configs/thresholds.json`（**那份不被运行时读取**，
-   是规范快照；两边由 `thresholds-consistency.test.ts` 守着一致）
+4. 依据实测结果**修正**暂定阈值 —— 改 `packages/motion-core` 里这两处：
+   规则阈值在 `src/rules.ts` 的 `DEFAULT_THRESHOLDS`、分段阈值在
+   `src/segmentation.ts` 的 `DEFAULT_SEGMENTATION`；并同步 `configs/thresholds.json`
+   （**那份不被运行时读取**，是规范快照；两边由 `thresholds-consistency.test.ts` **双向**守着一致）
 5. 阈值稳定后，才考虑把知识条目的 `observation_only` 升级为可给出「合格」判定
 
 **不要在没跑过真实数据之前调阈值。** 那样只是把猜测写进配置。

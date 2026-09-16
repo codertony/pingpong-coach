@@ -13,6 +13,34 @@
 
 import type { SegmentationConfig, StrokeEvent, StrokePhase } from "@pingpong/contracts";
 
+/**
+ * 分段阈值的**默认值**（不含 `strokeType` / `cameraView` / `handedness` ——
+ * 那三项是每次会话由用户选的，不是标定值）。
+ *
+ * 为什么放在这里而不是 `apps/web`：这些值配置的就是本文件的状态机，
+ * 而且 `configs/thresholds.json` 里有一份同名的**规范快照**。
+ * 快照与代码的一致性检查住在 `motion-core` 的测试里，而
+ * **`motion-core` 不允许依赖 `apps/web`** —— 值如果放在 `apps/web`，
+ * 那个检查就够不着它（这正是 F-026 之前的状态：JSON 里那 6 个值从没被校过）。
+ *
+ * ⚠️ `readyZoneRadiusBodyScale` 与 `returnStableMinMs` 是**当前最需要标定**的两个：
+ * 实测（见 F-022 补测）回位距离 0.29~0.40 正压在半径 0.30 上，
+ * 而落点在区外时检出会从"数得少"直接掉到 **0 板**；另外名义上的 120ms
+ * 实际需要约 **200ms** 墙上时间（每板白吃一帧 + 必须连续在区内）。
+ */
+export const DEFAULT_SEGMENTATION: Omit<
+  SegmentationConfig,
+  "strokeType" | "cameraView" | "handedness"
+> = {
+  readyZoneRadiusBodyScale: 0.3,
+  readyStableMinMs: 120,
+  backswingMinDisplacementBodyScale: 0.2,
+  forwardMinSpeedBodyScalePerSec: 0.5,
+  returnStableMinMs: 120,
+  maxGapMs: 250,
+  maxStrokeDurationMs: 3000,
+};
+
 export interface SegmentationSample {
   frameId: string;
   sourceTimeMs: number;

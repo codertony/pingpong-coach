@@ -25,20 +25,21 @@
 
 import { describe, expect, it } from "vitest";
 import type { SegmentationConfig, StrokeEvent } from "@pingpong/contracts";
-import { StrokeSegmenter, type SegmentationSample } from "../src/segmentation.js";
+import {
+  DEFAULT_SEGMENTATION,
+  StrokeSegmenter,
+  type SegmentationSample,
+} from "../src/segmentation.js";
 
-/** 产品真实用的那套默认值（与 `apps/web/src/training/session-config.ts` 一致）。 */
+/**
+ * 产品真实用的那套值 —— **直接取默认值本身，不在这里再抄一份**。
+ * 抄一份就等于又多一处"同一事实两处各写各的"（F-026 的形态）。
+ */
 const PRODUCT_CONFIG: SegmentationConfig = {
   strokeType: "forehand_drive",
   cameraView: "front",
   handedness: "right",
-  readyZoneRadiusBodyScale: 0.3,
-  readyStableMinMs: 120,
-  backswingMinDisplacementBodyScale: 0.2,
-  forwardMinSpeedBodyScalePerSec: 0.5,
-  returnStableMinMs: 120,
-  maxGapMs: 250,
-  maxStrokeDurationMs: 3000,
+  ...DEFAULT_SEGMENTATION,
 };
 
 const READY_CENTER = { x: 640, y: 420 };

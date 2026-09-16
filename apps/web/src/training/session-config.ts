@@ -11,22 +11,20 @@
  */
 
 import type { SegmentationConfig } from "@pingpong/contracts";
+import { DEFAULT_SEGMENTATION } from "@pingpong/motion-core";
 import type { TrainingConfig } from "./training-session.js";
 
 /**
- * 切分阈值。全部是**暂定值**，未按真实素材校准过（见 `configs/thresholds.json` 的说明）。
+ * 切分阈值的**数值不在这里**。
+ *
+ * 唯一定义处是 `@pingpong/motion-core` 的 `DEFAULT_SEGMENTATION`。
+ * 原先是本文件里的一份字面量，而 `configs/thresholds.json` 里还有一份同名快照 ——
+ * 三处各写各的，谁都没被校过（见 F-026）。移到 motion-core 是因为
+ * "快照与代码一致"那个检查住在 motion-core 的测试里，而 motion-core
+ * **不允许依赖本包**，值留在这里那个检查就够不着。
+ *
  * 改动必须同步 `docs/acceptance.md` 的阈值变更记录。
  */
-const SEGMENTATION_DEFAULTS = {
-  readyZoneRadiusBodyScale: 0.3,
-  readyStableMinMs: 120,
-  backswingMinDisplacementBodyScale: 0.2,
-  forwardMinSpeedBodyScalePerSec: 0.5,
-  returnStableMinMs: 120,
-  maxGapMs: 250,
-  maxStrokeDurationMs: 3000,
-} as const;
-
 export interface SessionConfigInput {
   sessionId: string;
   handedness: "left" | "right";
@@ -42,7 +40,7 @@ function buildSegmentationConfig(
     strokeType: "forehand_drive",
     cameraView: input.cameraView,
     handedness: input.handedness,
-    ...SEGMENTATION_DEFAULTS,
+    ...DEFAULT_SEGMENTATION,
   };
 }
 

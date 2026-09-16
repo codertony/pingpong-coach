@@ -1283,6 +1283,62 @@ elapsedInStroke = sourceTimeMs − 0 = sourceTimeMs
 
 ---
 
+### F-026 · `thresholds.json` 的 **segmentation 块从来没被校过**（F-019 的残留子集）
+
+**日期**：2026-09-16
+**分类**：工程（配置快照与代码脱节）
+**严重度**：中高 —— 它漏掉的正是**最需要标定**的那几个值；
+而且它给出一种"我改了阈值"的错觉
+**状态**：**已修复**
+
+**怎么发现的**：在做 F-022 的合成校准时，我准备把"名义 120ms ≠ 实际 ~200ms"
+这条写进 `configs/thresholds.json` 的说明里 —— 那里是调参的人会看的地方。
+打开一看才发现：**这个块根本没人校**。
+
+**三个问题叠在一起**：
+
+| # | 问题 | 后果 |
+| --- | --- | --- |
+| 1 | `thresholds-consistency.test.ts` **一个字都没提 segmentation**（grep 退 1）| 改 JSON 里的 `readyZoneRadiusBodyScale` 什么都不会发生，也没有任何测试会红 |
+| 2 | 真正的值住在 `apps/web/src/training/session-config.ts`，而**检查在 motion-core** | 两包方向是单向的（motion-core **不得**依赖 apps/web），所以那个检查**根本够不着**这些值 |
+| 3 | `SegmentationConfig` 有 **7** 个数值字段，JSON 里只有 **6** —— 少了 `maxGapMs` | 状态机一直在用它（`maxGapMs: 250`），快照里却没有，**没有任何东西发现** |
+
+**为什么问题 1 会漏**：F-019 修的时候，断言只做了**一个方向** ——
+"JSON 里出现的键，代码里要有对应"。**反过来没查**。
+`maxGapMs` 恰好就是从这个缺口漏下去的：它不是"值不对"，而是"根本没写"。
+
+**这为什么值得单独记**：F-022 补测给出的建议是"**先校准准备区半径**"，
+而 `readyZoneRadiusBodyScale` 正是这个块里的值 ——
+**我建议你去调的那几个数，原本是没人守着的。**
+
+**修法**：
+
+1. 把数值默认值从 `apps/web` **移到 `motion-core`**：新增 `DEFAULT_SEGMENTATION`。
+   理由不是"换个地方放"，而是**让检查够得着** —— 状态机在哪里，配置它的值就在哪里。
+2. `apps/web/src/training/session-config.ts` 改为 import 它（不再有字面量副本）。
+3. JSON 补上漏掉的 `maxGapMs`，并加 `$comment` 指明真值在哪、以及
+   "半径与回位驻留是当前最需要标定的两个"。
+4. `thresholds-consistency.test.ts` 加 **3 项**，**双向**：
+   - 每个值两边一致；
+   - **代码里的键在 JSON 里不许漏写**，且 JSON 里不许有多余的键；
+   - `DEFAULT_SEGMENTATION` 必须覆盖 `SegmentationConfig` 的**全部数值字段**
+     （用契约反查，将来给契约加字段而忘了给默认值时也会红）。
+
+**已验证这些断言真的会红**（不是写了永远通过的东西）：
+
+| 场景 | 结果 |
+| --- | --- |
+| 从 JSON 里删掉 `maxGapMs` | **2 项红**（值缺失 + 漏写）|
+| 把 JSON 的 `returnStableMinMs` 从 120 改成 150 | **红**，并打出"JSON 是 150，代码是 120" |
+
+**顺带消掉的第三份副本**：`segmentation-merge.test.ts` 本来要再抄一份那 7 个值 ——
+现在它直接 `...DEFAULT_SEGMENTATION`。同一组数值曾经在**三个**地方各写各的。
+
+**方法论（与 F-019 合起来看）**：一致性检查**必须双向**。
+单向检查会放过"漏写"，而"漏写"在观感上与"已同步"完全一样。
+
+---
+
 ## 待补充
 
 真实素材跑起来后，失败片段按上述分类逐条记录到这里，并附回归结果。
