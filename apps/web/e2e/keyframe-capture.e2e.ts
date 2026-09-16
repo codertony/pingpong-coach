@@ -177,4 +177,128 @@ test.describe("关键帧图片链路（F-028）", () => {
     // 成组遥测也必须如实反映"这次取到了图"
     expect(out.keyframesMissing, "遥测说还有关键帧取不到图").toBe(0);
   });
+
+  test("超出请求预算时**自动削减并如实记录**，而不是被服务端 413 打回（F-031）", async ({
+    page,
+  }) => {
+    const out = await page.evaluate(async () => {
+      const { TrainingSession, buildTrainingConfig, analyzeGroup } = window.__fixture;
+
+      // 造一批"很大的图"：每张 600 KB 假字节 → 6 张的 base64 约 4.8 MB，
+      // 远超 2 MiB 的请求预算。内容是不是真 JPEG 不影响这条用例 ——
+      // 它测的是**体积削减与记录**，编码本身由上面那条用真实位图覆盖。
+      const BIG = 600 * 1024;
+
+      let packet: {
+        keyframes: Array<{ frameId: string }>;
+        limitations: string[];
+        strokes: Array<{ evidenceFrameIds: string[] }>;
+      } | null = null;
+
+      const session = new TrainingSession(
+        buildTrainingConfig({
+          sessionId: "budget_e2e",
+          handedness: "right",
+          cameraView: "front",
+          focusId: "return_to_ready_zone",
+          strokesPerGroup: 3,
+        }),
+        {
+          onStatus: () => {},
+          onStroke: () => {},
+          onFeedback: () => {},
+          onGroupComplete: (p) => {
+            packet = p;
+          },
+        },
+      );
+      session.setReadyZone({ x: 640, y: 420 });
+
+      const READY = { x: 640, y: 420 };
+      const body = (wristX: number) => [
+        { name: "nose", xPx: 640, yPx: 120, score: 0.95, visible: true },
+        { name: "left_shoulder", xPx: 600, yPx: 200, score: 0.9, visible: true },
+        { name: "right_shoulder", xPx: 680, yPx: 200, score: 0.9, visible: true },
+        { name: "left_elbow", xPx: 580, yPx: 280, score: 0.9, visible: true },
+        { name: "right_elbow", xPx: 700, yPx: 280, score: 0.9, visible: true },
+        { name: "left_hip", xPx: 610, yPx: 400, score: 0.9, visible: true },
+        { name: "right_hip", xPx: 670, yPx: 400, score: 0.9, visible: true },
+        { name: "left_knee", xPx: 605, yPx: 520, score: 0.9, visible: true },
+        { name: "right_knee", xPx: 675, yPx: 520, score: 0.9, visible: true },
+        { name: "left_ankle", xPx: 600, yPx: 640, score: 0.9, visible: true },
+        { name: "right_ankle", xPx: 680, yPx: 640, score: 0.9, visible: true },
+        { name: "right_wrist", xPx: wristX, yPx: READY.y, score: 0.9, visible: true },
+      ];
+      const bigBytes = new Uint8Array(BIG);
+
+      const offsets = [
+        0, 0, 0, 0, 0, 0, 0.2, 0.45, 0.45, 0.45, 0.45, 0.3, 0.15, 0.05, 0, 0, 0, 0, 0, 0,
+      ];
+      let t = 0;
+      let i = 0;
+      for (let cycle = 0; cycle < 6 && !packet; cycle++) {
+        for (const offset of offsets) {
+          if (packet) break;
+          const frameId = `big_${i}`;
+          session.addFramePixels(frameId, t, bigBytes, 960, 540);
+          session.pushPoseResult({
+            frameId,
+            sourceEpoch: 0,
+            sourceTimeMs: t,
+            receivedAtMonoMs: t,
+            inferredAtMonoMs: t,
+            inferenceMs: 5,
+            imageWidth: 1280,
+            imageHeight: 720,
+            keypoints2D: body(READY.x + offset * 200),
+            detected: true,
+            handDetected: false,
+            keypointSet: "blaze_33",
+          });
+          t += 40;
+          i++;
+        }
+      }
+
+      const p = packet as {
+        keyframes: Array<{ frameId: string }>;
+        limitations: string[];
+        strokes: Array<{ evidenceFrameIds: string[] }>;
+      } | null;
+      if (!p) return { completed: false } as const;
+
+      // 注意：`completeGroup` 在回调**之前**就把包削减过了，
+      // 所以这里看到的是削减**之后**的包 —— 削减前的大小观察不到。
+      // "本来超没超预算"因此靠"有没有那条削减说明"来证（削减只在超预算时发生）。
+      const finalBytes = JSON.stringify(p).length;
+      const res = await analyzeGroup(p as never);
+      session.dispose();
+      return {
+        completed: true as const,
+        keyframeCount: p.keyframes.length,
+        limitations: p.limitations,
+        finalBytes,
+        apiError: res.error,
+        gotFeedback: res.feedback != null,
+      };
+    });
+
+    expect(out.completed, "没能成组").toBe(true);
+    if (!out.completed) return;
+    // ① 削减确实发生了（而它只在超预算时发生）—— 这同时证明了用例前提成立
+    expect(
+      out.limitations.some((l) => l.includes("丢弃")),
+      "没有削减说明：要么这组本来就没超预算（用例前提不成立），要么削减了却没记录",
+    ).toBe(true);
+    // ② 削减到了预算以内
+    expect(
+      out.finalBytes,
+      `削减后仍有 ${out.finalBytes} 字节，超过 2 MiB 预算`,
+    ).toBeLessThanOrEqual(2 * 1024 * 1024);
+    // ③ 确实丢掉了图（最多 6 张，削减后更少）
+    expect(out.keyframeCount, "说削减了，却一张都没少").toBeLessThan(6);
+    // ④ 关键：服务端收了，而不是 413（这正是这条修复的目的）
+    expect(out.apiError, `削减之后仍被服务端拒了：${JSON.stringify(out.apiError)}`).toBeNull();
+    expect(out.gotFeedback, "没有拿到反馈").toBe(true);
+  });
 });

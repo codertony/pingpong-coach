@@ -48,6 +48,11 @@ import {
   selectRepresentativeFrames,
   buildKeyframes,
 } from "../evidence/evidence-builder.js";
+import {
+  describeKeyframeTrim,
+  trimKeyframesToBudget,
+  utf8ByteLength,
+} from "../evidence/evidence-budget.js";
 import { toSpeechText } from "../audio/speech-channel.js";
 
 export interface TrainingConfig {
@@ -120,8 +125,10 @@ export interface TrainingTelemetry {
   /**
    * 最近一组里**取不到图**的关键帧张数；`null` 表示还没成组。
    *
-   * 存在的理由：图片链路目前是断的（F-028），而原先这件事完全静默。
-   * 把它做成可观测，界面与测试才能如实说出"这组证据里没有图片"。
+   * 存在的理由：图片链路曾经整条是断的（F-028：缓存没有任何产品代码写入，
+   * `keyframes` 恒为空数组），而那时这件事完全静默。
+   * 现在采集侧会往里放图，但"取不到"仍可能发生（编码失败、位图拿不到、
+   * 将来有人改了调用点），所以这个读数保留：**只要缺，就得看得见**。
    */
   keyframesMissing: number | null;
 }
@@ -583,11 +590,12 @@ export class TrainingSession {
     );
     this.lastGroupKeyframes = { included: keyframes.length, missing: missing.length };
 
-    // ⚠️ 图片链路目前**是断的**（F-028）：`KeyframeCache.add()` 在整个 apps/web 里
+    // ⚠️ 图片链路**曾经是断的**（F-028）：`KeyframeCache.add()` 当时在整个 apps/web 里
     // 没有任何调用方，缓存永远是空的，于是每一张关键帧都落到 `missing` 里、
     // `keyframes` 恒为空数组 —— 模型收到的是**纯文本**。
-    // 契约里 `keyframes` 没有 `.min(1)`，所以这个包在服务端是合法的、一路通行。
-    // 原先 `missing` 被直接丢弃，整件事**完全静默**；这里把它报出来。
+    // 现在采集侧会往里放图（见 `evidence/keyframe-capture.ts`），
+    // 但"取不到图"仍然是可能发生的（编码失败、位图拿不到、别人改了调用点），
+    // 所以这段提示保留：**只要缺，就必须说**。
     if (missing.length > 0) {
       this.callbacks.onStatus(
         keyframes.length === 0
@@ -624,6 +632,40 @@ export class TrainingSession {
           }
         : null,
     };
+
+    // 请求体积预算（数据契约「图片与请求预算」）。
+    //
+    // 契约写的是"超限**先减少冗余图片并记录降采样**"，而在此之前代码里没有这回事：
+    // 服务端只会直接 413 —— 超一点预算，用户**什么都拿不到**。
+    // 客户端手里才有图片，所以这件事在客户端做：从最不关键的那张开始丢，并写进 limitations。
+    //
+    // 用**真实序列化结果**量体积，不做估算（与服务端 `Buffer.byteLength(json,'utf8')` 同口径）：
+    // 估偏了会算出"压过了"其实没压过。
+    const trimmed = trimKeyframesToBudget(packet.keyframes, (kept) => {
+      const dropped = packet.keyframes.length - kept.length;
+      return utf8ByteLength(
+        JSON.stringify({
+          ...packet,
+          keyframes: kept,
+          // 丢过图就一定会附上那条说明，所以把它算进体积里 ——
+          // 宁可多压几十字节，也不要"压完还超"
+          limitations:
+            dropped > 0
+              ? [...packet.limitations, describeKeyframeTrim(dropped, 0)]
+              : packet.limitations,
+        }),
+      );
+    });
+    if (trimmed.dropped > 0) {
+      packet.keyframes = trimmed.kept;
+      packet.limitations = [
+        ...packet.limitations,
+        describeKeyframeTrim(trimmed.dropped, trimmed.bytes),
+      ];
+      this.callbacks.onStatus(
+        `本组证据超出请求预算，已丢弃 ${trimmed.dropped} 张关键帧（压后约 ${(trimmed.bytes / 1024 / 1024).toFixed(2)} MiB）`,
+      );
+    }
 
     const localVerdict = (() => {
       const rule = BUILTIN_RULES.find((r) => r.focusId === this.config.focusId);
