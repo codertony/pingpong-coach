@@ -1481,6 +1481,16 @@ elapsedInStroke = sourceTimeMs − 0 = sourceTimeMs
 **仍未验证的（如实说）**：接上图片**之后建议质量是否变好** —— 那需要真实模型 Key。
 热路径开销已用 20 分钟 soak 复测（见 `docs/evaluation-log.md`）。
 
+**对这段新代码本身的边界审查（自查，结论：无需改动）**：
+
+| 边界 | 结论 |
+| --- | --- |
+| 编码途中用户点了停止 | `stop()` 把 `sessionRef.current` 置 null，而采集器对 `sink == null` **直接返回** —— 那个守卫就是为这条写的 |
+| 编码途中会话被换掉（旧编码晚到） | `frameId` 形如 `e{epoch}_t{time}_{seq}`，**带 epoch**，不会跨会话重号；新会话的 `posesByFrameId` 里没有这个 id → `buildKeyframes` 把它归入 `missing`，**无害**（只多一条会被淘汰的缓存项）|
+| 采集器计数器跨会话累积 | 采集器在 `start()` 里新建，每个会话一份 |
+| 缓存无限增长 | 32 MiB 有界 + FIFO 淘汰；20 分钟 soak 实测堆 4.4→6.2 MiB（含缓存），无增长趋势 |
+| 编码失败/尺寸非法 | 返回 `null` → 不塞空图；异常被 `.catch` 吞掉，不冒出到采集循环 |
+
 **顺带记一个门禁的覆盖缺口**：`audit:wiring` 只扫**顶层导出**
 （`export function/const/class`），**不扫类的方法**。
 所以"一个从来没人调用的公共方法"（`KeyframeCache.add`）它看不见 ——
