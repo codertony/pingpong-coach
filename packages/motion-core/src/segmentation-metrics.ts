@@ -185,3 +185,114 @@ export function matchSegments(
     },
   };
 }
+
+/** 一个带时刻的事件。只要 (类型, 时刻)，故意不依赖完整的事件契约 —— 标注侧也能直接用。 */
+export interface TimedEvent {
+  eventType: string;
+  timeMs: number;
+}
+
+/** 逐类事件的定位质量。 */
+export interface EventTimeErrorRow {
+  eventType: string;
+  /** 配对成功的事件数（每侧每条最多用一次） */
+  matched: number;
+  /** 真值里有、检出里没有 */
+  missed: number;
+  /** 检出里有、真值里没有 */
+  spurious: number;
+  /**
+   * **配对事件的原始带符号误差**（检出 − 真值，毫秒）。
+   *
+   * 保留原始值是为了让调用方能**跨样本合并**：合并分位数必须建立在合并后的
+   * 误差上，而不是"各样本分位数再取平均"（那与"样本量与挥拍数无关地等权"是同一个错误）。
+   */
+  signedErrorsMs: number[];
+  /** 带符号误差（检出 − 真值）的均值/中位数，**仅配对事件**；无配对时为 null */
+  signedMeanMs: number | null;
+  signedMedianMs: number | null;
+  /** 绝对误差的 P50 / P95，**仅配对事件**；无配对时为 null */
+  absP50Ms: number | null;
+  absP95Ms: number | null;
+}
+
+/**
+ * 事件定位评估：逐类事件的时刻误差。
+ *
+ * ## 为什么与 `matchSegments` 分开
+ *
+ * 分段评估问的是「这一板有没有被找到」（区间重叠，IoU）；事件评估问的是
+ * 「这一板的**过程**有没有被找对」（引拍/前挥/还原各在什么时候）。
+ * 两者是**独立**的性质：一板可以被完整找到而阶段时刻全错，反过来也一样。
+ * 合成一个分数只会让它们互相掩盖。
+ *
+ * ## 口径纪律（与 `matchSegments` 同源）
+ *
+ * 1. **分母不筛**：每类事件的 `matched + missed` 等于真值条数，
+ *    `matched + spurious` 等于检出条数。不允许因为「这条看着像噪声」就把它
+ *    从分母里拿掉 —— 那是评估者最容易自欺的一步。
+ * 2. **该类没有真值就不给数字**：误差统计给 `null` 而不是 `0`。
+ *    「没标注」与「标了且完全对齐」是两件完全不同的事。
+ * 3. **容差由调用方给，且必须能被追责**。多久算「同一件事」取决于帧率与事件
+ *    定义本身（评审 §10 的探索目标是「≤2 个源帧」：60fps 下 33ms、30fps 下 67ms）。
+ *    所以这里**不给默认值** —— 有默认值，"容差是多少"这件事就会从报告里消失。
+ */
+export function eventTimeErrors(
+  detected: readonly TimedEvent[],
+  truth: readonly TimedEvent[],
+  toleranceMs: number,
+): EventTimeErrorRow[] {
+  // 容差写错（NaN / 负数）时按 0 处理：宁可一条都配不上，也不能静默地"随便配"
+  const tol = Number.isFinite(toleranceMs) && toleranceMs > 0 ? toleranceMs : 0;
+
+  const types = [...new Set([...truth, ...detected].map((e) => e.eventType))].sort();
+
+  return types.map((eventType) => {
+    const t = truth.filter((e) => e.eventType === eventType);
+    const d = detected.filter((e) => e.eventType === eventType);
+
+    // 贪心：按绝对时间差从小到大配对，每侧每条最多用一次。
+    // 次序键带上 di/ti，这样差相同时结果也是确定的（同一份数据两次跑出同一份报告）。
+    const candidates: Array<{ di: number; ti: number; delta: number }> = [];
+    for (let di = 0; di < d.length; di++) {
+      for (let ti = 0; ti < t.length; ti++) {
+        const delta = Math.abs(d[di]!.timeMs - t[ti]!.timeMs);
+        if (delta <= tol) candidates.push({ di, ti, delta });
+      }
+    }
+    candidates.sort((a, b) => a.delta - b.delta || a.di - b.di || a.ti - b.ti);
+
+    const usedDetected = new Set<number>();
+    const usedTruth = new Set<number>();
+    const signed: number[] = [];
+    for (const c of candidates) {
+      if (usedDetected.has(c.di) || usedTruth.has(c.ti)) continue;
+      usedDetected.add(c.di);
+      usedTruth.add(c.ti);
+      signed.push(d[c.di]!.timeMs - t[c.ti]!.timeMs);
+    }
+
+    const abs = signed.map((v) => Math.abs(v)).sort((a, b) => a - b);
+
+    return {
+      eventType,
+      matched: signed.length,
+      missed: t.length - usedTruth.size,
+      spurious: d.length - usedDetected.size,
+      signedErrorsMs: signed,
+      signedMeanMs: mean(signed),
+      signedMedianMs: median(signed),
+      absP50Ms: median(abs),
+      absP95Ms: percentileOfSorted(abs, 0.95),
+    };
+  });
+}
+
+export { percentileOfSorted as eventPercentileOfSorted };
+
+/** 在**已排序**的数组上取分位（最近秩法）。空数组给 null，不给 0。 */
+function percentileOfSorted(sorted: readonly number[], p: number): number | null {
+  if (sorted.length === 0) return null;
+  const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
+  return sorted[idx]!;
+}

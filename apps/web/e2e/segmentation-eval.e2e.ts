@@ -143,6 +143,9 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
                 endMs: s.endMs,
                 anchorType: s.anchor.type,
                 anchorTimeMs: s.anchor.timeMs,
+                // 阶段事件（R4）：导出给 `eval:replay` 做**事件定位**评估用。
+                // 与分段指标是两件独立的事 —— 一板可能被完整找到而阶段时刻全错。
+                phaseEvents: s.phaseEvents,
               });
             },
             onFeedback: () => {},

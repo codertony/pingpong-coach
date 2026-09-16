@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   IOU_MATCH_THRESHOLD,
   boundaryToleranceMs,
+  eventTimeErrors,
   matchSegments,
   temporalIoU,
   type TimeWindow,
@@ -189,5 +190,145 @@ describe("boundaryToleranceMs — 标注要标多准（给人工标注者的指�
     for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(boundaryToleranceMs(bad)).toBe(0);
     }
+  });
+});
+
+/**
+ * 事件定位评估（R4 的配套口径）。
+ *
+ * 分段评估问「这一板有没有被找到」，事件评估问「这一板的**过程**有没有被找对」。
+ * 两者独立：一板可以被完整找到而阶段时刻全错。所以这里针对每一处
+ * "容易被做手脚"的地方各钉一条 —— 与上面分段的做法一致。
+ */
+describe("eventTimeErrors — 逐类事件的时刻误差", () => {
+  const ev = (eventType: string, timeMs: number) => ({ eventType, timeMs });
+
+  it("完全对齐：0 误差，全部配对，无漏检无误检", () => {
+    const truth = [ev("forward_start", 1000), ev("stroke_closed", 1500)];
+    const rows = eventTimeErrors(truth, truth, 50);
+
+    expect(rows).toHaveLength(2);
+    for (const r of rows) {
+      expect(r.matched).toBe(1);
+      expect(r.missed).toBe(0);
+      expect(r.spurious).toBe(0);
+      expect(r.absP50Ms).toBe(0);
+      expect(r.signedMeanMs).toBe(0);
+    }
+  });
+
+  it("容差内配对，并报**带符号**的误差（早/晚要能区分）", () => {
+    const truth = [ev("forward_start", 1000), ev("return_start", 2000)];
+    const detected = [ev("forward_start", 1030), ev("return_start", 1980)];
+    const rows = eventTimeErrors(detected, truth, 50);
+
+    const fwd = rows.find((r) => r.eventType === "forward_start")!;
+    const ret = rows.find((r) => r.eventType === "return_start")!;
+    expect(fwd.signedMeanMs).toBe(30); // 检出比真值晚 30ms
+    expect(ret.signedMeanMs).toBe(-20); // 早 20ms
+    // 只报绝对值就分不出"系统性偏晚"和"随机抖动"——这正是要看的东西
+    expect(ret.absP50Ms).toBe(20);
+  });
+
+  it("超出容差**不配对**：进 missed 与 spurious，统计给 null 而不是 0", () => {
+    const truth = [ev("forward_start", 1000)];
+    const detected = [ev("forward_start", 1200)];
+    const [row] = eventTimeErrors(detected, truth, 50);
+
+    expect(row!.matched).toBe(0);
+    expect(row!.missed).toBe(1);
+    expect(row!.spurious).toBe(1);
+    // 一对都没配上，"误差 0"是编的 —— 必须是 null
+    expect(row!.absP50Ms).toBeNull();
+    expect(row!.absP95Ms).toBeNull();
+    expect(row!.signedMeanMs).toBeNull();
+  });
+
+  it("**该类没有真值就不给数字**（与 precision 同一条纪律）", () => {
+    const truth: Array<{ eventType: string; timeMs: number }> = [];
+    const detected = [ev("forward_start", 1000), ev("forward_start", 1400)];
+    const [row] = eventTimeErrors(detected, truth, 50);
+
+    expect(row!.matched).toBe(0);
+    expect(row!.missed).toBe(0);
+    expect(row!.spurious, "分母不筛：没真值也要如实报出误检条数").toBe(2);
+    expect(row!.absP50Ms, "没标注 ≠ 完全对齐").toBeNull();
+  });
+
+  it("真值有、检出为空：全算漏检，容差统计仍为 null", () => {
+    const truth = [ev("backswing_start", 100), ev("forward_start", 300)];
+    const rows = eventTimeErrors([], truth, 50);
+
+    expect(rows.find((r) => r.eventType === "backswing_start")!.missed).toBe(1);
+    expect(rows.find((r) => r.eventType === "forward_start")!.missed).toBe(1);
+    for (const r of rows) expect(r.absP95Ms).toBeNull();
+  });
+
+  it("贪心按**最近**配对，而不是按输入顺序", () => {
+    const truth = [ev("forward_start", 1000)];
+    // 990 差 10，1050 差 50 —— 应当配 990，1050 算误检
+    const detected = [ev("forward_start", 1050), ev("forward_start", 990)];
+    const [row] = eventTimeErrors(detected, truth, 100);
+
+    expect(row!.matched).toBe(1);
+    expect(row!.signedMeanMs).toBe(-10);
+    expect(row!.spurious).toBe(1);
+  });
+
+  it("**同类事件可重复**（拉锯会产生两次引拍）并一一配对", () => {
+    const truth = [ev("backswing_start", 1000), ev("backswing_start", 2000)];
+    const detected = [ev("backswing_start", 1010), ev("backswing_start", 2020)];
+    const [row] = eventTimeErrors(detected, truth, 50);
+
+    expect(row!.matched).toBe(2);
+    expect(row!.missed).toBe(0);
+    expect(row!.spurious).toBe(0);
+    expect(row!.signedMeanMs).toBe(15);
+  });
+
+  it("P50 与 P95 在已知集合上取对", () => {
+    // 绝对误差 10/20/30/40/50
+    const truth = [1000, 2000, 3000, 4000, 5000].map((t) => ev("forward_start", t));
+    const detected = [1010, 2020, 3030, 4040, 5050].map((t) => ev("forward_start", t));
+    const [row] = eventTimeErrors(detected, truth, 100);
+
+    expect(row!.absP50Ms).toBe(30);
+    expect(row!.absP95Ms, "P95 取最近秩，5 条时就是最大值").toBe(50);
+  });
+
+  it("**容差写错时不静默乱配**：NaN / 负数按 0 处理，只认时刻完全相同的一对", () => {
+    // 第一版这条写错了：我断言"不该配对"，但精确相等的一对本来就不是"乱配"。
+    // 真正要守住的是**非零差**不能被放过 —— 那才是"容差失效"的后果。
+    for (const bad of [Number.NaN, -5, Number.POSITIVE_INFINITY]) {
+      const [loose] = eventTimeErrors(
+        [ev("forward_start", 1010)],
+        [ev("forward_start", 1000)],
+        bad,
+      );
+      expect(loose!.matched, `容差 ${String(bad)} 时不该放过 10ms 的差`).toBe(0);
+      expect(loose!.missed).toBe(1);
+      expect(loose!.spurious).toBe(1);
+
+      const [exact] = eventTimeErrors(
+        [ev("forward_start", 1000)],
+        [ev("forward_start", 1000)],
+        bad,
+      );
+      expect(exact!.matched, "时刻完全相同的一对仍然应当配上").toBe(1);
+      expect(exact!.absP50Ms).toBe(0);
+    }
+  });
+
+  it("结果与输入顺序无关（同一份数据必须给出同一份报告）", () => {
+    const truth = [ev("forward_start", 1000), ev("return_start", 1500)];
+    const detected = [ev("return_start", 1510), ev("forward_start", 990)];
+    const a = eventTimeErrors(detected, truth, 50);
+    // 这里的 reverse 是**构造测试输入**，不是对帧序列做离线平滑 ——
+    // 红线 7 禁止的是"靠未来帧平滑"，与此无关。（与上面 matchSegments 的同类用例一致。）
+    // eslint-disable-next-line no-restricted-syntax -- 见上：测试输入的排列，不是时序滤波
+    const b = eventTimeErrors([...detected].reverse(), [...truth].reverse(), 50);
+
+    expect(b.map((r) => r.eventType)).toEqual(a.map((r) => r.eventType));
+    expect(b.map((r) => r.signedMeanMs)).toEqual(a.map((r) => r.signedMeanMs));
   });
 });
