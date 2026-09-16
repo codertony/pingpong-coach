@@ -196,3 +196,62 @@ describe("buildPrompt — 结构与安全性", () => {
     expect(OUTPUT_SCHEMA_HINT).toContain("不要包含任何解释文字或 Markdown 代码块");
   });
 });
+
+/**
+ * 判据段与逐条要点的写作要求（用户要求"把本地规则的实测结论喂给模型、
+ * 并让提示逐条列清楚"）。
+ *
+ * 这一组守两件事：
+ * 1. 判据段**必须带上实际门槛值** —— 只说"回位要快"等于没说；
+ * 2. 反过来，判据段**不许替模型下结论** —— 达标与否仍由模型根据证据判断。
+ */
+describe("本关注点判据段", () => {
+  it("写明采用的测量与训练门槛，并点明这是训练约束而非「动作正确」", () => {
+    const p = buildPrompt(makePacket(), [], noAllowed);
+    expect(p.user).toContain("本关注点的判据");
+    expect(p.user).toContain("return_after_wrist_peak");
+    expect(p.user).toContain("700");
+    expect(p.user).toContain("训练约束");
+    // 只说"达标/不达标"而不给数字，模型就只能猜
+    expect(p.user).not.toMatch(/本地结论[:：]\s*(达标|未达标)/);
+  });
+
+  it("**明确不适用的情形**由已审核知识条目提供（与判据段分工不同）", () => {
+    /*
+     * 判据段只讲"看哪个量、门槛多少"；"什么情况下这条判据不成立"属于**已审核的
+     * 领域知识**，住在 knowledge/*.json 里，由知识段渲染。
+     *
+     * 两者刻意分开：门槛是随产品走的数值（发起端按实际生效值填进证据包），
+     * 适用边界是需要人审的文字。混在一起就得在服务端同时拿到两样东西，
+     * 而服务端只依赖 contracts（见 AGENTS.md 依赖方向）。
+     */
+    const entry = makeKnowledgeEntry({ notApplicable: ["持拍侧手臂被遮挡时该测量无效"] });
+    const p = buildPrompt(makePacket(), entryList(entry), noAllowed);
+    expect(p.user).toContain("不适用");
+    expect(p.user).toContain("持拍侧手臂被遮挡时该测量无效");
+  });
+
+  it("证据包里没有判据时明确告知，而不是给一段空白或编一个门槛", () => {
+    const p = buildPrompt(makePacket({ criterion: null }), [], noAllowed);
+    expect(p.user).toContain("没有可陈述的程序门槛");
+  });
+});
+
+describe("keyPoints 的写作要求", () => {
+  it("schema 提示里列出了 keyPoints", () => {
+    expect(OUTPUT_SCHEMA_HINT).toContain("keyPoints");
+  });
+
+  it("提示词明确要求逐条、每条一件事、并给出反例", () => {
+    const p = buildPrompt(makePacket(), [], noAllowed);
+    expect(p.user).toContain("keyPoints 怎么写");
+    expect(p.user).toContain("每条只说一件事");
+    // 反例是这段的核心：不给反例，模型就会写"注意回位"这种没有信息量的复述
+    expect(p.user).toContain("没有信息量");
+  });
+
+  it("**提示词可以长，语音那条仍然限短**：cue 的要求没有被放宽", () => {
+    expect(OUTPUT_SCHEMA_HINT).toContain("会被念出来");
+    expect(OUTPUT_SCHEMA_HINT).toContain("30 个汉字");
+  });
+});

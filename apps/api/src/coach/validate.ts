@@ -17,10 +17,25 @@ import type { AllowedOutputs } from "./knowledge.js";
 
 const MAX_CUE_CHARS = 30;
 
+/**
+ * 逐条要点的上限：条数与单条字数。
+ *
+ * 单条 60 字是"能说清一件事"的下限附近 —— 用户明确要求细节逐条列清楚、
+ * 并允许比语音提示长一些。语音那条仍然限 30 字（`MAX_CUE_CHARS`），
+ * 因为它是**念出来**的。
+ */
+const MAX_KEYPOINTS = 5;
+const MAX_KEYPOINT_CHARS = 60;
+
 /** 模型被要求返回的原始结构。仅做形状校验，语义另查。 */
 export const modelOutputSchema = z.object({
   status: z.enum(["target_met", "suggest_adjustment", "observation_only", "insufficient_evidence"]),
   observation: z.string(),
+  /**
+   * 逐条要点。**缺失时按空数组处理，不让整次分析因此失败** ——
+   * 与 `cue` 同一条取舍：结构上可以省，省了就是少给信息，不是错误。
+   */
+  keyPoints: z.array(z.string()).default([]),
   evidenceRefs: z.array(z.string()),
   cue: z.string().nullable(),
   nextDrillId: z.string().nullable(),
@@ -71,6 +86,46 @@ export function scanForbiddenClaims(text: string): string[] {
     if (pattern.test(text)) hits.push(label);
   }
   return hits;
+}
+
+/**
+ * 逐条要点的清洗。
+ *
+ * 与 `cue` 同一取舍：**不合格的单条丢掉，不让整次分析失败**。
+ * 但含禁用语的那一条必须**整条丢掉** —— 这一点与 `observation` 不同：
+ * observation 是一整段，只能降级状态后保留原文（改不动，改了就成我们在写结论）；
+ * 要点是逐条的，丢掉那一行不会损失其余内容，而把一句**已经判定为不可验证**的
+ * 话留在屏幕上，等于自己拆自己的台。
+ */
+function sanitizeKeyPoints(raw: readonly string[]): {
+  kept: string[];
+  droppedTooLong: number;
+  droppedForbidden: string[];
+  droppedOverLimit: number;
+} {
+  const kept: string[] = [];
+  const droppedForbidden: string[] = [];
+  let droppedTooLong = 0;
+  let droppedOverLimit = 0;
+  for (const item of raw) {
+    const text = item.trim();
+    if (text === "") continue;
+    if ([...text].length > MAX_KEYPOINT_CHARS) {
+      droppedTooLong++;
+      continue;
+    }
+    const claims = scanForbiddenClaims(text);
+    if (claims.length > 0) {
+      droppedForbidden.push(...claims);
+      continue;
+    }
+    if (kept.length >= MAX_KEYPOINTS) {
+      droppedOverLimit++;
+      continue;
+    }
+    kept.push(text);
+  }
+  return { kept, droppedTooLong, droppedForbidden, droppedOverLimit };
 }
 
 /**
@@ -164,8 +219,14 @@ export function validateModelOutput(
     });
   }
 
-  // 6) 禁用语结论
-  const rejectedClaims = scanForbiddenClaims(`${out.observation}\n${out.cue ?? ""}`);
+  // 6) 禁用语结论。要点里的也算 —— 只是换个字段放，不改变它是什么。
+  const cleaned = sanitizeKeyPoints(out.keyPoints);
+  const rejectedClaims = [
+    ...new Set([
+      ...scanForbiddenClaims(`${out.observation}\n${out.cue ?? ""}`),
+      ...cleaned.droppedForbidden,
+    ]),
+  ];
 
   // 硬性错误：直接拒绝播报
   const hardCodes: ValidationIssueCode[] = [
@@ -218,6 +279,21 @@ export function validateModelOutput(
   // 训练项在软性问题下也需要复核
   const nextDrillId = out.nextDrillId;
 
+  // 丢掉的要点必须**说出来**：静默少几条，用户只会觉得"怎么时多时少"
+  if (cleaned.droppedTooLong > 0) {
+    limitations.push(
+      `有 ${cleaned.droppedTooLong} 条要点超过 ${MAX_KEYPOINT_CHARS} 字上限，已移除`,
+    );
+  }
+  if (cleaned.droppedForbidden.length > 0) {
+    limitations.push(
+      `有要点包含无法由二维骨架支撑的结论（${cleaned.droppedForbidden.join("、")}），已移除该条`,
+    );
+  }
+  if (cleaned.droppedOverLimit > 0) {
+    limitations.push(`要点超过 ${MAX_KEYPOINTS} 条上限，已移除多余 ${cleaned.droppedOverLimit} 条`);
+  }
+
   return {
     feedback: {
       schemaVersion: packet.schemaVersion,
@@ -227,6 +303,7 @@ export function validateModelOutput(
       focusId: packet.focusId,
       status,
       observation: out.observation,
+      keyPoints: cleaned.kept,
       evidenceRefs: out.evidenceRefs,
       cue,
       nextDrillId,

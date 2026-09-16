@@ -81,11 +81,33 @@ export function App() {
   /** 本次会话是否已自动标定过准备区（只做一次，之后交给用户控制） */
   const autoCalibratedRef = useRef(false);
 
-  // 健康检查：让用户一开始就知道后端的模型模式
+  /**
+   * 健康检查：让用户一开始就知道后端的模型模式。
+   *
+   * **失败后会重试**（3 秒一次，直到拿到结果为止）。
+   * 只在挂载时查一次的话：用户看到"后端未连接"、去另一个终端把后端点起来，
+   * 提示却**永远留在那儿** —— 除非他刷新页面，而这时他没有任何理由认为该刷新。
+   * 查通了就停，不做轮询。
+   */
   useEffect(() => {
-    void fetchHealth()
-      .then(setHealth)
-      .catch(() => setHealth(null));
+    let cancelled = false;
+    let timer: number | null = null;
+    const probe = async (): Promise<void> => {
+      try {
+        const h = await fetchHealth();
+        if (cancelled) return;
+        setHealth(h);
+      } catch {
+        if (cancelled) return;
+        setHealth(null);
+        timer = window.setTimeout(() => void probe(), 3000);
+      }
+    };
+    void probe();
+    return () => {
+      cancelled = true;
+      if (timer != null) window.clearTimeout(timer);
+    };
   }, []);
 
   // 语音通道
@@ -347,6 +369,24 @@ export function App() {
           // 而摄像头断开时用户就在练习页，唯一能看到的解释就是这行状态栏。
           stop("摄像头已断开，采集已停止");
         },
+        /**
+         * 导入的视频播放完毕。
+         *
+         * 顺序**不能反**：`stop()` 会 `dispose()` 掉会话，先停就再也交不出证据了。
+         * 所以先把当前这组交出去（可能不足 strokesPerGroup —— 素材不会再给帧了），
+         * 再走正常的收尾路径。
+         *
+         * 不处理的话，素材播完画面就停在最后一帧、状态栏继续显示"等待有效挥拍"，
+         * 而这与"摄像头断开"的表象一模一样、原因完全不同。
+         */
+        onEnded: () => {
+          const emitted = sessionRef.current?.finishGroup("视频已播放完毕") ?? false;
+          stop(
+            emitted
+              ? "视频已播放完毕，已把本段收集到的挥拍送去分析（可在复查页查看）"
+              : "视频已播放完毕，整段素材没有检出完整挥拍，没有可分析的分组",
+          );
+        },
       });
       captureRef.current = handle;
       // 授权成功后浏览器才返回设备名，这里补一次枚举把名称填上
@@ -572,6 +612,16 @@ export function App() {
           输出生成。 界面上的耗时与结论<strong>不代表真实模型质量或延迟</strong>。配置{" "}
           <span className="mono">MODEL_API_KEY</span>、<span className="mono">MODEL_BASE_URL</span>
           、<span className="mono">MODEL_ID</span> 后重启后端即可切换。
+        </div>
+      )}
+
+      {modelMode === "unknown" && (
+        <div className="notice danger">
+          <strong>后端未连接</strong>：健康检查没有任何响应，所以
+          <strong>本组分析不会返回 任何结论</strong> —— 界面不会报错，只是永远没有结果。
+          训练、骨架与本地规则仍然可用。 启动后端：<span className="mono">pnpm dev:all</span>
+          （同时起 API 与前端）；只跑 <span className="mono">pnpm dev</span> 是
+          <strong>只启动前端</strong>。
         </div>
       )}
 
@@ -1254,6 +1304,18 @@ function FeedbackCard({ feedback }: { feedback: CoachFeedback }) {
         <span className="badge muted">{Math.round(feedback.serverElapsedMs)}ms 服务端</span>
       </div>
       <div className="obs">{feedback.observation}</div>
+      {/*
+        逐条要点放在观察之后、提示之前：它是"具体事实"那一层，
+        而 cue 是"接下来怎么做"。
+        要点为空时**不渲染这个标题** —— 一个空的"要点"小标题只会让人以为漏了什么。
+      */}
+      {feedback.keyPoints.length > 0 && (
+        <ul className="tight" style={{ marginTop: 8 }}>
+          {feedback.keyPoints.map((p) => (
+            <li key={p}>{p}</li>
+          ))}
+        </ul>
+      )}
       {feedback.cue && <div className="cue">提示：{feedback.cue}</div>}
       <div className="small muted" style={{ marginTop: 8 }}>
         证据引用：{feedback.evidenceRefs.length > 0 ? feedback.evidenceRefs.join("、") : "无"}

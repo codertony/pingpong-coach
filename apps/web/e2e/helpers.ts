@@ -66,6 +66,12 @@ export const TINY_PACKET = {
   ],
   ruleVersion: "1.0.0",
   referenceId: null,
+  criterion: {
+    featureId: "return_after_wrist_peak_ms",
+    threshold: 700,
+    unit: "ms",
+    minValidStrokes: 3,
+  },
   limitations: ["仅正面机位"],
   readyZone: { xPx: 620, yPx: 300, radiusPx: 90 },
 } as const;

@@ -39,6 +39,7 @@ const KEYS = [
   "keyframes",
   "ruleVersion",
   "referenceId",
+  "criterion",
   "limitations",
   "readyZone",
 ];
@@ -122,6 +123,7 @@ function validPacket() {
     ],
     ruleVersion: "1.0.0",
     referenceId: null,
+    criterion: null,
     limitations: ["单目二维"],
     readyZone: { xPx: 640, yPx: 400, radiusPx: 80 },
   };

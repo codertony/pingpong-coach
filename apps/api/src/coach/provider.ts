@@ -206,9 +206,50 @@ function mockCall(
 
   const cue = allowed.cues[0] ?? null;
 
+  /*
+   * 逐条要点（mock）。
+   *
+   * 每条都**复述程序已经算出的值**，并带上 `[mock]` 前缀 —— 与 observation 同一约定：
+   * 单独一行被复制出去时，也必须看得出它不是真实模型的结论。
+   *
+   * 刻意**不做达标判断**：mock 没有读过画面，也没有资格替模型下结论；
+   * 它只是把"有哪些量、各是多少"逐条摆出来，让用户看清这一版的产品形态。
+   */
+  const keyPoints: string[] = [];
+  if (primary?.value != null) {
+    const unit = primary.unit ?? "";
+    const rounded = Math.round(primary.value);
+    let line = `[mock] ${primaryId} = ${rounded}${unit}（本组中位数，质量 ${primary.quality}）`;
+    // 门槛取自**证据包里那条判据**（发起端实际在用的阈值），不在服务端重写一份
+    if (packet.criterion?.featureId === primaryId) {
+      const { threshold, unit: tu } = packet.criterion;
+      const gap = rounded - threshold;
+      line +=
+        gap <= 0
+          ? `，在训练门槛 ${threshold}${tu} 之内`
+          : `，超出训练门槛 ${threshold}${tu} 约 ${gap}${tu}`;
+    }
+    keyPoints.push(line);
+  } else if (primary) {
+    keyPoints.push(
+      `[mock] ${primaryId} 本组无可用值（原因：${primary.reasonIfMissing ?? "未说明"}），缺失不等于 0`,
+    );
+  }
+  keyPoints.push(
+    `[mock] 本组有效挥拍 ${packet.strokes.length} 次；事件锚点是腕部速度峰值，不是已确认的击球时刻`,
+  );
+  keyPoints.push(`[mock] 本组附关键帧 ${packet.keyframes.length} 张；mock 模式不读取画面内容`);
+  if (packet.readyZone) {
+    keyPoints.push(
+      `[mock] 准备区半径 ${Math.round(packet.readyZone.radiusPx)}px（= 0.3 × 体尺度），` +
+        `圆心 (${Math.round(packet.readyZone.xPx)}, ${Math.round(packet.readyZone.yPx)})`,
+    );
+  }
+
   const out = {
     status: "observation_only" as const,
     observation,
+    keyPoints,
     evidenceRefs,
     cue,
     nextDrillId: null,

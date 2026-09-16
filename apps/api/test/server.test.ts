@@ -58,6 +58,12 @@ const PACKET_BODY = {
   ],
   ruleVersion: "1.0.0",
   referenceId: null,
+  criterion: {
+    featureId: "return_after_wrist_peak_ms",
+    threshold: 700,
+    unit: "ms",
+    minValidStrokes: 3,
+  },
   limitations: ["单目二维，无法判断肌肉发力"],
   readyZone: { xPx: 640, yPx: 400, radiusPx: 80 },
 };

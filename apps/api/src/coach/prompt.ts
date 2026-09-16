@@ -23,11 +23,54 @@ export const OUTPUT_SCHEMA_HINT = `只返回如下 JSON，不要包含任何解�
 {
   "status": "target_met" | "suggest_adjustment" | "observation_only" | "insufficient_evidence",
   "observation": string,          // 一段观察，区分事实与推测
+  "keyPoints": string[],          // 2~5 条要点，每条一句具体结论（见下）
   "evidenceRefs": string[],       // 必须是本次证据包中存在的 id
-  "cue": string | null,           // 最多一条短提示，不超过 30 个汉字
+  "cue": string | null,           // 最多一条短提示，不超过 30 个汉字（这句会被念出来）
   "nextDrillId": string | null,   // 只能来自允许的训练项
   "limitations": string[]         // 本次结论的边界
 }`;
+
+/**
+ * 逐条要点的写法。
+ *
+ * 为什么单独写这么一段：`observation` 是一段话，模型很容易写成
+ * "整体节奏还可以，注意回位"这种**没有信息量**的复述。
+ * 要点是逐条的，就能要求它**每条对准一个测量**，也便于用户逐条核对。
+ */
+const KEY_POINT_RULES = `# keyPoints 怎么写
+- 2~5 条，**每条只说一件事**（不超过 60 字）。细节多的就多列一条，不要挤成一段。
+- 每条都要能对上本包里的某个测量或关键帧，写清"哪个量、多少、与门槛差多少"。
+  反例（没有信息量，不要写）："动作不错""注意回位""节奏还需加强"。
+- 不要与 observation 重复：observation 讲整体印象，keyPoints 讲具体事实。
+- 只写证据支持得了的事；不确定就写"不确定"，不要替它补全。
+- 不许出现发力大小、肌肉紧张、足底承重、力量传递效率这类结论。`;
+
+/**
+ * 渲染**本关注点所用的判据**（测量口径与门槛）。
+ *
+ * 用户明确要求"把本地规则的实测结论喂给模型"，这样它才能围绕具体判据讲话，
+ * 而不是泛泛说一段。（此前模型只拿到测量值，不知道门槛是多少，
+ * 于是只能说"回位稍慢"这种没有参照系的话。）
+ *
+ * 数值来自 `packet.criterion` —— 由发起端按**它实际在用的**阈值填入
+ * （判据数值住在 motion-core，而服务端只依赖 contracts，见 AGENTS.md 依赖方向）。
+ * 服务端在这里**只做措辞**，不重算、不推断。
+ *
+ * ⚠️ 刻意**不给**"本地规则判定为达标/未达标"：那个判定还依赖画面质量是否达到
+ * 可判门槛，而质量结论不在证据包里。服务端只能去猜，猜错了就会给模型一个
+ * **与界面自相矛盾**的结论 —— 那比不给更糟。达标与否仍由模型根据证据判断。
+ */
+function renderFocusCriterion(packet: EvidencePacket): string {
+  const c = packet.criterion;
+  if (c == null) {
+    return `（本关注点 ${packet.focusId} 没有可陈述的程序门槛 —— 不得输出达标结论）`;
+  }
+  return [
+    `关注点 ${packet.focusId} 采用的测量：${c.featureId}（数值见上面的测量表）`,
+    `训练门槛：${c.featureId} ≤ ${c.threshold}${c.unit}，` +
+      `且有效挥拍 ≥ ${c.minValidStrokes} 次（这是**训练约束**，不是"动作正确"的标准）`,
+  ].join("\n");
+}
 
 export interface PromptPayload {
   system: string;
@@ -101,6 +144,9 @@ ${renderStrokes(packet)}
 # 程序测量值
 ${renderFeatures(packet)}
 
+# 本关注点的判据（程序口径与门槛 —— 这是给你对齐语言用的，不是给你的结论）
+${renderFocusCriterion(packet)}
+
 # 可用原始关键帧
 ${keyframeList || "（无关键帧）"}
 
@@ -118,6 +164,8 @@ ${allowed.drillIds.length > 0 ? allowed.drillIds.map((d) => `- ${d}`).join("\n")
 
 # 本组已知限制
 ${packet.limitations.length > 0 ? packet.limitations.map((l) => `- ${l}`).join("\n") : "（无）"}
+
+${KEY_POINT_RULES}
 
 ${OUTPUT_SCHEMA_HINT}`;
 

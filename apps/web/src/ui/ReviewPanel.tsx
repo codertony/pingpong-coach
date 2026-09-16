@@ -112,6 +112,13 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds }: Props) {
                   </div>
                   <div className="spacer" />
                   <div>{selected.feedback.observation}</div>
+                  {selected.feedback.keyPoints.length > 0 && (
+                    <ul className="tight small" style={{ marginTop: 8 }}>
+                      {selected.feedback.keyPoints.map((p) => (
+                        <li key={p}>{p}</li>
+                      ))}
+                    </ul>
+                  )}
                   {selected.feedback.cue && (
                     <div className="cue" style={{ color: "var(--accent)", marginTop: 8 }}>
                       提示：{selected.feedback.cue}

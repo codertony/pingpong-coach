@@ -505,3 +505,43 @@ describe("callModel — mock 按关注点回答", () => {
     expect(out.status).toBe("observation_only");
   });
 });
+
+/**
+ * mock 的逐条要点。
+ *
+ * mock 是用户在**没配密钥时唯一看得到的东西**，所以它必须把新字段也填上，
+ * 否则「信息太少」这个问题在 mock 下依然照旧。
+ * 同时它只能**复述程序已经算出的值**，并逐条带 [mock] 前缀 ——
+ * 单独复制一行出去，也必须看得出这不是真实模型的结论。
+ */
+describe("callModel — mock 的 keyPoints", () => {
+  it("返回非空的逐条要点，且每条都带 [mock] 前缀", async () => {
+    const result = await callModel(makeConfig() as ServerConfig, makePacket(), [], noAllowed);
+    const parsed = JSON.parse(result.raw as string);
+    expect(Array.isArray(parsed.keyPoints)).toBe(true);
+    expect(parsed.keyPoints.length).toBeGreaterThan(0);
+    for (const p of parsed.keyPoints as string[]) {
+      expect(p).toContain("[mock]");
+    }
+  });
+
+  it("要点里的数值来自证据包，不是编的", async () => {
+    const packet = makePacket();
+    const primary = packet.features.find((f) => f.id === "return_after_wrist_peak_ms");
+    expect(primary?.value, "夹具里应当有这个测量值，否则这条测试测不到东西").toBeTypeOf("number");
+
+    const result = await callModel(makeConfig() as ServerConfig, packet, [], noAllowed);
+    const parsed = JSON.parse(result.raw as string);
+    const joined = (parsed.keyPoints as string[]).join("\n");
+    expect(joined).toContain(String(Math.round(primary!.value as number)));
+    // 挥拍次数同理：报的必须是包里那个数
+    expect(joined).toContain(String(packet.strokes.length));
+  });
+
+  it("**不做达标判断** —— mock 没读过画面，不得替模型下结论", async () => {
+    const result = await callModel(makeConfig() as ServerConfig, makePacket(), [], noAllowed);
+    const parsed = JSON.parse(result.raw as string);
+    const joined = (parsed.keyPoints as string[]).join("\n");
+    expect(joined).not.toMatch(/(达标|合格|标准动作)/);
+  });
+});

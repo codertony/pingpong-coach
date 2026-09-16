@@ -103,6 +103,7 @@ describe("EvidencePacket", () => {
     ],
     ruleVersion: "1.0.0",
     referenceId: null,
+    criterion: null,
     limitations: ["单目二维，无法判断肌肉发力"],
     readyZone: { xPx: 640, yPx: 400, radiusPx: 80 },
   };
@@ -143,6 +144,34 @@ describe("EvidencePacket", () => {
     const bad = { ...packet, strokeType: "backhand_drive" };
     expect(evidencePacketSchema.safeParse(bad).success).toBe(false);
   });
+
+  it("判据指向**包内真实的**测量时通过", () => {
+    const good = {
+      ...packet,
+      criterion: {
+        featureId: "return_after_wrist_peak_ms",
+        threshold: 700,
+        unit: "ms",
+        minValidStrokes: 3,
+      },
+    };
+    expect(evidencePacketSchema.safeParse(good).success).toBe(true);
+  });
+
+  it("**判据指向包内不存在的测量时被拒绝** —— 判据会被渲染给模型当锚点", () => {
+    // 指向一个不存在的量，模型就会去讲一个包里没有的数，比不给判据更糟。
+    // 这条约束原先只会写在注释里（F-029 就是这么栽的），所以用 refine 让它成真。
+    const badCriterion = {
+      ...packet,
+      criterion: {
+        featureId: "not_a_real_feature",
+        threshold: 700,
+        unit: "ms",
+        minValidStrokes: 3,
+      },
+    };
+    expect(evidencePacketSchema.safeParse(badCriterion).success).toBe(false);
+  });
 });
 
 describe("CoachFeedback", () => {
@@ -154,6 +183,10 @@ describe("CoachFeedback", () => {
     focusId: "return_to_ready_zone",
     status: "suggest_adjustment" as const,
     observation: "三次挥拍后回到准备区的中位时间比本组约束长约 180 毫秒。",
+    keyPoints: [
+      "返回准备区时间中位数 880ms（训练门槛 700ms，超出约 180ms）",
+      "三次挥拍里第 2 次最长，比其余两次多约 300ms",
+    ],
     evidenceRefs: ["return_after_wrist_peak_ms", "kf1"],
     cue: "击球后先把重心带回准备位置。",
     nextDrillId: "shadow_forehand_return_ready",

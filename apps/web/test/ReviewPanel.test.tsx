@@ -61,6 +61,12 @@ function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
     ],
     ruleVersion: "1.0.0",
     referenceId: null,
+    criterion: {
+      featureId: "return_after_wrist_peak_ms",
+      threshold: 700,
+      unit: "ms",
+      minValidStrokes: 3,
+    },
     limitations: ["单目二维"],
     readyZone: { xPx: 640, yPx: 400, radiusPx: 80 },
     ...overrides,
@@ -76,6 +82,7 @@ function makeFeedback(overrides: Partial<CoachFeedback> = {}): CoachFeedback {
     focusId: "return_to_ready_zone",
     status: "observation_only",
     observation: "本组肘角变化稳定",
+    keyPoints: ["腕部速度峰值处的肘角中位数 152°（180° 为伸直）", "本组 3 次挥拍都完整闭合"],
     evidenceRefs: ["return_after_wrist_peak_ms", "kf-1"],
     cue: "击球后先回到准备位",
     nextDrillId: null,
@@ -171,5 +178,27 @@ describe("ReviewPanel", () => {
     renderPanel([makeReviewItem()], onRate);
     fireEvent.click(screen.getByText("有帮助"));
     expect(onRate).toHaveBeenCalledWith("req-1", "helpful");
+  });
+});
+
+/**
+ * 逐条要点（keyPoints）的渲染。
+ *
+ * 用户的要求是"把细节逐条列清楚"。字段加了但界面不显示，等于没加 ——
+ * 所以这一组守的是**看得见**，以及"空的时候不要摆一个空标题"。
+ */
+describe("ReviewPanel — 逐条要点", () => {
+  it("要点逐条列出", () => {
+    renderPanel([makeReviewItem()]);
+    expect(screen.getByText("腕部速度峰值处的肘角中位数 152°（180° 为伸直）")).toBeInTheDocument();
+    expect(screen.getByText("本组 3 次挥拍都完整闭合")).toBeInTheDocument();
+  });
+
+  it("要点为空时不渲染空的要点区 —— 空标题会让人以为漏了内容", () => {
+    renderPanel([makeReviewItem({ feedback: makeFeedback({ keyPoints: [] }) })]);
+    expect(screen.queryByText("本组 3 次挥拍都完整闭合")).toBeNull();
+    // 观察与提示该照常显示，别把整块反馈一起弄没了
+    expect(screen.getByText("本组肘角变化稳定")).toBeInTheDocument();
+    expect(screen.getByText("提示：击球后先回到准备位")).toBeInTheDocument();
   });
 });

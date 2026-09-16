@@ -315,6 +315,7 @@ describe("analyze — 去重与会话串行", () => {
       focusId: "return_to_ready_zone",
       status: "observation_only" as const,
       observation: "合并结果",
+      keyPoints: [],
       evidenceRefs: [],
       cue: null,
       nextDrillId: null,

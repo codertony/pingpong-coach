@@ -148,6 +148,7 @@ describe("EvidencePacket 与 strokeType 定义同源", () => {
       keyframes: [],
       ruleVersion: RULE_VERSION,
       referenceId: null,
+      criterion: null,
       limitations: [],
       readyZone: null,
     };
@@ -193,6 +194,7 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
     ],
     ruleVersion: RULE_VERSION,
     referenceId: null,
+    criterion: null,
     limitations: [],
     readyZone: null,
   });

@@ -77,24 +77,37 @@ export class KeyframeCache {
 }
 
 /**
- * 把候选关键帧转成证据包中的关键帧。
+ * 把候选关键帧转成证据包中的关键帧（按 frameId 从缓存取图）。
  *
- * 会强制校验 frameId 与姿态帧对齐 —— 拿错帧配骨架是必须避免的错误。
+ * 取不到图或取不到对应姿态帧的 frameId 进 `missing`，**由调用方负责说出来** ——
+ * 静默少几张，用户只会觉得"怎么时多时少"（F-028 就是这么静默了整条图片链路）。
+ *
+ * ## 为什么入参从 `string[]` 换成了 `{ frameId, role }[]`（R2）
+ *
+ * 原签名是 `buildKeyframes(ids: string[], cache, poses, role = "other")` ——
+ * `selectRepresentativeFrames` 明明算出了每张图的阶段角色（引拍/前挥/还原），
+ * 调用点却只传了 `frameId` 数组，于是**每一张的角色都落到默认值 `"other"`**。
+ *
+ * 后果不是"少一个字段"：提示词里写着 `角色=${k.role}`，模型看到的是
+ * 六张一律 `other` 的图 —— 它没法知道哪张是引拍、哪张是击球附近，
+ * 于是只能讲"整体节奏"这类没有落点的话。
+ *
+ * 修法是把**那个默认值本身去掉**，而不是在调用点补一个参数：
+ * 只要这个参数还能被省略，下一次改动就会再漏一次。
  */
 export function buildKeyframes(
-  ids: string[],
+  picks: ReadonlyArray<{ frameId: string; role: EvidenceKeyframe["role"] }>,
   cache: KeyframeCache,
   posesByFrameId: Map<string, PoseFrame>,
-  role: EvidenceKeyframe["role"] = "other",
 ): { keyframes: EvidenceKeyframe[]; missing: string[] } {
   const keyframes: EvidenceKeyframe[] = [];
   const missing: string[] = [];
 
-  for (const id of ids) {
-    const candidate = cache.get(id);
-    const pose = posesByFrameId.get(id);
+  for (const pick of picks) {
+    const candidate = cache.get(pick.frameId);
+    const pose = posesByFrameId.get(pick.frameId);
     if (!candidate || !pose) {
-      missing.push(id);
+      missing.push(pick.frameId);
       continue;
     }
     keyframes.push({
@@ -104,7 +117,7 @@ export function buildKeyframes(
       frameId: pose.frameId,
       width: candidate.width,
       height: candidate.height,
-      role,
+      role: pick.role,
     });
   }
 

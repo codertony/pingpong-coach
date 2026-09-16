@@ -12,6 +12,19 @@ import { monotonicNow, nextFrameId, type FrameEnvelope } from "./frame-scheduler
 
 export type CaptureKind = "camera" | "video";
 
+/**
+ * 上一次导入视频的 blob URL（模块级，跨会话只有一个）。
+ *
+ * F-040 之后采集用的 `<video>` **就是界面上那个**，所以停止时不能
+ * `revokeObjectURL` + 摘掉 `src` —— 那会把用户眼前的最后一帧抹成空白，
+ * 而这一刻"本组分析"的请求往往刚发出去，用户正盯着画面等结论。
+ * 所以停止时**保留画面**，等下一次导入新素材时再释放上一个 URL。
+ *
+ * 取舍是刻意的：一个会话留一个 URL（内存里就是一段视频的字节），
+ * 换来的是一幅不会被抹掉的画面；而它会随下一次导入被回收。
+ */
+let previousVideoUrl: string | null = null;
+
 export interface CaptureError {
   code: "camera_permission_denied" | "camera_unavailable" | "video_decode_failed";
   message: string;
@@ -41,6 +54,15 @@ export interface CaptureOptions {
   facingMode?: "user" | "environment";
   /** 运行期故障（目前只有摄像头中途断开）。不提供时故障不会被上报。 */
   onFault?: CaptureFaultHandler;
+  /**
+   * **导入的素材播放完毕**（仅 `kind === "video"` 会触发）。
+   *
+   * 与 `onFault` 分开，因为语义不同：这不是故障，是素材的正常结束。
+   * 但**上层必须处理**：素材播完后不会再有帧，如果什么都不做，
+   * 界面会停在最后一帧、状态栏继续显示"等待有效挥拍"，用户干等一个不会来的画面 ——
+   * 这与摄像头断开的表象一样，原因却完全不同。
+   */
+  onEnded?: () => void;
 }
 
 export interface CaptureHandle {
@@ -197,8 +219,27 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
       } satisfies CaptureError;
     }
     const url = URL.createObjectURL(options.videoFile);
+    // 换素材时释放上一支的 URL（停止时不能释放，见 previousVideoUrl 的说明）
+    if (previousVideoUrl != null) {
+      URL.revokeObjectURL(previousVideoUrl);
+      previousVideoUrl = null;
+    }
+    previousVideoUrl = url;
     video.src = url;
-    video.loop = true;
+    /*
+     * **不许循环**（用户报的 bug）。
+     *
+     * 这里曾经是 `video.loop = true`，理由是"短素材能一直喂"。后果是：
+     * 导入的视频**永远播不完** —— 画面反复从头开始，而用户没有任何办法让它停。
+     *
+     * 更糟的是它和 F-040 叠在一起：F-040 之前，界面上的 `<video>` 是**另一个**
+     * 播放实例（`loop` 默认 false），所以用户看到的是"画面停了、骨架还在动"；
+     * F-040 把两个实例合并成一个之后，循环就**直接显形**成"视频反复播放不停止"。
+     * 两次现象不同，根因是同一行。
+     *
+     * 素材是**有限长**的，播完就该结束 —— 见下面的 `ended` 处理。
+     */
+    video.loop = false;
   }
 
   await new Promise<void>((resolve, reject) => {
@@ -264,6 +305,21 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
     }
   }, 500);
 
+  /*
+   * 导入素材播完。
+   *
+   * 一次性：`ended` 在 seek 回放等情况下可能再触发，重复上报会让上层
+   * 把同一段素材结尾当成"又结束了一次"。停表后 `emit` 也一并停掉，
+   * 免得最后一帧因为回绕时间戳被重复喂进分析。
+   */
+  let endedFired = false;
+  const onEnded = (): void => {
+    if (!running || endedFired) return;
+    endedFired = true;
+    options.onEnded?.();
+  };
+  if (options.kind === "video") video.addEventListener("ended", onEnded);
+
   const hasVideoFrameCallback =
     typeof (
       video as HTMLVideoElement & {
@@ -273,6 +329,8 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
 
   const emit = (mediaTimeMs: number): void => {
     if (!running) return;
+    // 素材已经播完：最后一帧不再重复喂（`ended` 之后媒体时间可能回绕）
+    if (endedFired) return;
     if (video.videoWidth === 0 || video.videoHeight === 0) return;
 
     // 同一媒体时间重复回调不重复处理
@@ -342,6 +400,7 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
     }
     if (rafHandle != null) cancelAnimationFrame(rafHandle);
     window.clearInterval(livenessTimer);
+    video.removeEventListener("ended", onEnded);
     // 停止训练时关闭摄像头并释放轨道。
     // 先摘掉监听器：停止本身也会让轨道 ended，不摘就会把自己的停止上报成"设备断开"。
     for (const track of tracks) {
@@ -353,10 +412,11 @@ export async function startCapture(options: CaptureOptions): Promise<CaptureHand
       stream = null;
     }
     video.pause();
-    video.srcObject = null;
-    if (options.kind === "video" && video.src.startsWith("blob:")) {
-      URL.revokeObjectURL(video.src);
+    if (options.kind === "video") {
+      // 保留 `src`：画面停在最后一帧，别抹掉（见 previousVideoUrl）
+      return;
     }
+    video.srcObject = null;
     video.removeAttribute("src");
   };
 

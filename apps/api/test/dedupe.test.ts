@@ -20,6 +20,7 @@ function makeFeedback(overrides: Partial<CoachFeedback> = {}): CoachFeedback {
     focusId: "return_to_ready_zone",
     status: "observation_only",
     observation: "观察",
+    keyPoints: [],
     evidenceRefs: [],
     cue: null,
     nextDrillId: null,

@@ -15,6 +15,7 @@ import type {
   FeatureValue,
   Keypoint2D,
   PoseFrame,
+  RuleCriterion,
   SegmentationConfig,
   StrokeEvent,
   StrokePhase,
@@ -47,6 +48,7 @@ import {
   KeyframeCache,
   selectRepresentativeFrames,
   buildKeyframes,
+  type KeyframeCandidate,
 } from "../evidence/evidence-builder.js";
 import {
   describeKeyframeTrim,
@@ -132,6 +134,31 @@ export interface TrainingTelemetry {
    */
   keyframesMissing: number | null;
 }
+
+/**
+ * 允许自动标定准备区的最少腕部样本数（≈2 秒 @30fps）。
+ *
+ * `motion-core` 的 `DWELL_MIN_SAMPLES` 是 20（≈0.67 秒）—— 那只是**估计器**
+ * 能出一个数的最低要求，不是"这个数可信"的要求。20 个样本可能**整段落在一次
+ * 引拍里**，估出来的是挥拍途中的某个位置。
+ *
+ * 实测（真实对拉素材，8.15 秒，腕部行程 506px）：同一段素材、同一套动作，
+ * **只改"从哪一刻开始标定"，检出次数在 0~4 之间跳** —— 标定点落在
+ * (442,339) 时 0 次，(680,212) 时 4 次。准备区是整条状态机的入口，
+ * 它偏了，后面所有阈值都无从谈起，用户看到的就是"导入视频什么都没有"。
+ */
+const READY_CALIBRATION_MIN_SAMPLES = 60;
+
+/**
+ * 相邻两次估计的落点差 ≤ 这个比例 × 体尺度，才算"稳定"。
+ *
+ * 0.1 体尺度 ≈ 20px，不到准备区半径（0.3 体尺度）的三分之一：两个估计都落在
+ * 这么近的地方，说明"最慢的那片区域"已经定了，不是在挥拍途中偶然经过。
+ */
+const READY_CALIBRATION_STABLE_BODY_SCALE = 0.1;
+
+/** 还没测到体尺度时，用这个像素值充当尺度基准（仅用于上面的稳定性判断）。 */
+const READY_CALIBRATION_FALLBACK_BODY_SCALE_PX = 200;
 
 /** 把姿态结果转成 PoseFrame，并做质量评估。 */
 function toPoseFrame(
@@ -227,6 +254,8 @@ export class TrainingSession {
   private wristSamples: Array<{ x: number; y: number; tMs: number }> = [];
   /** 当前准备区是否由自动标定得出（用于界面如实标注） */
   private autoCalibrated = false;
+  /** 上一次的驻留估计落点，用于判断估计是否已经稳定（见 acceptDwellEstimate） */
+  private lastDwellEstimate: { x: number; y: number } | null = null;
   /** 最近一组的关键帧取图情况，供遥测如实展示（F-028） */
   private lastGroupKeyframes: { included: number; missing: number } | null = null;
   private poseLatencies: number[] = [];
@@ -268,12 +297,17 @@ export class TrainingSession {
   /**
    * 自动标定准备区：找**腕部停留最久**的位置。
    *
-   * 为什么不是简单取中位数：一次挥拍中腕部会扫过一大片区域，中位数会被
-   * 挥拍轨迹拉偏。真正要的是"手停在哪里等球"——因此把画面切成格子统计
-   * 落点，取样本最多的那一格（驻留格），再在该格内取中位数细分。
-   * 停在准备姿势的时间天然远多于挥拍中，所以驻留格就是准备位置。
+   * 估计器（`estimateReadyZoneFromDwell`）取**局部速度最慢的那一半**样本的
+   * 中位数 —— 理由是"停在准备姿势时手最慢"。⚠️ 本注释此前写的是"把画面切成
+   * 格子、取样本最多的那一格"，与实现不符（实现里没有直方图），已按实际改。
    *
-   * @returns 用到的样本数；样本不足（< 20）时返回 0 且不改变准备区。
+   * 什么时候**才允许**定下来，比估计器本身更容易出问题：20 个样本、
+   * `>= 20` 就成交，等于让"最先到达的那 20 帧"决定整条状态机的入口。
+   * 所以这里加了准入条件（见 `acceptDwellEstimate`）：样本要够多、
+   * 估计要**已经不动了**。急着标定的代价是"整段素材什么都检不出"，
+   * 多等一秒的代价只是晚一秒开始计数。
+   *
+   * @returns 用到的样本数；未达准入条件时返回 0 且**不改变**准备区（调用方据此重试）
    */
   calibrateReadyZoneFromDwell(): number {
     const n = this.wristSamples.length;
@@ -282,9 +316,29 @@ export class TrainingSession {
       this.wristSamples.map((s) => s.tMs),
     );
     if (!center) return 0;
+    if (!this.acceptDwellEstimate(center, n)) return 0;
     this.autoCalibrated = true;
     this.setReadyZone(center);
     return n;
+  }
+
+  /**
+   * 自动标定的**准入条件**：样本够多，且估计已经稳定。
+   *
+   * 每帧都会调一次（估计值随窗口滑动而微动），所以这里要**记住上一次**的估计：
+   * 只有连续两次落点足够近，才说明"最慢的那片区域"不是一个偶然路过的位置。
+   *
+   * `calibrateReadyZoneFromMedian` 走同一个准入条件：两者是对照实验，
+   * 如果只有一边被门控，比出来的差异就分不清是估计器不同还是门槛不同。
+   */
+  private acceptDwellEstimate(center: { x: number; y: number }, samples: number): boolean {
+    const previous = this.lastDwellEstimate;
+    this.lastDwellEstimate = center;
+    if (samples < READY_CALIBRATION_MIN_SAMPLES) return false;
+    if (!previous) return false;
+    const scale = this.lastBodyScalePx ?? READY_CALIBRATION_FALLBACK_BODY_SCALE_PX;
+    const tolerance = scale * READY_CALIBRATION_STABLE_BODY_SCALE;
+    return Math.hypot(center.x - previous.x, center.y - previous.y) <= tolerance;
   }
 
   /**
@@ -299,8 +353,10 @@ export class TrainingSession {
     const xs = this.wristSamples.map((p) => p.x).sort((a, b) => a - b);
     const ys = this.wristSamples.map((p) => p.y).sort((a, b) => a - b);
     const mid = Math.floor(n / 2);
+    const center = { x: xs[mid]!, y: ys[mid]! };
+    if (!this.acceptDwellEstimate(center, n)) return 0;
     this.autoCalibrated = true;
-    this.setReadyZone({ x: xs[mid]!, y: ys[mid]! });
+    this.setReadyZone(center);
     return n;
   }
 
@@ -356,6 +412,8 @@ export class TrainingSession {
     this.previousFrame = null;
     this.wristSamples.length = 0;
     this.autoCalibrated = false;
+    // 稳定性判据要跨帧比较，换了源就不能拿旧源的估计当"上一次"
+    this.lastDwellEstimate = null;
   }
 
   markDropped(): void {
@@ -524,7 +582,7 @@ export class TrainingSession {
     }
 
     // 本组够了：一次性构建证据并发起分析
-    void this.completeGroup();
+    void this.emitGroup(null);
   }
 
   /** 在证据不足够时只做本地判断，不阻塞也不误导。 */
@@ -579,25 +637,46 @@ export class TrainingSession {
      * 不是随意的区间。超出窗口没采到就报缺失 —— 不拿窗口外的帧冒充。
      */
     if (this.config.focusId === "elbow_extension_pattern") {
-      const perStroke = this.validStrokes
-        .map((s) =>
-          computeElbowAngleAtWristPeak(geometriesInGroup, s.anchor.timeMs, 80, [
-            s.anchor.timeMs,
-            s.anchor.timeMs,
-          ]),
-        )
-        .map((f) => f.value)
-        .filter((v): v is number => v != null);
-
-      // 用中位数代表本组；区间语义保留为整组区间
-      features.push(
-        computeElbowAngleAtWristPeak(
-          geometriesInGroup,
-          median(perStroke) ?? first.anchor.timeMs,
-          80,
-          interval,
-        ),
+      const perStroke = this.validStrokes.map((s) =>
+        computeElbowAngleAtWristPeak(geometriesInGroup, s.anchor.timeMs, 80, [
+          s.anchor.timeMs,
+          s.anchor.timeMs,
+        ]),
       );
+      const contributing = perStroke.filter((f) => f.value != null);
+      const groupMedian = median(contributing.map((f) => f.value as number));
+
+      /*
+       * ⚠️ 这里原先**把角度当成了时间**（R1）：
+       *
+       *     computeElbowAngleAtWristPeak(geometriesInGroup, median(perStroke) ?? first.anchor.timeMs, 80, interval)
+       *
+       * `median(perStroke)` 是**度**（比如 152），却被塞进了 `anchorTimeMs` ——
+       * 于是函数去 t≈152ms 附近找几何，算出的是那一小段的值（通常是缺失，
+       * 偶尔取到一个毫不相干的区间）。而它旁边那条返回准备区时间的特征
+       * 写法是对的（中位数进**值**，锚点单独给），两处一对比就看得出。
+       *
+       * 现在直接按注释里写明的口径做：**每次挥拍取峰值 ±80ms 的肘角中位数，
+       * 再对本组取中位数**。不再绕回那个函数 —— 绕回去就还得再传一个时间，
+       * 而这里根本没有"某一个时刻"可言。
+       */
+      features.push({
+        id: FEATURE_IDS.ELBOW_ANGLE_AT_WRIST_PEAK,
+        value: groupMedian,
+        unit: "deg",
+        coordinateSpace: "image_2d",
+        intervalMs: interval,
+        // 质量取**参与统计的那几次**里最差的一档：只要有一次降到 limited，
+        // 这个中位数就不该自称 usable
+        quality:
+          groupMedian == null
+            ? "unusable"
+            : contributing.some((f) => f.quality === "limited")
+              ? "limited"
+              : "usable",
+        reasonIfMissing:
+          groupMedian == null ? "本组没有一次挥拍在腕速峰值 ±80ms 内取到可用肘角" : null,
+      });
     }
 
     // 每次挥拍各自的返回准备区时间
@@ -628,13 +707,96 @@ export class TrainingSession {
 
   /** 本组收集完毕：构建证据包并回调，由上层发起模型调用。 */
   private async completeGroup(): Promise<void> {
+    await this.emitGroup(null);
+  }
+
+  /**
+   * 本组所用的**训练判据**（随证据包一起发出去）。
+   *
+   * 为什么由发起端填，而不是服务端自己算：判据的数值住在 `motion-core`，
+   * 而依赖方向规定**服务端只依赖 contracts**（AGENTS.md）。让服务端再写一份，
+   * 就是同一个事实两处各写各的 —— 这个项目已经栽过好几次（F-026/F-027）。
+   * 所以这里取**本次真正生效的**那套值，与本地规则读的是同一个常量。
+   *
+   * 只对**有明确门槛定义**的关注点给值：门槛只对返回准备区时间有定义，
+   * 那就别在别的关注点上贴一个编出来的数字。
+   *
+   * 单位取自**本包内那条测量的单位**，不再写一遍 —— 免得将来改了测量单位、
+   * 判据还念着旧单位。
+   */
+  private buildCriterion(features: FeatureValue[]): RuleCriterion | null {
+    const rule = BUILTIN_RULES.find((r) => r.focusId === this.config.focusId);
+    if (!rule) return null;
+    if (!rule.requiredFeatureIds.includes(FEATURE_IDS.RETURN_AFTER_WRIST_PEAK)) return null;
+    const feature = features.find((f) => f.id === FEATURE_IDS.RETURN_AFTER_WRIST_PEAK);
+    if (!feature) return null;
+    return {
+      featureId: FEATURE_IDS.RETURN_AFTER_WRIST_PEAK,
+      threshold: DEFAULT_THRESHOLDS.returnAfterWristPeakMaxMs,
+      unit: feature.unit,
+      minValidStrokes: DEFAULT_THRESHOLDS.minValidStrokes,
+    };
+  }
+
+  /**
+   * **素材结束，把当前这组提前交出去**（可能有，也可能一次都没有）。
+   *
+   * 为什么必须有这个入口：组边界（`strokesPerGroup`，默认 3）是**交互概念**，
+   * 而导入的视频是**有限长**的。`onStrokeEvent` 只在凑满时才构建证据，
+   * 于是"导入一段视频 → 什么都没发生"就是默认体验 —— 用户报的正是这个
+   * （他同时也在报另一件事：视频循环播放，那是 `capture-source` 里的 `loop`）。
+   *
+   * 素材播完是**客观事实**，它比"这组还差 1 次挥拍"更硬：不会再有下一帧了，
+   * 继续等下去就只是干等。所以这里把已收集到的有效挥拍当成一组交出去，
+   * 并在证据包里**写明这组是提前结束的**（`N/M` 次）—— 不足额是事实，
+   * 必须让模型和复查页都看到，而不是假装这组本来就该这么大。
+   *
+   * @returns 是否真的交出了一组（一次有效挥拍都没有时为 false）
+   */
+  finishGroup(reason: string): boolean {
+    if (this.validStrokes.length === 0) {
+      this.callbacks.onStatus(`${reason}，但整段素材没有检出一次完整挥拍，本次没有可分析的分组`);
+      return false;
+    }
+    void this.emitGroup(reason);
+    return true;
+  }
+
+  /**
+   * 构建并交出一组证据。
+   *
+   * @param cutShortReason 本组是**提前**结束的（素材播完）时的原因；
+   *   正常凑满 `strokesPerGroup` 时为 null。
+   */
+  private async emitGroup(cutShortReason: string | null): Promise<void> {
     const features = this.computeFeatures();
     const poses = [...this.posesByFrameId.values()];
     const quality = summarizeGroupQuality(poses, DEFAULT_QUALITY_CONFIG);
 
-    // 选代表性关键帧（最多 6 张）
-    const candidates = this.validStrokes.flatMap((s) =>
-      selectRepresentativeFrames(
+    /*
+     * 选代表性关键帧时，候选必须**真的缓存里有图**（R3）。
+     *
+     * 原先用"时间窗内的姿态帧"当候选、`bytes` 填空数组，挑完才去缓存里找图，
+     * 找不到只记一笔 `missing`。而图片是**每 3 帧**采一张
+     * （`KEYFRAME_CAPTURE_EVERY_N_FRAMES`），姿态帧却帧帧都有 ——
+     * 两个集合根本不一样大。于是"挑中的那几张恰好没采图"是常态，
+     * 表现就是**附近明明有可用的图，却白白少发几张**给模型。
+     *
+     * 现在从有图的那些里挑，选中的就是真候选（带真实 bytes 与尺寸）。
+     * 同时**记下整个组一共有几张有图的候选**（`availablePixels`）——
+     * 它是下面区分两种失败模式的唯一依据。
+     */
+    let availablePixels = 0;
+    const candidates = this.validStrokes.flatMap((s) => {
+      const withPixels = poses
+        .filter(
+          (p) => p.sourceTimeMs >= s.startMs && (s.endMs == null || p.sourceTimeMs <= s.endMs),
+        )
+        .map((p) => this.keyframeCache.get(p.frameId))
+        .filter((c): c is KeyframeCandidate => c != null);
+      availablePixels += withPixels.length;
+
+      return selectRepresentativeFrames(
         // 必须把 evidenceFrameIds 传进去：它决定"哪些帧有资格当关键帧"，
         // 契约要求关键帧与这一板的证据帧对齐（见 F-029）
         {
@@ -643,37 +805,44 @@ export class TrainingSession {
           anchor: s.anchor,
           evidenceFrameIds: s.evidenceFrameIds,
         },
-        // 这里用姿态帧代替真实图片候选，真实图片压缩在 capture 层完成
-        poses
-          .filter(
-            (p) => p.sourceTimeMs >= s.startMs && (s.endMs == null || p.sourceTimeMs <= s.endMs),
-          )
-          .map((p) => ({
-            frameId: p.frameId,
-            sourceTimeMs: p.sourceTimeMs,
-            bytes: new Uint8Array(0),
-            width: p.imageWidth,
-            height: p.imageHeight,
-            pinned: false,
-          })),
-      ),
-    );
+        withPixels,
+      );
+    });
 
-    // 关键帧必须与姿态帧通过 frameId 对齐
+    // 关键帧必须与姿态帧通过 frameId 对齐；**阶段角色一并带上**（R2）
     const { keyframes, missing } = buildKeyframes(
-      candidates.map((c) => c.frameId),
+      candidates,
       this.keyframeCache,
       this.posesByFrameId,
     );
-    this.lastGroupKeyframes = { included: keyframes.length, missing: missing.length };
 
-    // ⚠️ 图片链路**曾经是断的**（F-028）：`KeyframeCache.add()` 当时在整个 apps/web 里
-    // 没有任何调用方，缓存永远是空的，于是每一张关键帧都落到 `missing` 里、
-    // `keyframes` 恒为空数组 —— 模型收到的是**纯文本**。
-    // 现在采集侧会往里放图（见 `evidence/keyframe-capture.ts`），
-    // 但"取不到图"仍然是可能发生的（编码失败、位图拿不到、别人改了调用点），
-    // 所以这段提示保留：**只要缺，就必须说**。
-    if (missing.length > 0) {
+    /*
+     * ⚠️ 图片链路**曾经是断的**（F-028）：`KeyframeCache.add()` 当时在整个
+     * apps/web 里没有任何调用方，缓存永远是空的，`keyframes` 恒为空数组 ——
+     * 模型收到的是**纯文本**，而全线无报错。
+     *
+     * R3 的改动把候选收窄成"有图的帧"之后，**这两种失败必须分开看**，
+     * 否则又会退回静默：
+     *
+     * - `missing`：挑中了却取不到图（缓存里没有、或没有对应姿态帧）。
+     *   R3 之后这属于**异常**（编码竞态、别人改了调用点），正常链路为 0。
+     * - **一张有图的候选都没有**：这才是 F-028 的形态，必须大声说。
+     *   而且它**不能报成"0 张缺失"** —— 那样读起来像"一切正常"。
+     *   所以这种情况下按**每板**计数兜底（`validStrokes.length`），
+     *   让遥测与提示都还能看出"有 N 个东西要图、一个都没拿到"。
+     */
+    const noImageAtAll = availablePixels === 0 && this.validStrokes.length > 0;
+    this.lastGroupKeyframes = {
+      included: keyframes.length,
+      missing: noImageAtAll ? this.validStrokes.length : missing.length,
+    };
+
+    if (noImageAtAll) {
+      this.callbacks.onStatus(
+        `本组证据不含图片：${this.validStrokes.length} 次挥拍的关键帧一张都取不到` +
+          `（采集侧一张图都没缓存，图片链路未接通）—— 模型只会看到文本`,
+      );
+    } else if (missing.length > 0) {
       this.callbacks.onStatus(
         keyframes.length === 0
           ? `本组证据不含图片：${missing.length} 张关键帧全部取不到（图片链路未接通）—— 模型只会看到文本`
@@ -699,10 +868,28 @@ export class TrainingSession {
       keyframes,
       ruleVersion: RULE_VERSION,
       referenceId: null,
+      criterion: this.buildCriterion(features),
       limitations: [
         "单目二维骨架，无法判断肌肉紧张、发力大小、足底承重或力量传递效率",
         "事件锚点为腕部速度峰值，不是已确认的击球时刻",
+        /*
+         * R4：关键帧的 `role`（backswing / forward / return）是**按区间时间比例
+         * 挑的那一帧**，不是检出的事件时刻 —— 引拍那张取的是"起点到锚点的中点"，
+         * 还原那张取的是"锚点到终点的中点"。名字很像事件，容易被读成后者。
+         *
+         * 现在没有事件检测（那是 P1 的事），所以**如实写进 limitations**：
+         * 与其让模型把"名为 forward 的图"当成击球瞬间，不如先说明它是怎么挑的。
+         */
+        ...(keyframes.length > 0
+          ? ["关键帧按挥拍区间的时间比例挑选，不是检出的事件时刻 —— 不能当作「击球瞬间」的直接证据"]
+          : []),
         ...(quality.judgeable ? [] : ["本组画质未达到可判门槛"]),
+        // 不足额就说不足额。少了这句，模型会把 1 次挥拍当成本组全部表现来点评
+        ...(cutShortReason == null
+          ? []
+          : [
+              `本组提前结束（${cutShortReason}）：只有 ${this.validStrokes.length}/${this.config.strokesPerGroup} 次有效挥拍，样本量少于常规分组`,
+            ]),
       ],
       readyZone:
         this.readyZoneCenter && packetZoneRadius != null
@@ -833,6 +1020,7 @@ export class TrainingSession {
     this.poseInferenceLatencies.length = 0;
     this.wristFilter.reset();
     this.segmenter.reset();
+    this.lastDwellEstimate = null;
   }
 }
 

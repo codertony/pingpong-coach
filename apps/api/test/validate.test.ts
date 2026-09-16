@@ -53,6 +53,12 @@ const PACKET: EvidencePacket = {
   ],
   ruleVersion: "1.0.0",
   referenceId: null,
+  criterion: {
+    featureId: "return_after_wrist_peak_ms",
+    threshold: 700,
+    unit: "ms",
+    minValidStrokes: 3,
+  },
   limitations: ["单目二维"],
   readyZone: { xPx: 640, yPx: 400, radiusPx: 80 },
 };
@@ -81,6 +87,7 @@ function output(overrides: Partial<ModelOutput> = {}): ModelOutput {
   return {
     status: "suggest_adjustment",
     observation: "三次挥拍后回到准备区的中位时间偏长。",
+    keyPoints: [],
     evidenceRefs: ["return_after_wrist_peak_ms"],
     cue: "击球后先把重心带回准备位置，然后再看下一拍。",
     nextDrillId: null,
@@ -273,5 +280,88 @@ describe("validateModelOutput — 软性降级", () => {
       EXPECTED,
     );
     expect(r.feedback!.status).toBe("insufficient_evidence");
+  });
+});
+
+/**
+ * 逐条要点（keyPoints）。
+ *
+ * 用户明确要求"把细节逐条列清楚、可以比语音提示长一些"，于是新增了这个字段。
+ * 但它同时是**红线的一个新入口** —— 任何新的自由文本字段都是。
+ * 所以这一组守的是：能用的放行、越线的**整条丢掉**、丢掉的**必须说出来**。
+ */
+describe("validateModelOutput — 逐条要点", () => {
+  const okPoints = [
+    "本组 3 次挥拍，返回准备区时间中位数 640ms（门槛 700ms）",
+    "第 2 次挥拍用时最长，比其余两次多约 300ms",
+  ];
+
+  it("合法的要点原样保留，顺序不变", () => {
+    const r = validateModelOutput(
+      output({ keyPoints: okPoints }),
+      PACKET,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.feedback!.keyPoints).toEqual(okPoints);
+  });
+
+  it("**结构上可以省**：完全不返回 keyPoints 不算错，只是少给信息", () => {
+    const r = validateModelOutput(
+      output({ keyPoints: undefined }),
+      PACKET,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.feedback).not.toBeNull();
+    expect(r.feedback!.keyPoints).toEqual([]);
+  });
+
+  it("要点里出现无法验证的结论时：**整条丢掉**，并降级、并记账", () => {
+    // 与 observation 的处理**故意不同**：observation 是一整段，只能降级后保留原文；
+    // 要点是逐条的，丢掉那一行不会伤及其余内容，而把一句已判定不可验证的话
+    // 留在屏幕上，等于自己拆自己的台。
+    const r = validateModelOutput(
+      output({ keyPoints: [okPoints[0]!, "你的大臂肌肉紧张，所以回位慢"] }),
+      PACKET,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.feedback!.keyPoints, "越线的那条还在屏幕上").toEqual([okPoints[0]]);
+    expect(r.feedback!.status, "出现不可验证结论就该降级为观察").toBe("observation_only");
+    expect(r.feedback!.rejectedClaims).toContain("肌肉发力或紧张");
+    expect(r.feedback!.limitations.join("\n")).toContain("已移除该条");
+  });
+
+  it("超长的要点被丢掉，**其余要点不受牵连**，并且如实说明", () => {
+    const tooLong = "回".repeat(61);
+    const r = validateModelOutput(
+      output({ keyPoints: [okPoints[0]!, tooLong, okPoints[1]!] }),
+      PACKET,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.feedback!.keyPoints).toEqual(okPoints);
+    expect(r.feedback!.limitations.join("\n")).toContain("60 字上限");
+    // 只是长，不是越线：不该因此降级
+    expect(r.feedback!.status).not.toBe("observation_only");
+  });
+
+  it("超过 5 条时只留前 5 条，并说明丢了几条", () => {
+    const many = Array.from({ length: 8 }, (_, i) => `第 ${i + 1} 条要点`);
+    const r = validateModelOutput(output({ keyPoints: many }), PACKET, ALLOWED_REVIEWED, EXPECTED);
+    expect(r.feedback!.keyPoints).toHaveLength(5);
+    expect(r.feedback!.keyPoints[4]).toBe("第 5 条要点");
+    expect(r.feedback!.limitations.join("\n")).toContain("已移除多余 3 条");
+  });
+
+  it("空白条目直接丢掉，不占额度也不报错", () => {
+    const r = validateModelOutput(
+      output({ keyPoints: ["   ", okPoints[0]!] }),
+      PACKET,
+      ALLOWED_REVIEWED,
+      EXPECTED,
+    );
+    expect(r.feedback!.keyPoints).toEqual([okPoints[0]]);
   });
 });

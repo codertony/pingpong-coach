@@ -16,80 +16,12 @@
 import { describe, expect, it } from "vitest";
 import { TrainingSession, type TrainingConfig } from "../src/training/training-session.js";
 import type { PoseResult } from "../src/vision/pose-engine.js";
-import type { Keypoint2D } from "@pingpong/contracts";
 
-const READY = { x: 640, y: 420 };
-/** 体尺度 = 肩中点—髋中点 = 200px（肩 y=200、髋 y=400） */
-const BODY_SCALE = 200;
-const FRAME_MS = 40;
+// 合成挥拍的相位序列、骨架与帧**只有一处定义**（见 helpers/synthetic-strokes.ts）——
+// 在这里再抄一份的话，改了相位长度就得记得改两处。
+import { FRAME_MS, makeConfig, makeFrame, READY, OFFSETS } from "./helpers/synthetic-strokes.js";
 
-const CONFIG: TrainingConfig = {
-  sessionId: "groups1",
-  strokeType: "forehand_drive",
-  handedness: "right",
-  cameraView: "front",
-  focusId: "return_to_ready_zone",
-  strokesPerGroup: 3,
-  segmentation: {
-    strokeType: "forehand_drive",
-    cameraView: "front",
-    handedness: "right",
-    readyZoneRadiusBodyScale: 0.3,
-    readyStableMinMs: 120,
-    backswingMinDisplacementBodyScale: 0.2,
-    forwardMinSpeedBodyScalePerSec: 0.5,
-    returnStableMinMs: 120,
-    maxGapMs: 250,
-    maxStrokeDurationMs: 3000,
-  },
-};
-
-/**
- * 一次挥拍的相位序列（单位：体尺度比例）。
- *
- * 与 `e2e/fixtures/fixture-entry.ts` 里那套**实测调出来**的一致：
- * 每个相位保持若干帧，是因为腕部要先过 One-Euro 因果滤波 ——
- * 单帧尖峰会被滤掉，永远进不了引拍。
- */
-const OFFSETS = [
-  0,
-  0,
-  0,
-  0,
-  0,
-  0, // 准备驻留 240ms ≥ readyStableMinMs
-  0.2,
-  0.45,
-  0.45,
-  0.45,
-  0.45, // 引拍，并在峰值停留让滤波收敛
-  0.3,
-  0.15,
-  0.05, // 向前挥拍
-  0,
-  0,
-  0,
-  0,
-  0,
-  0, // 回到准备区并驻留
-];
-
-function bodyPoints(wristX: number): Keypoint2D[] {
-  return [
-    { name: "nose", xPx: 640, yPx: 120, score: 0.95, visible: true },
-    { name: "left_shoulder", xPx: 600, yPx: 200, score: 0.9, visible: true },
-    { name: "right_shoulder", xPx: 680, yPx: 200, score: 0.9, visible: true },
-    { name: "left_elbow", xPx: 580, yPx: 280, score: 0.9, visible: true },
-    { name: "right_elbow", xPx: 700, yPx: 280, score: 0.9, visible: true },
-    { name: "left_hip", xPx: 610, yPx: 400, score: 0.9, visible: true },
-    { name: "right_hip", xPx: 670, yPx: 400, score: 0.9, visible: true },
-    { name: "left_knee", xPx: 605, yPx: 520, score: 0.9, visible: true },
-    { name: "right_knee", xPx: 675, yPx: 520, score: 0.9, visible: true },
-    { name: "left_ankle", xPx: 600, yPx: 640, score: 0.9, visible: true },
-    { name: "right_ankle", xPx: 680, yPx: 640, score: 0.9, visible: true },
-    { name: "right_wrist", xPx: wristX, yPx: READY.y, score: 0.9, visible: true },
-  ];
-}
+const CONFIG: TrainingConfig = makeConfig({ sessionId: "groups1" });
 
 /** 连喂 `cycles` 轮挥拍，返回实际产生的挥拍数与成组数。 */
 function runCycles(
@@ -127,20 +59,7 @@ function runCycles(
   let frames = 0;
   for (let cycle = 0; cycle < cycles; cycle++) {
     for (const offset of OFFSETS) {
-      const frame: PoseResult = {
-        frameId: `f${frames}`,
-        sourceEpoch: 0,
-        sourceTimeMs: t,
-        receivedAtMonoMs: t,
-        inferredAtMonoMs: t,
-        inferenceMs: 5,
-        imageWidth: 1280,
-        imageHeight: 720,
-        keypoints2D: bodyPoints(READY.x + offset * BODY_SCALE),
-        detected: opts.detected ?? true,
-        handDetected: false,
-        keypointSet: "blaze_33",
-      };
+      const frame: PoseResult = makeFrame(frames, t, offset, { detected: opts.detected });
       // 产品里由采集侧在把位图交给引擎**之前**调用它（见 App.tsx）。
       // 这里用一小段假字节代替真实 JPEG —— 本文件测的是会话行为，不是编码。
       if (opts.withPixels) {

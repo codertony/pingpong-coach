@@ -7,6 +7,7 @@
 | 想知道 | 看 |
 | --- | --- |
 | 要做什么、当前阶段、已知限制 | `docs/spec.md` |
+| **当前方案与开发计划（v2，取代 v1 的路线安排）** | `docs/design-v2.md` |
 | 验收定义与阈值变更记录 | `docs/acceptance.md` |
 | 坐标、单位、时钟、缺失值、schema 版本 | `docs/data-contracts.md` |
 | 为什么这样选、何时替换 | `docs/decisions.md` |
