@@ -16,6 +16,7 @@ import type { ServerConfig } from "../config.js";
 import { RequestDedupe } from "./dedupe.js";
 import { collectAllowedOutputs, loadKnowledge, selectKnowledge } from "./knowledge.js";
 import { callModel } from "./provider.js";
+import { splitDecodableKeyframes } from "./keyframe-guard.js";
 import { validateModelOutput, type ValidationIssue } from "./validate.js";
 
 export interface AnalyzeDeps {
@@ -165,8 +166,21 @@ async function runAnalysis(
   });
   const allowed = collectAllowedOutputs(entries);
 
+  /*
+   * 关键帧里混进**不是图片**的负载时，提供商直接 400（实测 DeepSeek：
+   * `unsupported image`），于是**整次分析失败** —— 文本证据本来好好的却被一起丢掉。
+   *
+   * 所以在**组 prompt 之前**就把不能用的图摘掉，让文本证据照样能被分析；
+   * 摘掉了哪些要如实记账，最后写进 limitations（不许静默）。
+   * 注意顺序：必须在 buildPrompt 之前，否则提示里会声称有那些图，
+   * 模型可能引用一张它根本看不到的关键帧。
+   */
+  const { valid: safeKeyframes, droppedIds } = splitDecodableKeyframes(packet.keyframes);
+  const safePacket: EvidencePacket =
+    droppedIds.length > 0 ? { ...packet, keyframes: safeKeyframes } : packet;
+
   // 一次模型调用，无自动重试
-  const result = await callModel(config, packet, entries, allowed);
+  const result = await callModel(config, safePacket, entries, allowed);
 
   onModelUsage?.({
     modelId: config.modelId,
@@ -220,7 +234,7 @@ async function runAnalysis(
     ]);
   }
 
-  const outcome = validateModelOutput(rawParsed, packet, allowed, {
+  const outcome = validateModelOutput(rawParsed, safePacket, allowed, {
     sessionId: packet.sessionId,
     groupId: packet.groupId,
     focusId: packet.focusId,
@@ -239,6 +253,14 @@ async function runAnalysis(
 
   return {
     ...outcome.feedback,
+    limitations:
+      droppedIds.length > 0
+        ? [
+            ...outcome.feedback.limitations,
+            `有 ${droppedIds.length} 张关键帧不是有效图片（${droppedIds.join("、")}），` +
+              `已丢弃且未发送给模型 —— 本组结论只依据其余证据。`,
+          ]
+        : outcome.feedback.limitations,
     modelId: result.mock ? "mock-coach" : config.modelId,
     mock: result.mock,
     // mock 的耗时不计入真实模型延迟统计口径，但仍如实记录

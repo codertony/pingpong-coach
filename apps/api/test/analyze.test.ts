@@ -84,6 +84,76 @@ describe("analyze — 模型用量可观测（费用）", () => {
   });
 });
 
+describe("analyze — 关键帧不是图片时不许拖垮整次分析（F-042）", () => {
+  it("只把有效图片发给模型，并在 limitations 里如实记账（不是静默丢弃）", async () => {
+    let sent: { messages: Array<{ content: unknown }> } | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: RequestInit) => {
+        sent = JSON.parse(init.body as string) as { messages: Array<{ content: unknown }> };
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    status: "observation_only",
+                    observation: "本组 1 次挥拍。",
+                    evidenceRefs: ["return_after_wrist_peak_ms"],
+                    cue: null,
+                    nextDrillId: null,
+                    limitations: ["锚点为腕部速度峰值"],
+                  }),
+                },
+                finish_reason: "stop",
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 5 },
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+
+    // 真包（关键帧都是可用的）里，把**第二张**换成 600KB 随机字节 ——
+    // 这正是实测会让提供商 400 `unsupported image` 的那种负载
+    const base = makePacket();
+    expect(base.keyframes.length, "这条用例需要至少 2 张关键帧").toBeGreaterThanOrEqual(2);
+    const garbage = Buffer.alloc(600 * 1024, 0xab).toString("base64");
+    const packet = {
+      ...base,
+      keyframes: base.keyframes.map((k, i) => (i === 1 ? { ...k, jpegBase64: garbage } : k)),
+    };
+    const badId = packet.keyframes[1]!.id;
+
+    const res = await analyze(
+      packet,
+      deps({
+        modelMode: "live",
+        modelBaseUrl: "https://x.invalid",
+        modelApiKey: "k",
+        modelId: "m",
+      }),
+    );
+
+    // ① 坏图**没有**被发出去（否则提供商 400，整次分析白跑）
+    const userContent = sent!.messages[1]!.content as Array<{ type: string }>;
+    const images = userContent.filter((c) => c.type === "image_url");
+    expect(images, "坏图仍然被发出去了 —— 提供商会 400，文本证据也一起丢").toHaveLength(
+      packet.keyframes.length - 1,
+    );
+
+    // ② 文本证据照样拿到了反馈
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      // ③ 而且**如实说了**丢了哪一张（红线：不许静默）
+      const text = res.feedback.limitations.join(" ");
+      expect(text).toContain(badId);
+      expect(text).toContain("不是有效图片");
+    }
+  });
+});
+
 describe("analyze — 输入校验", () => {
   it("合法证据包返回 ok:true 与反馈", async () => {
     const res = await analyze(makePacket(), deps());

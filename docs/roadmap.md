@@ -34,7 +34,7 @@
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 32 项测试 |
 | 纯计算核心 | `[x]` | motion-core 215 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化、分布谷底判据） |
-| 后端 + Mock 适配器 | `[x]` | api 158 项测试 |
+| 后端 + Mock 适配器 | `[x]` | api 170 项测试 |
 | 前端采集链路 | `[x]` | web 105 项 vitest + 72 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
@@ -83,7 +83,7 @@
 | F-039 | README 教用户配真实模型的**那一节变量名全是错的**（`PPC_MODEL_API_KEY` 等），而代码读的是 `MODEL_API_KEY` 等（无前缀）；且**仓库没有 `.env` 加载器**；且 `PPC_MODEL_MODE`/`PPC_REQUEST_TIMEOUT_MS` 在代码里根本不存在。⇒ 用户照着文档配，得到的是**静默的 mock**。实测四种配法：不设→mock、**用 README 的名字+真密钥→mock**、三缺一→mock（**不报错**）、正确名字→live。**第二处错**：文档说"缺一个就启动失败/直接报错"——**假的**，实际只是退回 mock（可见性在：health 写 `modelMode:"mock"` + 界面徽标）。静默降级 + 文档承诺会报错 = 用户没有任何线索。已改 README（真名字 + 说明无 `.env` 加载器 + 实际行为 + 变量表 + 第三方要用 OpenAI 兼容端点），并修掉 evaluation-log 里同族的 `PPC_PORT`（代码读 `PORT`）。**未加 `.env` 加载器**（会引入依赖并扩大误提交面；环境变量够用） |
 | F-040 | 导入视频时**同一个文件被播了两遍**（离屏那个 `loop=true` 喂分析、界面那个默认 `loop=false` 只显示）⇒ **界面上的视频播完停住了，骨架还在动**（用户报的）。实测暂停后 4 秒：修复前 **3574** 次画布绘制（`clearRect` 31.3 次/秒、间隔中位 33ms），修复后 **26** 次且全部落在暂停后 2ms 内。修法：把**采集元素本身**挂进 `.stage`，只有一个播放实例。回归 `video-playback.e2e.ts`；**改回两路播放该用例立刻红** |
 | F-041 | 加了 `.env` 之后 **`pnpm test:e2e` 跑成 live 并真的打到付费模型**（e2e 自己起的 API 进程读到了仓库根的 `.env`）—— 4 项失败里第一项就是 `modelMode` 不是 mock。**每次跑 e2e 都在花用户的钱**。修法：加载器支持 `PPC_NO_ENV_FILE=1`（一个候选都不返回，显式指定也压过去），playwright 的两个 API webServer 都带上；单测钉住该开关。顺带确认 vite 只暴露 `VITE_*`，dev server 的 HTML/模块里 `sk-` 出现 0 次 |
-| F-042 | 关键帧**图片格式不被提供商接受时整个分析失败**：fixtures 那张 **1×1** JPEG 被 DeepSeek 拒收（400 unsupported image）⇒ `model_unavailable`，**连文本证据一起丢掉**。契约只保证 base64 合法、不保证图片可用；F-031 的削减只按体积丢图、不问能不能用。**未修**：要先定义「什么算合格」（尺寸下限？再解码？），而只有一个数据点 —— 一个样本定门槛就是猜。见 `known-failures.md` F-042 的下一步 |
+| F-042 | 关键帧里混进**不是图片**的负载时提供商 400，**整次分析失败**、连文本证据一起丢。**我第一版把原因写错了**（写成「1×1 太小、需要尺寸门槛」），逐尺寸实量后才发现：1×1 / 8×8 / … / 128×128 与**灰度单分量**全部通过，只有 **600KB 随机字节**被拒 ⇒ **尺寸与分量数都不是原因，「不是图片」才是**。**已修复**：发送前按**结构**（SOI / EOI / SOF 且宽高非零）摘掉不能用的图 —— **刻意不设尺寸门槛**（实测 1×1 合法，自编下限会误杀小图）；被摘的 id 写进 `limitations` 不许静默；摘图在 `buildPrompt` **之前**，被摘的 id 也不再可引用。回归 11 项（含随机字节、被截断、宽为 0，以及端到端「请求里只剩有效图 + 如实记账」）|
 | — | `computeElbowTorsoDrift` 丢弃 `reason`，质量降级时调用方看不到任何解释 |
 | — | `featureSetSchema` 硬编码版本字面量 `"1"`，与 `schemaVersionSchema` 双份维护 |
 | — | `evidence.ts` 重复定义 `strokeType` 字面量，未复用 `primitives.strokeTypeSchema` |
@@ -93,11 +93,11 @@
 ```
 contracts      32
 motion-core   215
-api           158
+api           170
 web (vitest)  105
 web (Playwright/真 Chrome) 72
 ─────────────────────────────
-合计          582
+合计          594
 ```
 
 ---
