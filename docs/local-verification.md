@@ -65,13 +65,13 @@ pnpm verify
 
 这一条命令串起了 typecheck → lint → format:check → 接线审计 → 文档一致性 → 全部单测 → 构建 → 依赖体积预算。
 
-**预期输出**（关键行，数字必须一致）：
+**预期输出**（关键行，数字应当与下面一致）：
 
 ```
-packages/contracts  Tests   32 passed (32)
-packages/motion-core Tests 218 passed (218)
-apps/api            Tests  178 passed | 1 skipped (179)
-apps/web            Tests  105 passed (105)
+packages/contracts  Tests   44 passed (44)
+packages/motion-core Tests 244 passed (244)
+apps/api            Tests  215 passed | 1 skipped (216)
+apps/web            Tests  195 passed (195)
 ...
 ✓ built in ~2s
 ✓ 依赖体积在预算内。
@@ -79,8 +79,14 @@ apps/web            Tests  105 passed (105)
 
 **预期退出码**：`0`（Windows 下可以 `echo %ERRORLEVEL%` 确认）。
 
+> **这四行数字会随开发变化**，上面是写这份清单时的值。**权威数字只有一处**：
+> 你刚跑出来的 `pnpm verify` 输出；`README.md` 与 `docs/roadmap.md` 里的分包总数
+> 由 `check:docs` **交叉核对**（两者不一致时它会让 `verify` 直接失败）。
+> 所以"数字和这份清单不同"本身不是问题 —— 看 `verify` 自己报的总数即可。
+
 - [ ] `pnpm verify` 退出码为 0
-- [ ] 四组测试数字与上面完全一致（总共 **534**）
+- [ ] 各道门禁都过了：typecheck → lint → format → **接线审计** → **文档一致性** →
+      **密钥守卫** → 全部单测 → 构建 → **依赖体积预算**（`verify` 就是按这个顺序串的）
 
 **如果不一致**：把失败用例名贴回给我 —— 这说明你的 Node/pnpm 版本触发了沙箱里没暴露的问题，是有价值的信息。
 
@@ -94,8 +100,8 @@ apps/web            Tests  105 passed (105)
 pnpm test:e2e
 ```
 
-**预期**：`60 passed, 12 skipped`，约 45 秒（跳过的是需要真实素材、真实摄像头
-或 20 分钟时长的探针）。
+**预期**：`59 passed, 15 skipped`，约 40 秒（跳过的都是**按需**的探针：需要真实素材、
+真实摄像头或 20 分钟时长 —— 设了对应环境变量才会跑）。
 
 ### 2.1 可选：用一段素材验证"活链路"（不需要摄像头）
 
@@ -172,7 +178,7 @@ E2E_STAGE2_PORT=8991 pnpm test:e2e
 live API `E2E_API_LIVE_PORT`(8789)、假模型供应商 `E2E_FAKE_MODEL_PORT`(8790)、
 stage2 转发 `E2E_STAGE2_PORT`(8891)。
 
-- [ ] 72 项（含若干项按需 skip：真实素材、真实摄像头、20 分钟 soak 都默认跳过）
+- [ ] 断言总数 74 项（其中 15 项按需 skip）；上面的 `59 passed` 与它对得上
 - [ ] 实际使用的浏览器是：__________（Chrome / Edge / Playwright 自带）
 
 **结果记录**：______________________
@@ -456,7 +462,15 @@ curl http://127.0.0.1:8787/api/health
 - [ ] 已录制 ≥ 5 段素材
 - [ ] 每段都填了上述信息
 
-**素材放在哪**：`evaluation/` 目录下，建议 `evaluation/raw/`。
+**素材放在哪**：**仓库外**（`evaluation/samples.json` 的 `dataPolicy` 就是这么定的，
+例如 `~/pingpong-samples/`）。真实视频与任何含人脸的图**不进 Git** —— 这是数据政策，
+不是"建议"。
+
+> ⚠️ 这里原先写的是"放 `evaluation/` 下的 raw 子目录"，与政策不符，已改。
+> `.gitignore` 里另外还忽略着几个**将来可能用到、现在并不存在**的目录（例如 fixtures 下
+> 给真实素材预留的那个）—— 那是**兜底**，不是让你把素材往里放：视频有扩展名规则挡着，
+> 但**联系表与关键帧是 PNG**，一旦落进任何会被跟踪的目录就会被 `git add` 收进去，
+> 而那上面是人的脸。所以：素材放仓库外；派生出来的图放在 `.tmp-*/` 这类已忽略的临时目录里。
 
 ### 标注要标多准？先跑这个
 
@@ -470,33 +484,51 @@ pnpm annotate:tolerance
 **100ms**（容差的一半），导出脚本会**自动自检**并打印「时长 → 容差」对照表与结论。
 要改就用 `PPC_CONTACT_SHEET_STEP_MS`；基准时长用 `PPC_EXPECTED_STROKE_MS`（默认 800ms）。
 
-### 拿到素材后：跑回放评测与阈值诊断
 
-有了至少一段素材，就能把「准备区半径该调到多少」从开放问题缩小到一个区间。
-两步，都用真实素材：
+### 拿到素材后：标一段，跑出第一份真实数字（三步）
+
+工具已经全部就绪，你只需要**看联系表、填三个数字**：
 
 ```bash
-# ① 逐帧回放，导出观测（在 apps/web 下产出 .tmp-eval/pose-timeline.json）
+# ① 导出观测 + 分块联系表 + 帧索引（时间戳烧在画面里）
 PPC_VERIFY_VIDEO="<素材绝对路径>" pnpm --filter @pingpong/web test:e2e segmentation-eval
 
-# ② 从回放数据里框出准备区半径的可行区间
+# ② 照着 strips/*.png 读时刻，填进 evaluation/samples.json 的 samples[0]
+#    那里有一条**带注释的待填模板**：annotatorId + 每一板的 startMs/endMs
+#    （要报事件定位再填 events）。字段名必须是 startMs/endMs —— 写错会被丢弃并告警。
+
+# ③ 跑指标：缺标注它会**明确拒绝**给数字，而不是编一个
+pnpm eval:replay --manifest evaluation/samples.json
+```
+
+输出会按**标注者**分开报（模型标注只能当估计，不许与人工真值合并），并给出
+分段 precision / recall、边界误差，以及（填了 events 的话）事件时间误差 P50/P95。
+**工程测试与识别质量分两栏写**：`pnpm verify` 全绿只说明代码正确，不说明识别准。
+
+### （可选）框出准备区半径的可行区间
+
+**沿用上面 ① 导出的 `pose-timeline.json`**（不用再跑一遍探针），只多一条命令：
+
+```bash
 pnpm diagnose:thresholds --timeline apps/web/.tmp-eval/pose-timeline.json
 ```
 
-**① 会输出什么（事实，不是评价）**：逐帧人体检出数、闭合了几次挥拍 / 几组、
-以及一段距离直方图。它**不会**输出准确率 —— 没有人工标注就没有真值，
-`pnpm eval:replay` 在缺标注时会明确拒绝输出数字。
-
-**② 会输出什么**：腕部到准备区中心的距离分布，若有**两个足够大的峰**，
-就取两峰之间的谷底当分界，给出「可行区间」；若分布是单峰（对拉时常见），
-它会**明说"没找到显著的谷底"并拒绝给建议值**。这是刻意的：
-谷底不显著时硬给一个数，等于换个方式猜。
+它把「腕部到准备区中心的距离」画成分布：若有**两个足够大的峰**，就取两峰之间的
+谷底当分界，给出「可行区间」；若分布是单峰（对拉时常见），它会**明说"没找到显著的
+谷底"并拒绝给建议值**。这是刻意的：谷底不显著时硬给一个数，等于换个方式猜。
 
 ⚠️ **它不改任何阈值**。改阈值要按 `docs/acceptance.md` 记录理由与版本，
-且**样本量只有一两段素材时不足以定值** —— 这时该做的是人工标注，不是调参。
+且**样本量只有一两段素材时不足以定值** —— 这时该做的是**人工标注**，不是调参。
 
-- [ ] 已跑通回放评测（`pose-timeline.json` 有内容）
-- [ ] 已跑阈值诊断，并把输出贴回来
+**① 会输出什么（事实，不是评价）**：逐帧人体检出数、闭合了几次挥拍 / 几组。
+它**不会**输出准确率 —— 没有人工标注就没有真值，`eval:replay` 在缺标注时
+会明确拒绝输出数字（这是设计，不是缺陷）。
+
+- [ ] 已跑通回放探针（`apps/web/.tmp-eval/` 下有 `segmentation-observed.json`、
+      `pose-timeline.json`、`strips/`、`frame-index.json`）
+- [ ] 已照联系表填好 `samples.json` 里那条模板（至少一板 + `annotatorId`）
+- [ ] `pnpm eval:replay` 输出了分段指标（而不是"未计入"）
+- [ ] （可选）跑了阈值诊断，并把输出贴回来
 
 ---
 

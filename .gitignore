@@ -31,6 +31,10 @@ samples/
 *.mkv
 evaluation/fixtures/real/
 evaluation/out/
+# `evaluation/raw/` 曾出现在 docs/local-verification.md 的建议里（现已改成"放仓库外"）。
+# 留着这条是**兜底**：视频有上面的扩展名规则挡着，但联系表/关键帧是 PNG ——
+# 没这条的话，照旧建议放进去的图会被 `git add` 收进去，而那是**人脸的图**。
+evaluation/raw/
 
 # 运行时产物
 *.log
