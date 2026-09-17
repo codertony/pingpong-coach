@@ -330,6 +330,25 @@ PPC_SOAK=1 PPC_SOAK_MINUTES=20 pnpm --filter @pingpong/web test:e2e soak
 默认 skip，不设环境变量不会跑。它会打印堆用量趋势、未完成帧数（队列积压代理量）、
 吞吐与引擎往返延迟。实测参考值见 `docs/evaluation-log.md`。
 
+**手部模型的接口契约（可选，一条命令）**：
+
+```bash
+# 从素材里抽一帧**整帧** —— 不要裁剪：手掌检测器在整图上检测，
+# 裁掉上下文它反而什么都检不到（裁剪与整帧都实测过，见 hand-model.e2e.ts 的注释）
+mkdir -p apps/web/.tmp-handimg
+ffmpeg -y -ss 3.0 -i "<你的素材>" -frames:v 1 apps/web/.tmp-handimg/full_3s.jpg
+PPC_HAND_IMAGE="$PWD/apps/web/.tmp-handimg/full_3s.jpg" \
+  pnpm --filter @pingpong/web test:e2e hand-model
+```
+
+**预期**：`1 passed`。它钉的是**接口契约** —— 21 个点、坐标有限且在范围内、
+左右手分 > 0.5、以及 **`visibility` 恒为 0**（后者是踩过的坑：把 0 当"不可见"
+会让所有手部点被静默丢弃）。
+
+⚠️ **它不证明"检到了持拍手"**：实测这支素材上的检出很可能是一次误检
+（同一次采样里，检出的"手"离任何腕部关键点 625px，判定容差 220px）。
+这一帧没检出就换个时刻再抽几帧（改 `-ss`）—— 这支素材的检出率本来就低。
+
 **前端**（`pnpm dev:all` 已经包含）：
 
 ```bash
