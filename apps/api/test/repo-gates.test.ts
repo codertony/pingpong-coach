@@ -194,7 +194,7 @@ describe("CI 的 e2e 必须自带模型资产", () => {
   });
 });
 
-describe("生产镜像的内容（本机没有 docker，只能在这里钉）", () => {
+describe("生产镜像的内容（镜像不进 verify，只能在这里钉）", () => {
   /*
    * F-065 就是这么发生的：`.dockerignore` 排除了 `apps/web/public/wasm`（并注明
    * "wasm 来自 node_modules，装依赖时就有"），而构建里**没有任何一步**把它复制过去 ——
@@ -261,5 +261,27 @@ describe("生产镜像的内容（本机没有 docker，只能在这里钉）", 
     );
     expect(dockerfile).toMatch(/COPY --from=builder \/app\/knowledge\s+\.\/knowledge/);
     expect(dockerfile).toMatch(/apps\/api\/node_modules\/tsx/);
+  });
+});
+
+describe("文档一致性的编号区间检查（F-030 那一类里唯一机械可查的子类）", () => {
+  it("真的校验到了区间，而不是「检查通过、其实一处都没看」", () => {
+    /*
+     * 踩过的坑：台账已经到 F-066，而 README 两处还写着「F-001 ~ F-042」，
+     * **没有任何门禁会红** —— F-030 记过「叙述性漂移 check:docs 结构上查不到」。
+     * 现在 `check-docs` 会校验编号区间是否落后于台账。但这类检查有个共通的自毁方式：
+     * 区间写法一变（或不再写死数字），它就**一处都匹配不到**，然后照样打印「通过」。
+     * 所以这里钉住它**实际校验过的数量** —— 与 `audit:wiring` 的数量下限同一个套路。
+     */
+    const out = execFileSync("node", [resolve(repoRoot, "scripts/check-docs.mjs")], {
+      cwd: repoRoot,
+      encoding: "utf8",
+    });
+    const m = /另校验了\s*(\d+)\s*处 F-0NN 编号区间/.exec(out);
+    expect(m, `check-docs 的输出格式变了，这条守卫失效了：\n${out}`).not.toBeNull();
+    expect(
+      Number(m![1]),
+      "一处编号区间都没校验到 —— 要么区间写法变了，要么这条检查已经空转",
+    ).toBeGreaterThanOrEqual(1);
   });
 });

@@ -22,7 +22,7 @@
 | **B 类 · 环境依赖** | 需要访问我网络里被墙的资源，或需要真实硬件 | **我做不完**，给你可执行步骤，你跑完把结论告诉我 |
 | **C 类 · 主观判断** | 需要"人觉得对不对" —— 文案是否自然、建议是否像教练说的、交互是否顺手 | **必须你判断**，我只能保证逻辑自洽 |
 
-**关键结论**：**A 类已全部清空**（见第三节，A1–A9 逐条有结论）。
+**关键结论**：**A 类已全部清空**（见第三节，A1–A10 逐条有结论；A10 是补的验证，功能本来就在，见 F-009 第四轮）。
 剩余全部落在 B 类（需要真实设备/素材）与 C 类（需要人判断）——
 它们**无法用断言替代**，不是"没做完的代码工作"。
 
@@ -37,7 +37,7 @@
 | pnpm workspace 四包结构 | `[x]` | `apps/api` `apps/web` `packages/contracts` `packages/motion-core` |
 | 数据契约（zod） | `[x]` | contracts 44 项测试 |
 | 纯计算核心 | `[x]` | motion-core 251 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化、分布谷底判据） |
-| 后端 + Mock 适配器 | `[x]` | api 222 项测试（含 1 项按需跳过）|
+| 后端 + Mock 适配器 | `[x]` | api 223 项测试（含 1 项按需跳过）|
 | 前端采集链路 | `[x]` | web 197 项 vitest + 75 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
@@ -120,11 +120,11 @@
 ```
 contracts      44
 motion-core   251
-api           222
+api           223
 web (vitest)  197
 web (Playwright/真 Chrome) 75
 ─────────────────────────────
-合计          788
+合计          789
 ```
 
 ---
@@ -142,7 +142,7 @@ web (Playwright/真 Chrome) 75
 | A5 | ✅ 错误路径补测 | 畸形请求体、后端不可达、HTTP 500、**摄像头中途断开**（F-014，本轮补 2 项 e2e）；另有 `describeCameraError` 映射单测 | 中 |
 | A6′ | ✅ 密钥守卫 + 费用已知 | `scripts/check-secrets.mjs` 接进 `verify`：扫被跟踪文件里的疑似密钥（**命中只报打码后的前几位**）、并确认 `.env` 仍被忽略；**已用植入假密钥验证会红**。费用：按官方定价与实测 tokens 折算 **一次分析 0.004~0.008 元**（优惠/高峰），成本由**输出**主导而非图片 —— 见 `evaluation-log.md` | 小 |
 | A6 | ✅ 依赖体积预算 | `scripts/check-bundle.mjs` + `pnpm check:bundle`，已接进 `verify` 与 CI；预算 gzip 160 KiB，当前 138.9 KiB | 小 |
-| A7 | ✅ Docker 镜像（**已真实构建并跑通**） | `Dockerfile`（三阶段）+ `.dockerignore`。单容器同时提供 API 与前端静态产物。**用本机 Podman 真实 `build` 并起容器验证通过**：镜像 431 MB，容器 `Up`，`/api/health` 200、`/` 200、两个 `.task` 与两个 wasm 资产全 200。**四个坑都是真实构建才暴露的**（代理继承 / husky prepare / tsx 路径 / `.bin` 包装脚本），详见下方 | 中 |
+| A7 | ✅ Docker 镜像（**已真实构建并跑通**） | `Dockerfile`（三阶段）+ `.dockerignore`。单容器同时提供 API 与前端静态产物。**用本机 Podman 真实 `build` 并起容器验证通过**：容器 `Up`，`/api/health` 200、`/` 200。**四个坑都是真实构建才暴露的**（代理继承 / husky prepare / tsx 路径 / `.bin` 包装脚本），详见下方。**2026-09-17 复测**：镜像 **499 MB**（当时记 431 MB），`dist` 里是 **3 个 `.task` + 6 个 wasm 文件**（尺寸逐个对上），容器内 fetch `/wasm/vision_wasm_internal.wasm` = 200 / `application/wasm` / **11153617 字节** / 魔数 `00 61 73 6d`。⚠️ 当时的记录写的是"两个 `.task` 与两个 wasm 资产"——**文件数变多是明确的**，那正是 F-065 补上的东西（此前镜像里一个 wasm 都没有）；**大小的差额没有逐层核对，这里不解释** | 中 |
 | A8 | ➖ changesets 发布流程（**不适用**） | 四个包**全部 `private: true`**，根本不发布，没有版本管理需求。原描述"已装但未配置"不准确 —— 实测 `@changesets/*` 并未安装。多包版本发布是"如果将来要开源/发布"才需要的事，现在做属于无的放矢 | 小 |
 | A9 | ✅ 无障碍（a11y）检查 | 三个 tab 由「带 onClick 的 div」改为真 `button` + `role="tab"` + `aria-selected` + `focus-visible` 焦点样式；全部 `<label>` 加 `htmlFor` 关联控件（此前无关联，屏幕阅读器读不出用途，自动化测试也定位不到）。**对比度另查出并修掉一个真实缺陷**：交互控件与装饰线原先共用一个边框色，表单控件边框对自身背景只有 **1.21:1**，深色主题下很难看出输入框边界 —— 拆出 `--border-control` 提到 3.18:1，并用 `contrast.test.ts` 6 项钉住 | 小 |
 

@@ -3,7 +3,7 @@
 实时乒乓球训练反馈 MVP。**摄像头 → 自动切分挥拍 → 二维动作测量与关键帧 → 一次多模态模型调用 → 一条有证据的反馈。**
 
 当前状态：**P0 + P1 代码骨架已完成**。工程护栏齐备（类型 / 架构约束 / 格式 / 接线审计 /
-文档一致性 / 密钥守卫 / 依赖体积预算 / CI），**788 项测试**（713 单元 + 75 浏览器）。
+文档一致性 / 密钥守卫 / 依赖体积预算 / CI），**789 项测试**（714 单元 + 75 浏览器）。
 模型调用默认走 `mock`，**不配任何密钥也能跑通全链路**。
 
 > ⚠️ **这是一份契约完整、可编译、可测试的工程骨架，不是已验证的产品。**
@@ -18,7 +18,7 @@
 > - `evaluation/` 里没有真实素材，所以切分与指标的准确率**无法计算**；
 > - 真实大模型只测过**一轮**（链路可用、图片确实被看懂），**建议质量与费用未评估**。
 >
-> 详见 [已知失败 F-001 ~ F-042](./docs/known-failures.md)、[评测日志](./docs/evaluation-log.md)、[路线图](./docs/roadmap.md)。
+> 详见 [已知失败 F-001 ~ F-066](./docs/known-failures.md)、[评测日志](./docs/evaluation-log.md)、[路线图](./docs/roadmap.md)。
 
 ---
 
@@ -215,10 +215,10 @@ pingpong-coach/
 ├─ knowledge/               # 知识条目（当前 status 均为 observation_only）
 ├─ configs/thresholds.json  # 全部阈值的规范快照（**不被运行时读取**，由一致性测试双向守着）
 ├─ models/manifest.json     # 模型清单 + SHA-256（已按实下载回填）
-├─ evaluation/samples.json  # 三层标注样本清单（当前为空 ← 最大的缺口）
+├─ evaluation/samples.json  # 三层标注样本清单（**只有待填模板，还没有真实标注** ← 最大的缺口）
 ├─ scripts/                 # fetch-models / eval-replay / check-{bundle,docs,secrets} / audit-wiring
 ├─ docs/                    # spec / acceptance / data-contracts / decisions
-│                           # + known-failures（F-001~F-042）/ evaluation-log / roadmap
+│                           # + known-failures（F-001~F-066）/ evaluation-log / roadmap
 │                           # + local-verification（本机验证清单）
 ├─ .github/workflows/       # CI：verify / e2e / docker 三个 job
 ├─ eslint.config.mjs        # 架构护栏：依赖方向 + 红线约束（违规即报错）
@@ -261,15 +261,15 @@ pnpm verify         # 一把梭门禁（含全部单元测试）
 pnpm test:e2e       # 真实浏览器端到端测试（Playwright + 真 Chrome）
 ```
 
-**当前共 788 项测试**（713 单元 + 75 浏览器）：
+**当前共 789 项测试**（714 单元 + 75 浏览器）：
 
 | 包 | 单元测试 | 浏览器测试 |
 | --- | --- | --- |
 | `@pingpong/contracts` | 44 | — |
 | `@pingpong/motion-core` | 251 | — |
-| `@pingpong/api` | 222（221 通过 + 1 按需跳过） | — |
+| `@pingpong/api` | 223（222 通过 + 1 按需跳过） | — |
 | `@pingpong/web` | 197 | 75 |
-| **合计** | **713** | **75** |
+| **合计** | **714** | **75** |
 
 > **默认一跑通过的不是全部。** `api` 有 1 项、浏览器有 16 项是**按需跳过**的探针
 > （需要真实素材、真实摄像头或 20 分钟时长），所以 `pnpm test:e2e` 的默认输出是

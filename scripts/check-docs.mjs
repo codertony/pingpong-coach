@@ -111,6 +111,8 @@ async function main() {
   const problems = [];
   /** 有多少条路径因为"仓库刻意不跟踪"而跳过存在性检查（末尾要报出来） */
   let ignoredSkipped = 0;
+  /** 校验过多少处「F-001 ~ F-0NN」编号区间（末尾报出来，供门禁自身的回归测试钉住下限） */
+  let rangesChecked = 0;
   /** doc -> 该文档里出现的"合计 N 项测试"数字，用于跨文档一致性 */
   const totalClaims = new Map();
 
@@ -216,6 +218,41 @@ async function main() {
     problems.push(`各文档声明的测试总数不一致：\n${detail}`);
   }
 
+  // ── 4. F-0NN 编号区间不许落后于台账 ──
+  //
+  // 叙述性的漂移 check:docs 结构上查不到（F-030 记过这件事）—— 但其中一个**最机械的
+  // 子类能查**：「F-001 ~ F-042」这种写死的区间。实测踩过两次：台账已经到 F-066，
+  // 而 README 里两处还写着 F-042，**没有任何门禁会红**。
+  //
+  // 只查**当前状态类**文档（README / roadmap），并且只拿两个台账算最大值。
+  // HANDOFF / evaluation-log 里的数字属于"那一刻的快照"（HANDOFF 自己就写着
+  // F-001~F-013），拿今天的最大值去判它们是**误报** —— 与其给门禁加豁免
+  // （F-033 的教训：需要豁免的门禁会被绕过），不如把范围限定在本来就该随仓库变的文档上。
+  {
+    const ledgerFiles = ["docs/roadmap.md", "docs/known-failures.md"];
+    let maxF = 0;
+    for (const f of ledgerFiles) {
+      const t = await readFile(resolve(repoRoot, f), "utf8");
+      for (const m of t.matchAll(/F-(\d{3})/g)) maxF = Math.max(maxF, Number(m[1]));
+    }
+    if (maxF === 0) {
+      throw new Error("台账里连一个 F 编号都没读到 —— 这条检查会形同虚设，先确认台账格式没变");
+    }
+    const maxFText = `F-${String(maxF).padStart(3, "0")}`;
+    for (const f of ["README.md", "docs/roadmap.md"]) {
+      const t = await readFile(resolve(repoRoot, f), "utf8");
+      for (const m of t.matchAll(/F-(\d{3})\s*[~～]\s*F-(\d{3})/g)) {
+        rangesChecked++;
+        if (Number(m[2]) < maxF) {
+          problems.push(
+            `${f}: 写着「F-${m[1]} ~ F-${m[2]}」，而台账里最大的编号已经是 ${maxFText}` +
+              ` —— 区间要跟着更新，或者干脆别写死数字`,
+          );
+        }
+      }
+    }
+  }
+
   if (problems.length > 0) {
     console.error("✗ 文档与仓库实际不符：\n");
     for (const p of problems) console.error(`  ${p}`);
@@ -229,6 +266,7 @@ async function main() {
       : "（文档未声明总数）";
   console.log(
     `✓ 文档一致性通过：命令、路径、测试总数声明都对得上 ${totalNote}` +
+      `（另校验了 ${rangesChecked} 处 F-0NN 编号区间）` +
       (ignoredSkipped > 0
         ? `（另有 ${ignoredSkipped} 条路径因为**仓库刻意不跟踪**而跳过存在性检查 —— ` +
           `构建产物、下载的资产、临时目录；它们只有在跑过对应步骤之后才存在）`

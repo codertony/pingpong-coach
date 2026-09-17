@@ -70,7 +70,7 @@ pnpm verify
 ```
 packages/contracts  Tests   44 passed (44)
 packages/motion-core Tests 251 passed (251)
-apps/api            Tests  221 passed | 1 skipped (222)
+apps/api            Tests  222 passed | 1 skipped (223)
 apps/web            Tests  197 passed (197)
 ...
 ✓ built in ~2s
