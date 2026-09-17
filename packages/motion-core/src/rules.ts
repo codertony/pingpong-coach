@@ -134,6 +134,14 @@ export function evaluateRule(
 
     // 未审核或没有适用参考时，只报告观察，禁止输出"达到/未达到"这类判定。
     // 这是硬约束：不能让一条尚未被教练认可的规则冒充结论。
+    //
+    // ⚠️ 这里**刻意只查两个字段**，而知识条目的门禁要查五项
+    // （审核人／来源／许可／适用条件／参考片段 id，见 `apps/api/src/coach/knowledge.ts`）。
+    // 差别在**信任模型**，不是严格程度：
+    // - 知识条目是**内容文件**（`knowledge/*.json`），改它不需要改代码、不过 CI；
+    // - 规则是**代码**（本文件的 `BUILTIN_RULES`），改它要走代码评审，
+    //   溯源头是 `ruleVersion` 与 `docs/acceptance.md` 的阈值变更记录。
+    // 所以不要"为了对称"往这里加同名字段 —— 那是给代码写的规则补一份没人填的凭据。
     if (rule.status !== "reviewed" || rule.referenceId == null) {
       return {
         kind: "observation_only",
