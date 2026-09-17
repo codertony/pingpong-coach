@@ -113,5 +113,22 @@ test.describe("导入视频 · 播完必须出结论", () => {
       metas.some((m) => m.includes("板 ") && m.includes("距事件")),
       `关键帧没写清属于哪一板、锚在哪个事件上，页面上是：${JSON.stringify(metas)}`,
     ).toBe(true);
+
+    /*
+     * ④ 逐板数值与**阶段时间线**也要在真浏览器里出现过（R5/R4 的用户可见面）。
+     * 段落实时跑出来的东西不是 fixture —— 它证明这条链路真的把逐板数据带到了界面上。
+     */
+    await expect
+      .poll(async () => page.locator(".phase-step").count(), {
+        timeout: 30_000,
+        message: "复查页没有阶段转变时间线 —— 逐板那一栏没渲染出来",
+      })
+      .toBeGreaterThan(0);
+    await expect(page.getByText("逐板数值与过程")).toBeVisible();
+    // 时间线上的每一步都要带时刻，用户才能与关键帧的 @Nms 对上
+    const firstStep = await page.locator(".phase-step").first().textContent();
+    expect(firstStep, `阶段步骤没带时刻：${firstStep}`).toMatch(/\d+ms/);
+    // 证据包的局限要能看见 —— 模型只知道那里写了的事
+    await expect(page.getByText("证据包的局限")).toBeVisible();
   });
 });

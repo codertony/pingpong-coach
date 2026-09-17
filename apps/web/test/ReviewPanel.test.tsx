@@ -25,7 +25,22 @@ function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
     strokeType: "forehand_drive",
     handedness: "right",
     cameraView: "front",
-    perStrokeFeatures: [{ strokeId: "st-1", features: [] }],
+    perStrokeFeatures: [
+      {
+        strokeId: "st-1",
+        features: [
+          {
+            id: "return_after_wrist_peak_ms",
+            value: 380,
+            unit: "ms",
+            coordinateSpace: "image_2d",
+            intervalMs: [400, 820],
+            quality: "usable",
+            reasonIfMissing: null,
+          },
+        ],
+      },
+    ],
     strokes: [
       {
         strokeId: "st-1",
@@ -34,7 +49,14 @@ function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
         anchor: { type: "wrist_speed_peak", timeMs: 400 },
         impactTimeMs: null,
         complete: true,
-        phaseEvents: [],
+        // 真实的一板会有阶段转变（只有 complete 挥拍才会进证据包，
+        // 而闭合时**无条件**产生 stroke_closed）
+        phaseEvents: [
+          { eventType: "backswing_start", timeMs: 240, supportFrameIds: ["f-1"] },
+          { eventType: "forward_start", timeMs: 400, supportFrameIds: ["f-1"] },
+          { eventType: "return_start", timeMs: 640, supportFrameIds: ["f-1"] },
+          { eventType: "stroke_closed", timeMs: 1000, supportFrameIds: ["f-1"] },
+        ],
         evidenceFrameIds: ["f-1"],
         reasons: [],
       },
@@ -71,7 +93,11 @@ function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
       unit: "ms",
       minValidStrokes: 3,
     },
-    limitations: ["单目二维"],
+    limitations: [
+      "单目二维骨架，无法判断肌肉紧张、发力大小、足底承重或力量传递效率",
+      "关键帧锚在检出的阶段转变上（引拍／前挥／还原开始、本板闭合）：共 2 张，其中 1 张就在转变时刻（偏移 0ms）",
+      "本组有 1 个阶段转变在时间窗内没有可用画面（第 1 板的 本板闭合）——这些时刻只有数值证据",
+    ],
     readyZone: { xPx: 640, yPx: 400, radiusPx: 80 },
     ...overrides,
   };
@@ -182,6 +208,112 @@ describe("ReviewPanel", () => {
     renderPanel([makeReviewItem()], onRate);
     fireEvent.click(screen.getByText("有帮助"));
     expect(onRate).toHaveBeenCalledWith("req-1", "helpful");
+  });
+});
+
+/**
+ * 逐板数值与过程（R5/R4 的用户可见面）。
+ *
+ * 为什么值得单独守：逐板数值与阶段事件是**喂给模型**的（R5/R4），
+ * 而复查页此前只显示组级标量 —— 用户看不到模型看到的那些数。
+ * 这一栏就是把"模型看到的东西"摆到用户面前。
+ */
+describe("ReviewPanel · 逐板数值与过程", () => {
+  it("把这一板的测量值列出来（不是只有组级标量）", () => {
+    renderPanel([makeReviewItem()]);
+    expect(screen.getByText("逐板数值与过程")).toBeInTheDocument();
+    // 逐板那张表里出现这个量；组级表里也有同名量，所以用 getAllByText
+    expect(screen.getAllByText("return_after_wrist_peak_ms").length).toBeGreaterThanOrEqual(2);
+    // 逐板值 380 与组级值 420 都要能看见（当前 fixture：逐板 380）
+    expect(screen.getByText("380")).toBeInTheDocument();
+  });
+
+  it("阶段转变按**时间顺序**列出来，且写明不是击球时刻", () => {
+    renderPanel([makeReviewItem()]);
+    const steps = document.querySelectorAll(".phase-step");
+    expect(steps, "一板四个阶段转变，应当四个都在").toHaveLength(4);
+    const text = [...steps].map((s) => s.textContent ?? "");
+    expect(text[0]).toContain("引拍开始");
+    expect(text[1]).toContain("前挥开始");
+    expect(text[2]).toContain("还原开始");
+    expect(text[3]).toContain("本板闭合");
+    // 时刻要写出来，用户才能与关键帧的时间戳对上
+    expect(text[3]).toContain("1000ms");
+    // 红线 2：不能让用户把这些时刻读成击球
+    expect(screen.getByText(/不是击球时刻/)).toBeInTheDocument();
+  });
+
+  it("**某板自己的值缺失**时显示缺失 + 原因，不填 0", () => {
+    const packet = makePacket({
+      perStrokeFeatures: [
+        {
+          strokeId: "st-1",
+          features: [
+            {
+              id: "return_after_wrist_peak_ms",
+              value: null,
+              unit: "ms",
+              coordinateSpace: "image_2d",
+              intervalMs: [400, 820],
+              quality: "limited",
+              reasonIfMissing: "本板未观察到回到准备区",
+            },
+          ],
+        },
+      ],
+    });
+    renderPanel([makeReviewItem({ packet })]);
+    expect(screen.getByText("本板未观察到回到准备区")).toBeInTheDocument();
+    expect(screen.getByText("缺失")).toBeInTheDocument();
+  });
+
+  it("没有记录到阶段转变时明说，而不是留一片空白", () => {
+    const packet = makePacket({
+      strokes: [{ ...makePacket().strokes[0]!, phaseEvents: [] }],
+    });
+    renderPanel([makeReviewItem({ packet })]);
+    expect(screen.getByText(/本板没有记录到阶段转变/)).toBeInTheDocument();
+  });
+
+  it("**两板分别列出**，不合并（「哪一板」正是这一栏存在的理由）", () => {
+    const base = makePacket();
+    const packet = makePacket({
+      strokes: [
+        base.strokes[0]!,
+        {
+          ...base.strokes[0]!,
+          strokeId: "st-2",
+          startMs: 1200,
+          endMs: 2200,
+          anchor: { type: "wrist_speed_peak", timeMs: 1600 },
+          phaseEvents: [
+            { eventType: "backswing_start", timeMs: 1440, supportFrameIds: ["f-2"] },
+            { eventType: "stroke_closed", timeMs: 2200, supportFrameIds: ["f-2"] },
+          ],
+          evidenceFrameIds: ["f-2"],
+        },
+      ],
+      perStrokeFeatures: [base.perStrokeFeatures[0]!, { strokeId: "st-2", features: [] }],
+      keyframes: [
+        base.keyframes[0]!,
+        { ...base.keyframes[0]!, id: "kf-2", frameId: "f-2", strokeId: "st-2", role: "ready" },
+      ],
+    });
+    renderPanel([makeReviewItem({ packet })]);
+
+    expect(screen.getByText("第 1 板")).toBeInTheDocument();
+    expect(screen.getByText("第 2 板")).toBeInTheDocument();
+    // 第二板只有两个转变，两块时间线不会混在一起
+    expect(document.querySelectorAll(".phase-step")).toHaveLength(6);
+    // 第二板没有可用测量 —— 逐板表要说出来
+    expect(screen.getByText("本板没有可用测量值。")).toBeInTheDocument();
+  });
+
+  it("证据包的局限**原样**显示 —— 用户要能看到模型只知道这些", () => {
+    renderPanel([makeReviewItem()]);
+    expect(screen.getByText("证据包的局限")).toBeInTheDocument();
+    expect(screen.getByText(/关键帧锚在/)).toBeInTheDocument();
+    expect(screen.getByText(/没有可用画面/)).toBeInTheDocument();
   });
 });
 

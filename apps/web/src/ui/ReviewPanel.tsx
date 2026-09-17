@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { CoachFeedback, EvidencePacket, FeatureValue } from "@pingpong/contracts";
+import { PHASE_EVENT_LABEL } from "@pingpong/contracts";
 import type { ThresholdConfig } from "@pingpong/motion-core";
 
 export type UserRating = "helpful" | "inaccurate" | "unclear";
@@ -237,6 +238,75 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds }: Props) {
             </div>
 
             <div className="panel">
+              <h2>逐板数值与过程</h2>
+              <div className="small muted" style={{ marginBottom: 10 }}>
+                每一板<strong>各自</strong>的测量值与<strong>阶段转变时刻</strong>。时刻来自分段
+                状态机的阶段转变（离开准备区／确认回身／重新进区／本板闭合），
+                <strong>不是击球时刻</strong> —— 本版没有触球与随挥事件，也没有随挥末端。
+              </div>
+              {selected.packet.strokes.map((s, i) => {
+                const entry = selected.packet.perStrokeFeatures.find(
+                  (e) => e.strokeId === s.strokeId,
+                );
+                return (
+                  <div className="stroke-block" key={s.strokeId}>
+                    <div className="row">
+                      <strong>第 {i + 1} 板</strong>
+                      <span className="mono small muted">{s.strokeId}</span>
+                      <span className="num small">
+                        {s.startMs}–{s.endMs ?? "未闭合"}ms
+                      </span>
+                      <span className={`badge ${s.complete ? "ok" : "warn"}`}>
+                        {s.complete ? "完整" : "不完整"}
+                      </span>
+                    </div>
+                    {s.phaseEvents.length > 0 ? (
+                      <div className="phase-line">
+                        {s.phaseEvents.map((e, j) => (
+                          // 事件是**可重复的有序序列**（拉锯会走两遍引拍），
+                          // 所以 key 必须带上下标，不能只用 eventType
+                          <Fragment key={`${e.eventType}-${e.timeMs}-${j}`}>
+                            {j > 0 && <span className="phase-arrow">→</span>}
+                            <span className="phase-step">
+                              <span>{PHASE_EVENT_LABEL[e.eventType]}</span>
+                              <span className="num small muted">{e.timeMs}ms</span>
+                            </span>
+                          </Fragment>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="small muted">本板没有记录到阶段转变，只有首尾两端可用。</div>
+                    )}
+                    <FeatureTable
+                      features={entry?.features ?? []}
+                      thresholds={thresholds}
+                      scope="stroke"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="panel">
+              <h2>证据包的局限</h2>
+              <div className="small muted" style={{ marginBottom: 8 }}>
+                这一栏是<strong>发出去给模型的那几句原话</strong>（
+                <span className="mono small">packet.limitations</span>）——
+                模型只知道这里写了的事。图少了、某个阶段转变没配上画面、
+                画质没到可判门槛，都应该在这里看得到，而不是只在后台日志里。
+              </div>
+              {selected.packet.limitations.length > 0 ? (
+                <ul className="tight small">
+                  {selected.packet.limitations.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="small muted">本包没有声明任何局限。</div>
+              )}
+            </div>
+
+            <div className="panel">
               <h2>这条反馈有用吗？</h2>
               <div className="small muted" style={{ marginBottom: 8 }}>
                 你的评价会和证据一起保存，用于后续判断提示是否真的有用。
@@ -276,12 +346,24 @@ function ratingLabel(r: UserRating | null): string {
 function FeatureTable({
   features,
   thresholds,
+  /**
+   * 这张表是**组级**还是**逐板**的。
+   *
+   * 两个差别都由它推出来，不另开开关：① 空表时的措辞（"本组"还是"本板"）；
+   * ② 表下那条"本组关注目标阈值"只在组级表里印一次 —— 逐板那张表下面
+   * 各印一遍，读的人会以为每板各有一套阈值。
+   */
+  scope = "group",
 }: {
   features: FeatureValue[];
   thresholds: ThresholdConfig;
+  scope?: "group" | "stroke";
 }) {
+  const isGroup = scope === "group";
   if (features.length === 0) {
-    return <div className="small muted">本组没有可用测量值。</div>;
+    return (
+      <div className="small muted">{isGroup ? "本组没有可用测量值。" : "本板没有可用测量值。"}</div>
+    );
   }
 
   return (
@@ -322,11 +404,13 @@ function FeatureTable({
           ))}
         </tbody>
       </table>
-      <div className="small muted" style={{ marginTop: 8 }}>
-        缺失值一律显示为“缺失”并给出原因，<strong>不会用 0 填补</strong>。
-        本组关注目标阈值：返回准备区时间 ≤ {thresholds.returnAfterWristPeakMaxMs}ms
-        （训练约束，不代表整体动作正确）。
-      </div>
+      {isGroup && (
+        <div className="small muted" style={{ marginTop: 8 }}>
+          缺失值一律显示为“缺失”并给出原因，<strong>不会用 0 填补</strong>。
+          本组关注目标阈值：返回准备区时间 ≤ {thresholds.returnAfterWristPeakMaxMs}ms
+          （训练约束，不代表整体动作正确）。
+        </div>
+      )}
     </>
   );
 }

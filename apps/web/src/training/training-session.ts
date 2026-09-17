@@ -15,14 +15,13 @@ import type {
   FeatureValue,
   Keypoint2D,
   PerStrokeFeatures,
-  PhaseEvent,
   PoseFrame,
   RuleCriterion,
   SegmentationConfig,
   StrokeEvent,
   StrokePhase,
 } from "@pingpong/contracts";
-import { FEATURE_IDS, RULE_VERSION, SCHEMA_VERSION } from "@pingpong/contracts";
+import { FEATURE_IDS, PHASE_EVENT_LABEL, RULE_VERSION, SCHEMA_VERSION } from "@pingpong/contracts";
 import {
   StrokeSegmenter,
   assessFrameQuality,
@@ -164,20 +163,6 @@ const READY_CALIBRATION_STABLE_BODY_SCALE = 0.1;
 
 /** 还没测到体尺度时，用这个像素值充当尺度基准（仅用于上面的稳定性判断）。 */
 const READY_CALIBRATION_FALLBACK_BODY_SCALE_PX = 200;
-
-/**
- * 阶段转变的中文说法，只用于**给人读的文案**（状态栏、`limitations`）。
- *
- * 键与契约的 `PhaseEvent.eventType` 一一对应。这里是**状态机口径**的说法，
- * 不是解剖学结论：`forward_start` 是「确认回身并加速向回」那一刻，
- * 不是「击球」。措辞上刻意避开「击球」二字（红线 2）。
- */
-const PHASE_EVENT_LABEL: Record<PhaseEvent["eventType"], string> = {
-  backswing_start: "引拍开始",
-  forward_start: "前挥开始",
-  return_start: "还原开始",
-  stroke_closed: "本板闭合",
-};
 
 /** 把姿态结果转成 PoseFrame，并做质量评估。 */
 function toPoseFrame(
@@ -1020,7 +1005,9 @@ export class TrainingSession {
          * 真实的阶段转变送出来了，继续按比例猜没有理由。所以那句恒发的
          * 「按区间时间比例挑选」不再成立。
          *
-         * ⚠️ 这里**必须说"挑的结果"而不是"整组一个模式"**，而且不能把
+         * ⚠️ 文案是**纯文本**（模型与复查页都直接照原样显示），所以这里不用 Markdown
+         * 的 `**` 着重号 —— 它会在复查页上变成两个字面星号。
+         * 同理这里**必须说"挑的结果"而不是"整组一个模式"**，而且不能把
          * 「偏移 > 0」一律说成峰值帧 —— 偏移 > 0 有两种来路（见 `KeyframePick`）：
          * 相位内的腕速峰值帧，或"转变那一刻恰好没采到图、退到窗内最近一张"。
          * 实测（8.15s / 30fps 素材）：18 张里只有 6 张偏移正好是 0 ——
@@ -1028,12 +1015,12 @@ export class TrainingSession {
          */
         ...(keyframes.length > 0
           ? [
-              `关键帧锚在**检出的阶段转变**上（引拍／前挥／还原开始、本板闭合）：` +
+              `关键帧锚在检出的阶段转变上（引拍／前挥／还原开始、本板闭合）：` +
                 `共 ${keyframes.length} 张，其中 ${atEventPicks} 张就在转变时刻（偏移 0ms）、` +
-                `${anchorPicks} 张是该相位内的**腕速峰值帧**、` +
+                `${anchorPicks} 张是该相位内的腕速峰值帧、` +
                 `${fallbackPicks} 张是「转变那一刻没采到图，退到该事件窗内最近一张」` +
                 `（偏移最大 ${maxOffsetMs}ms）。` +
-                `本组**没有**触球与随挥事件（单目二维无可靠接触证据，不假装有）——` +
+                `本组没有触球与随挥事件（单目二维无可靠接触证据，不假装有）——` +
                 `不要把「前挥开始」读成「击球瞬间」`,
             ]
           : []),

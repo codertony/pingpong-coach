@@ -62,6 +62,25 @@ const phaseEventSchema = z.object({
 export type PhaseEvent = z.infer<typeof phaseEventSchema>;
 
 /**
+ * 阶段转变的**中文说法**（给人读的，不参与序列化）。
+ *
+ * 为什么住在契约里而不是各自的 UI/提示词里：这个映射有**三个**读者 ——
+ * 服务端提示词、会话的 `limitations` 文案、复查页的画面。
+ * 三处各写一份就是"同一个事实两处各写各的"（F-026/F-027 栽过好几次），
+ * 而漏掉一项的后果是「新增一种事件类型后，某一处显示为空白」这种不报错的缺口。
+ *
+ * 措辞纪律：这是**状态机口径**，不是解剖学结论 ——
+ * `forward_start` 是「确认回身并加速向回」那一刻，**不是击球**（红线 2）。
+ * 所以这里一律说「前挥开始」，不说「击球」。
+ */
+export const PHASE_EVENT_LABEL: Readonly<Record<PhaseEvent["eventType"], string>> = {
+  backswing_start: "引拍开始",
+  forward_start: "前挥开始",
+  return_start: "还原开始",
+  stroke_closed: "本板闭合",
+};
+
+/**
  * 一次挥拍分段。
  * endMs 为 null 表示尚未闭合（仍在进行或异常结束）。
  */

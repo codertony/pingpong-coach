@@ -145,7 +145,7 @@ describe("R4 · 关键帧锚在检出的事件上，不是按时间比例挑的"
     const { keyframes, limitations } = run(3);
     const text = limitations.join("\n");
     const m = text.match(
-      /共 (\d+) 张，其中 (\d+) 张就在转变时刻（偏移 0ms）、(\d+) 张是该相位内的\*\*腕速峰值帧\*\*、(\d+) 张是/,
+      /共 (\d+) 张，其中 (\d+) 张就在转变时刻（偏移 0ms）、(\d+) 张是该相位内的腕速峰值帧、(\d+) 张是/,
     );
     expect(m, `没找到三类张数那句话：${text}`).not.toBeNull();
     const [total, atEvent, peak, fallback] = m!.slice(1).map(Number) as [

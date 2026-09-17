@@ -5,7 +5,8 @@
  * 服务端必须实际检查 ID、schema、目标匹配和参考审核状态。
  */
 
-import type { EvidencePacket, PhaseEvent } from "@pingpong/contracts";
+import { PHASE_EVENT_LABEL } from "@pingpong/contracts";
+import type { EvidencePacket } from "@pingpong/contracts";
 import type { AllowedOutputs, KnowledgeEntry } from "./knowledge.js";
 
 /** 系统提示词。逐条对应方案 9.4 的约束。 */
@@ -137,14 +138,6 @@ function renderPerStroke(packet: EvidencePacket): string {
     .join("\n");
 }
 
-/** 事件类型的中文说法。给模型看的是意思，不是我们的字段名。 */
-const EVENT_LABEL: Record<PhaseEvent["eventType"], string> = {
-  backswing_start: "引拍开始",
-  forward_start: "前挥开始",
-  return_start: "还原开始",
-  stroke_closed: "本板闭合",
-};
-
 function renderStrokes(packet: EvidencePacket): string {
   if (packet.strokes.length === 0) return "（本组无有效挥拍）";
   return packet.strokes
@@ -161,7 +154,7 @@ function renderStrokes(packet: EvidencePacket): string {
        */
       parts.push(
         s.phaseEvents.length > 0
-          ? `过程=${s.phaseEvents.map((e) => `${EVENT_LABEL[e.eventType]}@${e.timeMs}ms`).join(" → ")}`
+          ? `过程=${s.phaseEvents.map((e) => `${PHASE_EVENT_LABEL[e.eventType]}@${e.timeMs}ms`).join(" → ")}`
           : "过程=（未记录到阶段转变）",
       );
       return parts.join(" | ");

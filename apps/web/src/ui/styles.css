@@ -334,6 +334,44 @@ td.num {
   color: var(--muted);
 }
 
+/*
+ * 一板的**阶段转变**时间线（复查页的「逐板数值与过程」）。
+ *
+ * 用现成的颜色变量，不新造颜色：`.muted` 压在 `--panel-2` 上达到 4.5:1
+ * 这条已经由 `test/contrast.test.ts` 守着，新加一个色值就得重新验一遍。
+ */
+.stroke-block {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+  margin-top: 10px;
+}
+.stroke-block:first-of-type {
+  border-top: none;
+  padding-top: 0;
+  margin-top: 0;
+}
+.phase-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 6px 0 8px;
+}
+.phase-step {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 9px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel-2);
+  font-size: 12px;
+}
+.phase-arrow {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .muted {
   color: var(--muted);
 }
