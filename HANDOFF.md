@@ -134,10 +134,11 @@ pingpong-coach/
 | 真实多模态模型的质量/延迟/费用 | 🟡 **已接上真实模型测过一轮**（DeepSeek `deepseek-flash`，2026-09-16）：链路通、`mock:false`、图片**确实到达并被看懂**（用一张不可猜的合成图验证：蓝底/左上红块/右下黄块，颜色与位置全答对；`prompt_tokens` 35→224）、模型**自发遵守红线**（observation_only / 腕峰≠击球 / 不推断发力）、服务端校验实跑（`rejectedClaims: []`）。延迟中位 **3928ms**。**但"建议质量"与费用未验证** —— 前者要人读，后者未统计 |
 | 20 分钟连续运行稳定性 | 🟡 **已实测一次**（`PPC_SOAK=1`，合成帧）：队列无积压（最大 1）、吞吐 30→30 fps 不衰减、堆 5.8→7.0 MiB 无增长趋势。**非真人连续练习** |
 | 跨平台行为 | 沙箱（Linux + Chromium）与本机（Windows 11 + Chrome）都跑过；其余平台没有 |
-| 模型输出经**服务端校验**那一段 | 需要走到模型调用之后，而 mock 模式不经过模型调用；`validate.test.ts` 有 21 项单测直接覆盖，但没有端到端用例（见 roadmap A2 的说明） |
+| 模型输出经**服务端校验**那一段 | ✅ **有端到端覆盖**（这条曾经写着"没有"，是过期的）：`analyze.test.ts` 从请求打到响应，覆盖非法 JSON → `model_invalid_json`、被 token 预算截断 → `model_truncated`（两者**分开报**，别把截断引到解析上）等分支；`validate.test.ts` 另有逐条单测。校验在 **mock 模式下同样会跑**（mock 只是替掉"调模型"那一步，输出照样过校验） |
 
 > 🔴 **最重要的一句话**：
-> 测试从 172 涨到 689（616 单元 + 73 e2e），但**增量几乎全部落在"代码正确性"上**。
+> 测试从 172 涨到 **752**（678 单元 + 74 浏览器），但**增量几乎全部落在"代码正确性"上**。
+> （权威数字只有一处：`pnpm verify` 的输出；`README.md` 与 `docs/roadmap.md` 里的分包总数由 `check:docs` 交叉核对。）
 > 关于"这个产品准不准"的证据，**一项目前都没有**。
 > 任何声称"识别准确率 X%"的说法，在当前状态下都是无根据的。
 
@@ -153,7 +154,7 @@ pingpong-coach/
 | 1 缺失不用 0 填充 | `api/test/prompt.test.ts` 断言缺失值绝不渲染成 `0` | 用户看到凭空的 0 值判定 |
 | 2 腕峰 ≠ 击球时刻 | `contracts` + `motion-core` 类型层；`impactTimeMs` 恒 `null` | 编造不存在的击球时刻 |
 | 3 禁止二维骨架推断发力等 | `api/src/coach/validate.ts` 的 `scanForbiddenClaims` | 输出伪科学结论 |
-| 4 未审核规则只观察 | `api/test/knowledge.test.ts`：必须 `status === "reviewed"` **且** `referenceId != null` | 系统给出没资格的判定 |
+| 4 未审核规则只观察 | `api/test/knowledge.test.ts`：要"经得起审"必须**五项齐备**（status 是 reviewed ＋ 审核人／来源／许可／适用条件／参考片段 id，见 `knowledge.ts` 的 `reviewedClaimDefects`）。缺一项就按未审核处理**并写进 limitations** | 系统给出没资格的判定；或"自称已审核"被当成真审过 |
 | 5 镜像不改左右标签 | `web/e2e/canvas.e2e.ts` 用像素质心断言镜像对称 | 左右混淆 |
 | 6 角度必须先乘回宽高 | `motion-core/test/geometry.test.ts` 6 个用例 | 60° 被算成 72°（F-004） |
 | 7 禁用离线平滑 | ⚠️ **不是测试**：ESLint `no-restricted-syntax` 拦 `.reverse()`（形态启发式）+ **结构保证**（push 即返回、不保留历史 ⇒ 做不到回头改写）。**这条红线无法用测试证明**，见 F-037 | 用了未来数据；或有人加了"缓冲后统一平滑" |
@@ -245,35 +246,45 @@ CI（`.github/workflows/ci.yml`）跑的是同一套 + `pnpm test:e2e`。
 CI 的 verify job 跑同一套；`test:e2e` 仍独立（需要浏览器）。
 新增 `scripts/check-bundle.mjs`：主包 gzip 预算 160 KiB，当前约 138.9 KiB。
 
-### 🟡 T-2 · 组件级测试 —— 部分完成（2026-09-16）
+### ✅ T-2 · 组件级测试 —— 已完成
 
-已引入 `@testing-library/react` + `jsdom`，新增 8 项渲染测试：
-`App.test.tsx`（mock 标记必须显著可见 / 健康检查失败时如实显示"后端未知"）、
-`ReviewPanel.test.tsx`（空态、反馈渲染、模型失败态、缺失值渲染为"缺失"绝不填 0、回调）。
+`@testing-library/react` + `jsdom`。三个组件级测试文件：
+- `App.test.tsx`：mock 标记必须显著可见 / 健康检查失败时如实显示"后端未知"；
+- `ReviewPanel.test.tsx`：空态、反馈渲染、模型失败态、缺失值渲染为"缺失"绝不填 0、回调，
+  以及后加的逐板数值与阶段时间线、关键帧的板号/距事件偏移、证据包局限原样显示、
+  按板回放（三种"不能放"各一条）、同阶段跨板对照、肘角曲线；
+- `ElbowCurve.test.tsx`：**曲线的画法**（缺测画成断口不插值、时间断口也断、单点段不丢）。
 
-**仍未覆盖**：采集状态流转、摄像头错误态在界面上的实际呈现。
+**仍未覆盖**：采集状态流转（需要真实设备的时序），摄像头错误态在界面上的呈现 —— 
+后者由 `capture-fault.test.ts` 覆盖了**采集层**（两条上报通路各能报、只报一次、
+stop 后不再报），界面那一层仍是组件测试没碰到的。
 
-### T-3 · 前后端串联测试（中）—— 仍未做
+### ✅ T-3 · 前后端串联测试 —— 已完成
 
-前后端仍是**分段测的**：`api-client.e2e.ts` 在浏览器里测了客户端的成功与降级路径
-（网络不可达、HTTP 500、非 JSON 响应），但后端是替身，没有真实的 API 进程参与。
-`app.e2e.ts` 走的是整页链路，但止于"引擎就绪 + 画面接上"，没走到报告渲染。
+`apps/web/e2e/integration.e2e.ts` 起一个**真实的 API 进程**（见 `playwright.config.ts` 的
+webServer），前端在浏览器里从 `POST /api/coach/analyze` 走到反馈渲染，并断言返回的是
+**通过服务端校验**的 `CoachFeedback`（含 `evidenceRefs` / `mock:true`）。
 
-**验收**：起一个真实的 API 进程，前端在浏览器里从 `POST /api/coach/analyze` 走到报告渲染。
+另外 `video-to-analysis.e2e.ts` 是更完整的一条：真实素材 → 自动分组 → 真实 API →
+复查页出现结论 + 证据引用（走 mock 模型，因为 e2e 刻意隔离 `.env` 以免真花钱，见 F-041）。
 
-### 🟡 T-4 · 错误路径补测（中）—— 部分完成
+### 🟡 T-4 · 错误路径补测 —— 部分完成
 
-已覆盖：畸形请求体（api 与 contracts 各 3 项模糊测试，断言绝不 500 / 绝不 throw）、
-后端不可达与 HTTP 500（`api-client.e2e.ts`）。
-**仍未覆盖**：网络中途断开、摄像头中途被拔 —— 后者需要真实设备。
+已覆盖：畸形请求体（api 与 contracts 的模糊测试，断言绝不 500 / 绝不 throw）、
+后端不可达与 HTTP 500（`api-client.e2e.ts`）、摄像头错误码映射（`capture-source.test.ts`）、
+**摄像头中途断开的两条上报通路**（`capture-fault.test.ts`：事件 + 500ms 存活探测、
+只报一次、停完之后不再报 —— 这是 F-014 的回归，此前一个都没有）。
+**仍未覆盖**：网络**中途**断开（不是一开始就不通）、**界面**在故障时实际长什么样。
 
-### 🟡 T-5 · 性能基线（中）—— 部分完成
+### 🟡 T-5 · 性能基线 —— 部分完成
 
 已给 `motion-core` 每帧热路径的四个函数定出 **< 10 ms** 的哨兵上限（`perf.test.ts`），
-并给主包 gzip 体积定了 160 KiB 预算。
-**仍未覆盖**：`FrameScheduler` 在 60fps 下的丢帧率。
-注意这些是**宽松哨兵**，用来拦"数量级退化"，不是性能指标本身 ——
-真实设备上的延迟仍属未验证项（见第 4 节）。
+并给主包 gzip 体积定了预算（`scripts/check-bundle.mjs`，接进 `verify`）。
+`FrameScheduler` 的丢帧行为由 `scheduler.test.ts` 覆盖（繁忙时用最新帧替换旧待处理帧、
+被替换的位图必须关闭）。
+**仍未覆盖**：**真实设备上的延迟本身**（见第 4 节）；另外当初计划的
+`pnpm test:bench` 独立脚本**没有做** —— `perf.test.ts` 现在跟着默认 `pnpm test` 一起跑，
+用的是宽松哨兵，目前没抖过，但慢速 CI 上它是有抖的风险的。
 
 ### 🔴 T-6 · 真实姿态验证（**只有人类能做**）
 
@@ -310,8 +321,7 @@ pnpm dev:all
 ```
 1. 读 AGENTS.md 的红线 + 本文档第 4、5 节          （30 分钟）
 2. 跑 pnpm verify 和 pnpm test:e2e，确认基线        （5 分钟）
-3. 做 T-3（前后端串联）—— 当前最大的测试缺口         （中等）
-4. 补齐 T-2 / T-4 / T-5 各自标注的剩余部分
+3. 补齐 T-4 / T-5 各自标注的剩余部分（网络中途断开、真机延迟）
 5. 请人类完成 T-6 —— 骨架是否贴合关节               ← 关键分水岭
 6. 请人类完成 T-7 —— 真实素材评估
 7. 根据 T-6/T-7 的结果，决定是修 bug 还是加功能
