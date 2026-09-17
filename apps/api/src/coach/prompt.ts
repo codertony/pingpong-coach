@@ -78,15 +78,33 @@ export interface PromptPayload {
   user: string;
 }
 
-/** 把知识条目转成紧凑的文本块，避免把整份知识塞进提示词。 */
-function renderKnowledge(entries: KnowledgeEntry[]): string {
+/**
+ * 把知识条目转成紧凑的文本块，避免把整份知识塞进提示词。
+ *
+ * ⚠️ 自称 `reviewed` 但**站不住**的条目要当场标出来（`unsupported`）：
+ * 那种条目的 `status` 字段写着 reviewed，直接念给模型听等于**拿字段名替内容背书** ——
+ * 而它缺的恰恰是审核人／来源／许可／适用条件这些让人能追责的东西。
+ * 门禁那边已经把它按未审核处理了，这里必须让模型看到同一件事。
+ */
+function renderKnowledge(
+  entries: KnowledgeEntry[],
+  unsupported: Array<{ id: string; defects: string[] }>,
+): string {
   if (entries.length === 0) return "（本轮无适用的已审核知识）";
+  const defectsOf = new Map(unsupported.map((u) => [u.id, u.defects]));
   return entries
     .map((e) => {
+      const defects = defectsOf.get(e.id);
       const lines = [
-        `- 条目 ${e.id} v${e.version}（审核状态：${e.status}）`,
+        defects
+          ? `- 条目 ${e.id} v${e.version}（**自称已审核，但站不住**：${defects.join("、")} —— ` +
+            `按**未审核**处理，不得据此输出达标结论）`
+          : `- 条目 ${e.id} v${e.version}（审核状态：${e.status}）`,
         `  背景：${e.context}`,
       ];
+      if (e.appliesTo != null && e.appliesTo.trim() !== "") {
+        lines.push(`  适用条件：${e.appliesTo}`);
+      }
       if (e.observable.length > 0) lines.push(`  可观察：${e.observable.join("；")}`);
       if (e.notApplicable.length > 0) lines.push(`  不适用/易混淆：${e.notApplicable.join("；")}`);
       return lines.join("\n");
@@ -220,7 +238,7 @@ ${renderFocusCriterion(packet)}
 ${keyframeList || "（无关键帧）"}
 
 # 适用知识
-${renderKnowledge(entries)}
+${renderKnowledge(entries, allowed.unsupportedReviewedClaims)}
 
 # 输出约束
 允许的提示（cue 必须从此列表选择，或为 null）：

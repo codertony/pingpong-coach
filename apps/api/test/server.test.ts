@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { FastifyInstance } from "fastify";
 import { buildServer } from "../src/server.js";
@@ -180,5 +183,73 @@ describe("POST /api/coach/analyze", () => {
     const fb = res.json().feedback;
     expect(fb.limitations.length).toBeGreaterThan(0);
     expect(fb.limitations.join(" ")).toContain("mock");
+  });
+});
+
+/**
+ * 「自称已审核、但站不住」的知识条目：**用户必须被告知**（F-062）。
+ *
+ * 为什么要走到 HTTP 这一层来测：门禁本身（`collectAllowedOutputs`）已经在
+ * knowledge.test.ts 里钉住了，但**降级只发生在代码里**与**降级并要求用户知情**
+ * 是两件不同的事 —— 中间那一步（把 `unsupportedReviewedClaims` 写进
+ * `feedback.limitations`）如果断了，结果与"当成审过了"**完全一样**，
+ * 而那正是这条门禁要挡的事。所以这里从请求打到响应，一路看完。
+ */
+describe("POST /api/coach/analyze · 站不住的已审核声明", () => {
+  let dir: string | null = null;
+  const savedDir = process.env.KNOWLEDGE_DIR;
+
+  afterEach(() => {
+    if (dir) rmSync(dir, { recursive: true, force: true });
+    dir = null;
+    if (savedDir === undefined) delete process.env.KNOWLEDGE_DIR;
+    else process.env.KNOWLEDGE_DIR = savedDir;
+  });
+
+  it("status 写着 reviewed 但缺审核人/许可/适用条件：按未审核处理，并写进 limitations", async () => {
+    dir = mkdtempSync(join(tmpdir(), "ppc-kb-"));
+    writeFileSync(
+      join(dir, "claimed-reviewed.json"),
+      JSON.stringify({
+        id: "kb-claimed",
+        version: "9.9.9",
+        strokeType: "forehand_drive",
+        focusId: "return_to_ready_zone",
+        cameraViews: ["front"],
+        context: "自称已审核，但什么都没写清",
+        observable: [],
+        notApplicable: [],
+        reviewedCues: ["随便一句提示"],
+        allowedDrillIds: [],
+        sources: ["某处"],
+        status: "reviewed",
+        referenceId: "ref-claimed",
+        appliesTo: null,
+        reviewer: null,
+        license: null,
+      }),
+      "utf8",
+    );
+    process.env.KNOWLEDGE_DIR = dir;
+
+    app = await buildServer({ config: MOCK_CONFIG });
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/coach/analyze",
+      payload: PACKET_BODY,
+    });
+    expect(res.statusCode).toBe(200);
+    const fb = res.json().feedback;
+
+    const text = (fb.limitations as string[]).join("\n");
+    expect(text, "自称已审核但站不住的条目没有出现在 limitations 里 —— 降级等于没有发生").toContain(
+      "自称已审核但站不住",
+    );
+    // 缺什么要说清，不能只说"有问题"
+    expect(text).toContain("没有审核人");
+    expect(text).toContain("没有许可说明");
+    expect(text).toContain("没有适用条件");
+    // 门禁没被绕过：没有站得住的参考 → 不给达标结论
+    expect(fb.status).toBe("observation_only");
   });
 });

@@ -79,6 +79,7 @@ const ALLOWED_REVIEWED: AllowedOutputs = {
   drillIds: ["shadow_forehand_return_ready"],
   hasReviewedReference: true,
   referenceId: "ref_1",
+  unsupportedReviewedClaims: [],
 };
 
 const ALLOWED_UNREVIEWED: AllowedOutputs = {

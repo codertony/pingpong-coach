@@ -16,6 +16,7 @@ const noAllowed: AllowedOutputs = {
   drillIds: [],
   hasReviewedReference: false,
   referenceId: null,
+  unsupportedReviewedClaims: [],
 };
 
 function entryList(...e: ReturnType<typeof makeKnowledgeEntry>[]): KnowledgeEntry[] {
@@ -183,10 +184,45 @@ describe("buildPrompt — 审核状态与允许集合", () => {
       drillIds: ["drill-1"],
       hasReviewedReference: true,
       referenceId: "ref-1",
+      unsupportedReviewedClaims: [],
     };
     const { user } = buildPrompt(makePacket({ referenceId: "ref-1" }), [], allowed);
     expect(user).not.toContain("不得输出技术动作「合格」");
     expect(user).toContain("ref-1");
+  });
+
+  /**
+   * 自称已审核、但站不住的知识条目必须在提示词里**被标出来**。
+   *
+   * 不标的后果：`status` 字段写着 reviewed，模型读到「审核状态：reviewed」
+   * 就会把它当成有依据的规则 —— 等于**拿字段名替内容背书**，
+   * 而它缺的恰恰是审核人/来源/许可这些能追责的东西。
+   */
+  it("自称已审核但站不住的条目：提示词里标明「站不住」并说清缺什么", () => {
+    const allowed: AllowedOutputs = {
+      cues: [],
+      drillIds: [],
+      hasReviewedReference: false,
+      referenceId: null,
+      unsupportedReviewedClaims: [{ id: "kb-x", defects: ["没有审核人", "没有许可说明"] }],
+    };
+    const entry = makeKnowledgeEntry({
+      id: "kb-x",
+      status: "reviewed",
+      referenceId: "ref-x",
+    });
+    const { user } = buildPrompt(makePacket(), entryList(entry), allowed);
+    expect(user).toContain("自称已审核，但站不住");
+    expect(user).toContain("没有审核人");
+    expect(user).toContain("按**未审核**处理");
+    // 不能只写 reviewed 就把这条放过去
+    expect(user).not.toContain("（审核状态：reviewed）");
+  });
+
+  it("适用条件会渲染进知识块（判断「是否可比」的依据）", () => {
+    const entry = makeKnowledgeEntry({ appliesTo: "定点正手攻球、固定机位" });
+    const { user } = buildPrompt(makePacket(), entryList(entry), noAllowed);
+    expect(user).toContain("适用条件：定点正手攻球、固定机位");
   });
 
   it("无允许提示时明确要求 cue 必须为 null", () => {
@@ -205,6 +241,7 @@ describe("buildPrompt — 审核状态与允许集合", () => {
       drillIds: ["shadow_forehand_return_ready"],
       hasReviewedReference: false,
       referenceId: null,
+      unsupportedReviewedClaims: [],
     };
     const { user } = buildPrompt(makePacket(), [], allowed);
     expect(user).toContain("回到预备位");

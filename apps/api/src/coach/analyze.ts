@@ -280,16 +280,35 @@ async function runAnalysis(
     );
   }
 
+  /*
+   * 自称已审核、但站不住的知识条目（缺审核人/来源/许可/适用条件/参考片段 id）。
+   *
+   * 门禁那边已经把它们**按未审核处理**了 —— 这里必须把那件事写进 `limitations`，
+   * 否则"降级"就只发生在代码里：用户与模型都以为这条规则审过了。
+   * 这正是设计 §1.4 点名的失败模式（"不为上线方便直接把 status 改成 reviewed"）。
+   */
+  const unsupportedNote =
+    allowed.unsupportedReviewedClaims.length > 0
+      ? [
+          `有 ${allowed.unsupportedReviewedClaims.length} 条知识自称已审核但站不住` +
+            `（${allowed.unsupportedReviewedClaims
+              .map((u) => `${u.id}：${u.defects.join("、")}`)
+              .join("；")}）—— 已按**未审核**处理，不得据此判断是否达标`,
+        ]
+      : [];
+
   return {
     ...outcome.feedback,
-    limitations:
-      droppedIds.length > 0
+    limitations: [
+      ...outcome.feedback.limitations,
+      ...unsupportedNote,
+      ...(droppedIds.length > 0
         ? [
-            ...outcome.feedback.limitations,
             `有 ${droppedIds.length} 张关键帧不是有效图片（${droppedIds.join("、")}），` +
               `已丢弃且未发送给模型 —— 本组结论只依据其余证据。`,
           ]
-        : outcome.feedback.limitations,
+        : []),
+    ],
     modelId: result.mock ? "mock-coach" : config.modelId,
     mock: result.mock,
     // mock 的耗时不计入真实模型延迟统计口径，但仍如实记录

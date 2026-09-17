@@ -18,5 +18,8 @@
     "本条目尚无教练认可的参考区间，因此不提供任何训练提示。"
   ],
   "status": "observation_only",
-  "referenceId": null
+  "referenceId": null,
+  "appliesTo": "定点正手攻球（forehand_drive），机位见 cameraViews。只覆盖「持拍臂在画面内可辨」的情形；机位不同则二维角度不可直接比。不区分来球条件，因此不能把上旋拉球的数值当作定点正手攻球的参考区间。",
+  "reviewer": null,
+  "license": null
 }

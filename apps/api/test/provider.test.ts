@@ -20,6 +20,7 @@ const noAllowed: AllowedOutputs = {
   drillIds: [],
   hasReviewedReference: false,
   referenceId: null,
+  unsupportedReviewedClaims: [],
 };
 
 afterEach(() => {
@@ -125,6 +126,9 @@ describe("callModel — mock 模式", () => {
         sources: [],
         status: "observation_only",
         referenceId: null,
+        appliesTo: null,
+        reviewer: null,
+        license: null,
       },
     ]);
     const result = await callModel(makeConfig() as ServerConfig, makePacket(), [], allowed);

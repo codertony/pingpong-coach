@@ -159,6 +159,29 @@ export function makeKnowledgeEntry(overrides: Record<string, unknown> = {}) {
     sources: ["内部拟定"],
     status: "observation_only" as const,
     referenceId: null,
+    // 声称已审核时**还要**经得起审的四项（见 knowledge.ts 的 reviewedClaimDefects）。
+    // 默认给 null：一条没审过的条目本就不该有审核人与许可。
+    appliesTo: null,
+    reviewer: null,
+    license: null,
     ...overrides,
   };
+}
+
+/**
+ * 一条**经得起审**的已审核条目：五个前置条件全部给足。
+ *
+ * 为什么要一个专门的构造器：`status: "reviewed"` 本身**不再**足以解锁达标判定
+ * （那正是 F-062 修掉的那个洞），所以测试里"一个合法的已审核参考"必须
+ * 把这五项都写全 —— 散在各处各写一遍，漏一项就会被当成"门禁坏了"。
+ */
+export function makeReviewedKnowledgeEntry(overrides: Record<string, unknown> = {}) {
+  return makeKnowledgeEntry({
+    status: "reviewed",
+    referenceId: "ref-1",
+    reviewer: "教练 A",
+    license: "仅限本项目内使用",
+    appliesTo: "定点正手攻球，机位见 cameraViews",
+    ...overrides,
+  });
 }

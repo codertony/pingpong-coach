@@ -28,5 +28,8 @@
     "阈值参考见 configs/thresholds.json。"
   ],
   "status": "observation_only",
-  "referenceId": null
+  "referenceId": null,
+  "appliesTo": "定点正手攻球（forehand_drive），机位见 cameraViews。本版不区分来球旋转与高度，所以这条只在「来球可控、落点稳定」的练习里适用；上旋拉球的数值不能拿来对照。慢速示范与自然速度都可以用，但两者不要混在同一组里比较。",
+  "reviewer": null,
+  "license": null
 }
