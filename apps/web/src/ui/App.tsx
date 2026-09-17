@@ -22,6 +22,7 @@ import {
 } from "../training/training-session.js";
 import { drawSkeleton, drawReadyZone } from "../training/skeleton-overlay.js";
 import { createKeyframeCapturer } from "../evidence/keyframe-capture.js";
+import { readVideoDecodeStats } from "../capture/video-decode-stats.js";
 import { buildTrainingConfig } from "../training/session-config.js";
 import { SpeechChannel, type SpeechStatus } from "../audio/speech-channel.js";
 import { analyzeGroup, fetchHealth } from "../review/api-client.js";
@@ -103,6 +104,16 @@ export function App() {
   const schedulerRef = useRef<FrameScheduler | null>(null);
   const sessionRef = useRef<TrainingSession | null>(null);
   const captureRef = useRef<CaptureHandle | null>(null);
+  /**
+   * 最近一次采集用的**元素**与**协商帧率**，**刻意不随 `stop()` 清空**。
+   *
+   * 为什么不能直接用 `captureRef`：素材播完时那条路径会调 `stop()`，
+   * 而 `stop()` 把 `captureRef.current` 置空 —— 于是"解码了多少帧、丢了多少帧"
+   * 这些数字**恰好在最该看的时刻消失**（跑完一轮，你想知道这一轮采到了什么）。
+   * 元素本身还在页面上（`stop()` 只是暂停它），所以引用留着是安全的：
+   * 下一次 `start()` 会覆盖它。
+   */
+  const lastCaptureRef = useRef<{ video: HTMLVideoElement; sourceFps: number | null } | null>(null);
   const speechRef = useRef<SpeechChannel | null>(null);
   const epochRef = useRef(new SourceEpochTracker());
   const sessionIdRef = useRef(`s_${Date.now()}`);
@@ -425,6 +436,7 @@ export function App() {
         },
       });
       captureRef.current = handle;
+      lastCaptureRef.current = { video: handle.video, sourceFps: handle.actualFps };
       // 授权成功后浏览器才返回设备名，这里补一次枚举把名称填上
       void refreshCameras();
 
@@ -714,6 +726,13 @@ export function App() {
           {...{
             videoRef,
             videoHostRef,
+            /*
+             * 解码计数只能读**采集句柄里那个元素**：导入视频时界面挂的就是它（F-040），
+             * 而 `videoRef` 指向的那个 `<video>` 在那个分支下压根没渲染 —— 自始至终是 null。
+             */
+            captureVideo: lastCaptureRef.current?.video ?? null,
+            // 摄像头协商到的帧率（导入视频没有：浏览器不暴露文件的标称帧率）
+            sourceFps: lastCaptureRef.current?.sourceFps ?? null,
             sourceKind,
             canvasRef,
             running,
@@ -1105,6 +1124,13 @@ interface PracticeProps {
   videoRef: React.RefObject<HTMLVideoElement>;
   /** 导入视频时采集元素挂这里；摄像头模式不用它（见 F-040） */
   videoHostRef: React.RefObject<HTMLDivElement>;
+  /**
+   * **真正在喂分析的那个视频元素**（采集句柄里的那个；导入视频时界面挂的也是它）。
+   * 解码计数只能读它 —— `videoRef` 在导入视频分支下自始至终是 null。
+   */
+  captureVideo: HTMLVideoElement | null;
+  /** 采集协商到的帧率。摄像头有；导入视频没有（浏览器不暴露文件的标称帧率） */
+  sourceFps: number | null;
   /** 采集来源：决定预览是渲染 <video> 还是挂采集元素本身 */
   sourceKind: "camera" | "video";
   canvasRef: React.RefObject<HTMLCanvasElement>;
@@ -1142,6 +1168,15 @@ const PHASE_LABELS: Record<string, string> = {
 };
 
 function PracticeView(props: PracticeProps) {
+  /**
+   * 解码侧读数（"帧率四列"的第二列）。
+   *
+   * 在渲染时直接向视频元素问一次即可：遥测每次刷新都会重渲染，
+   * 而这个读数本身是浏览器维护的累计值，不存在"过期"问题。
+   * 浏览器不提供时返回 `null`，界面上如实显示"未知"而不是 0。
+   */
+  const decodeStats = readVideoDecodeStats(props.captureVideo);
+
   const speechLabel = useMemo(() => {
     switch (props.speechStatus) {
       case "speaking":
@@ -1248,6 +1283,51 @@ function PracticeView(props: PracticeProps) {
           {props.telemetry != null && props.telemetry.framesDropped > 0 && (
             <div className="small muted" style={{ marginTop: 8 }}>
               已有 {props.telemetry.framesDropped} 帧因处理繁忙被丢弃（已计入质量指标）。
+            </div>
+          )}
+          {/*
+            「帧率」分四列报告（评审 §6.3 / 设计 §1.5.1）。
+            四者**谁也不能代替谁**：实时预览允许丢旧帧压延迟，所以"进模型的帧"天然少于
+            "解出来的帧"；关键帧又是**每 3 帧才编一张**，再少一个量级。
+            合成一个数字，读的人就无从判断"这一组帧少"是采集慢、解码掉、还是抽帧抽掉的。
+          */}
+          {props.telemetry != null && (
+            <div className="frame-columns" style={{ marginTop: 8 }}>
+              <div className="small muted">帧率（四个环节，谁也不能代替谁）</div>
+              <div className="small">
+                <span className="mono muted">源视频（标称）</span>{" "}
+                {props.sourceFps != null
+                  ? `${props.sourceFps} fps（采集协商值）`
+                  : "未知 —— 浏览器不暴露视频文件的标称帧率"}
+              </div>
+              <div className="small">
+                <span className="mono muted">实际解码</span>{" "}
+                {decodeStats != null ? (
+                  <>
+                    {decodeStats.decodedFrames} 帧
+                    {decodeStats.droppedByDecoder > 0 &&
+                      `（解码器自己丢掉 ${decodeStats.droppedByDecoder} 帧）`}
+                  </>
+                ) : props.captureVideo == null ? (
+                  "未知 —— 还没拿到采集元素"
+                ) : (
+                  "未知 —— 这个浏览器不提供 getVideoPlaybackQuality"
+                )}
+              </div>
+              <div className="small">
+                <span className="mono muted">姿态推理</span> {props.telemetry.framesProcessed} 帧
+                {props.telemetry.framesDropped > 0 &&
+                  `（另有 ${props.telemetry.framesDropped} 帧因处理繁忙被丢弃）`}
+              </div>
+              <div className="small">
+                <span className="mono muted">JPEG 候选</span>{" "}
+                {props.telemetry.keyframeJpegsCaptured} 张（每 3 帧一张）
+              </div>
+              <div className="small muted" style={{ marginTop: 4 }}>
+                导入视频时这一页是<strong>运行期观测</strong> ——
+                同一支素材跑两次可能拿到不同的帧集合；
+                要可复现的观测请用评估探针（`segmentation-eval`，按固定步长逐帧处理）。
+              </div>
             </div>
           )}
           <div className="small muted" style={{ marginTop: 8 }}>

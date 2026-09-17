@@ -141,3 +141,43 @@ describe("训练遥测的延迟口径", () => {
     expect(s.telemetry.poseInferenceP95Ms).toBeNull();
   });
 });
+
+/**
+ * 「帧率四列」里的第四列：**编进缓存的 JPEG 张数**（设计 §1.5.1）。
+ *
+ * 为什么要单独数：抽帧是**每 3 帧一张**，所以这一列天然比"进模型的帧数"少一个量级；
+ * 而"这一组图很少"到底是被抽帧抽掉的、还是编码一直在失败，只有把这个数摆出来才分得清
+ * （F-028 的教训：图片链路整条断掉时，全线一声不响）。
+ */
+describe("帧率四列的第四列 · JPEG 候选张数", () => {
+  it("每放进缓存一张就 +1；空字节不算（那等于没图）", () => {
+    const s = new TrainingSession(CONFIG, {
+      onStatus: () => {},
+      onStroke: () => {},
+      onFeedback: () => {},
+      onGroupComplete: () => {},
+    });
+    const before = s.telemetry.keyframeJpegsCaptured;
+    s.addFramePixels("f1", 0, new Uint8Array([1, 2, 3]), 960, 540);
+    s.addFramePixels("f2", 40, new Uint8Array([4, 5, 6]), 960, 540);
+    // 空字节：编码失败的产物，塞进去等于"有图"，所以必须挡在外面且不计数
+    s.addFramePixels("f3", 80, new Uint8Array(0), 960, 540);
+    expect(s.telemetry.keyframeJpegsCaptured).toBe(before + 2);
+    s.dispose();
+  });
+
+  it("它不受关键帧张数上限影响（抽帧数是采集事实，不是每组的挑选结果）", () => {
+    const s = new TrainingSession(CONFIG, {
+      onStatus: () => {},
+      onStroke: () => {},
+      onFeedback: () => {},
+      onGroupComplete: () => {},
+    });
+    // 连放 30 张：远多于"每组最多 6 张"的挑选上限
+    for (let i = 0; i < 30; i++) {
+      s.addFramePixels(`f${i}`, i * 40, new Uint8Array([i]), 960, 540);
+    }
+    expect(s.telemetry.keyframeJpegsCaptured).toBe(30);
+    s.dispose();
+  });
+});

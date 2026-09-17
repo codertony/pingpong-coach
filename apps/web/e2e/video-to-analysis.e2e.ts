@@ -50,6 +50,22 @@ test.describe("导入视频 · 播完必须出结论", () => {
     await page.getByRole("button", { name: "开始训练" }).click();
     await expect(page.locator(".badge", { hasText: "采集中" })).toBeVisible({ timeout: 120_000 });
 
+    /*
+     * ⓪ 「帧率四列」的四个标签必须在（评审 §6.3 / 设计 §1.5.1）。
+     *
+     * 四者谁也不能代替谁：实时预览允许丢旧帧压延迟，关键帧又是每 3 帧才编一张。
+     * 这一段只在真实 Chromium 里做得成 —— jsdom 既不解码也没有
+     * `getVideoPlaybackQuality`，那一列在那边只能是"未知"。
+     *
+     * **数字留到播完再断言**：刚落第一帧时"实际解码"本来就是 0，
+     * 在那一刻断言"必须大于 0"会把正常状态判成失败（第一版就是这么写的）。
+     */
+    const frameColumns = page.locator(".frame-columns");
+    await expect(frameColumns).toBeVisible();
+    for (const label of ["源视频（标称）", "实际解码", "姿态推理", "JPEG 候选"]) {
+      await expect(frameColumns.getByText(label, { exact: false })).toBeVisible();
+    }
+
     // 状态栏会写"视频已播放完毕…"。等它出现就等于等到了 `ended` 被处理。
     // 状态栏没有专属 class（就是一行 `.small`），所以按正文找 —— 不依赖位置。
     await expect
@@ -58,6 +74,37 @@ test.describe("导入视频 · 播完必须出结论", () => {
         message: "素材播完了但状态栏没有反应 —— `ended` 没有被处理",
       })
       .toBe(true);
+
+    /*
+     * 播完之后再看数字：这时候解码列必须是浏览器报出的**真实帧数**。
+     *
+     * 「播完之后」不是随手挑的时点：素材播完会走 `stop()`，而 `stop()` 会把采集句柄
+     * 置空 —— 第一版就是从那里面读元素，于是**恰好在最该看的时刻**数字变成了"未知"。
+     * 现在元素与协商帧率单独存一个不随 `stop()` 清空的引用，这条断言同时守住那个行为。
+     *
+     * 两个量级关系也一并钉住 —— 抽帧是每 3 帧一张，所以
+     * `JPEG 候选` 必然小于 `姿态推理`，而解码的帧不会少于进模型的帧。
+     * 这两条不等式成立，才说明每一列数的确实是它自己那件事，而不是互相抄的。
+     */
+    const readColumn = async (label: string): Promise<number> => {
+      const text = await frameColumns.innerText();
+      const m = new RegExp(`${label}\\s*(\\d+)`).exec(text);
+      return m ? Number(m[1]) : -1;
+    };
+    await expect
+      .poll(async () => readColumn("实际解码"), {
+        timeout: 60_000,
+        message: "播完之后「实际解码」仍没有真实帧数（浏览器不支持？还是没接上）",
+      })
+      .toBeGreaterThan(0);
+    const decoded = await readColumn("实际解码");
+    const inferred = await readColumn("姿态推理");
+    const jpegs = await readColumn("JPEG 候选");
+    expect(
+      jpegs,
+      `抽帧列（${jpegs}）不该大于等于推理列（${inferred}）—— 每 3 帧才编一张`,
+    ).toBeLessThan(inferred);
+    expect(decoded, "解码的帧不该少于进模型的帧").toBeGreaterThanOrEqual(inferred);
 
     // ① 不许循环：停住之后时间轴不能自己往回走
     const el = page.locator(".stage video");

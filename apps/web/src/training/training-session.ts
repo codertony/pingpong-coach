@@ -147,6 +147,13 @@ export interface TrainingTelemetry {
    */
   readyZoneAutoCalibrated: boolean;
   /**
+   * 编进关键帧缓存的 JPEG 张数（"帧率四列"里的第四列，见设计 §1.5.1）。
+   *
+   * 与上面的 `framesProcessed` 是两个量级上的事：抽帧是**每 3 帧一张**，
+   * 而且编码失败只会少一张、不会报错 —— 所以"图少"要能被单独看见。
+   */
+  keyframeJpegsCaptured: number;
+  /**
    * 最近一组里**取不到图**的关键帧张数；`null` 表示还没成组。
    *
    * 存在的理由：图片链路曾经整条是断的（F-028：缓存没有任何产品代码写入，
@@ -286,6 +293,14 @@ export class TrainingSession {
   private groupFirstStrokeAtMs: number | null = null;
   private framesProcessed = 0;
   private framesDropped = 0;
+  /**
+   * 编进关键帧缓存的 JPEG 张数（"帧率四列"里的第四列）。
+   *
+   * 为什么单独数：采集侧是**每 3 帧才编一张**（`KEYFRAME_CAPTURE_EVERY_N_FRAMES`），
+   * 所以这一列天然比"进模型的帧数"少一个量级。不数它，"这一组图很少"就只能靠猜 ——
+   * 是抽帧抽掉的，还是编码一直在失败？
+   */
+  private keyframeJpegsCaptured = 0;
   private lastRequestId: string | null = null;
 
   constructor(
@@ -464,6 +479,7 @@ export class TrainingSession {
     height: number,
   ): void {
     if (bytes.byteLength === 0) return;
+    this.keyframeJpegsCaptured++;
     this.keyframeCache.add({ frameId, sourceTimeMs, bytes, width, height, pinned: false });
   }
 
@@ -1223,6 +1239,7 @@ export class TrainingSession {
       wristToZoneRatio,
       readyZoneAutoCalibrated: this.autoCalibrated,
       keyframesMissing: this.lastGroupKeyframes?.missing ?? null,
+      keyframeJpegsCaptured: this.keyframeJpegsCaptured,
     };
   }
 

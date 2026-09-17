@@ -385,6 +385,22 @@ td.num {
   margin-bottom: 6px;
 }
 
+/*
+ * 「帧率四列」区块（练习页遥测面板）。
+ *
+ * 四行等宽的标签列：这四件事**必须分开读**，标签对不齐就会被当成一张表里的同级数字。
+ */
+.frame-columns {
+  display: grid;
+  gap: 2px;
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+.frame-columns .mono {
+  display: inline-block;
+  min-width: 104px;
+}
+
 .muted {
   color: var(--muted);
 }
