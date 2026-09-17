@@ -1,0 +1,21 @@
+# 统一行尾：**检出时一律 LF**。
+#
+# 为什么必须有这个文件：Git for Windows 默认 `core.autocrlf=true`，检出时把文本文件
+# 转成 CRLF；而 prettier 的默认 `endOfLine` 是 `lf` —— 于是**在 Windows 上 `git clone`
+# 之后，`pnpm verify` 会在 `format:check` 阶段对**每一个文件**报错**（实测：一份全新
+# 克隆 170 个文件全红，而仓库里存的内容完全正确）。
+#
+# 这不是"某个人忘了格式化"，是**同一份内容在不同平台上检出结果不同**；靠"记得先
+# 跑一次 prettier --write"是治不好的（下次 clone 又回来）。所以在这里把检出钉死。
+#
+# `text=auto` 让 git 自己判断哪些是文本（二进制不会被改行尾）；仓库里现在存的**就是
+# LF**，所以这个文件不需要配一次 `git add --renormalize` 的大提交。
+* text=auto eol=lf
+
+# 二进制资产显式声明（体积大、绝不能被当文本处理）
+*.task binary
+*.wasm binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.mp4 binary
