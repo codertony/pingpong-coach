@@ -313,7 +313,11 @@ async function main(): Promise<void> {
     const id = String(s.id ?? `#${i}`);
     const { windows: truth, dropped } = toWindows(s.annotation?.strokes);
     if (dropped > 0) {
-      console.warn(`! ${id}: 标注里有 ${dropped} 条 startMs/endMs 缺失或非数，已丢弃`);
+      console.warn(
+        `! ${id}: 标注里有 ${dropped} 条 startMs/endMs 缺失或非数，已丢弃` +
+          `（字段名必须是 \`startMs\` / \`endMs\`，写在 annotation.strokes[] 里；` +
+          `写成 \`strokeStartMs\` 之类会被当成缺字段 —— 见 evaluation/samples.json 的模板）`,
+      );
     }
 
     let detected: TimeWindow[] = [];

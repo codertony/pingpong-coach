@@ -83,3 +83,37 @@ describe("dev server 必须绑 127.0.0.1（F-009 的附带修复）", () => {
     ).toMatch(/host:\s*process\.env\.HOST\s*\?\?\s*"127\.0\.0\.1"/);
   });
 });
+
+describe("标注字段名不许与加载器脱节（samples.json ↔ eval:replay）", () => {
+  it("清单里每板用的名字必须是加载器**真的在读**的那些", () => {
+    /*
+     * 踩过的坑：`samples.json` 的 `annotationSchema` 原先写着
+     * `strokeStartMs` / `strokeEndMs`，而 `scripts/eval-replay.ts` 读的是
+     * `startMs` / `endMs` —— 照着文档标的人，标出来的东西会被**当成缺字段丢掉**，
+     * 指标那边只表现为"缺人工标注"，看不出是自己的字段名写错了。
+     * 代价落在**人的标注时间**上，所以值得钉住。
+     *
+     * 断言**结构**（键名）而不是扫文本：这段散文里会正当地提到错误名字
+     * （"写成 strokeStartMs 会被丢掉"），扫文本会把它当成违规。
+     */
+    const manifest = JSON.parse(
+      readFileSync(resolve(repoRoot, "evaluation/samples.json"), "utf8"),
+    ) as { samples?: Array<{ annotation?: { strokes?: Array<Record<string, unknown>> } }> };
+    const script = readFileSync(resolve(repoRoot, "scripts/eval-replay.ts"), "utf8");
+
+    // 加载器读的就是这两个名字
+    expect(script).toMatch(/s\?\.startMs\s*===\s*"number"/);
+    expect(script).toMatch(/s\?\.endMs\s*===\s*"number"/);
+
+    // 清单模板里每板的键名必须与之一致（`$comment` 这类说明键不算）
+    const strokes = (manifest.samples ?? []).flatMap((s) => s.annotation?.strokes ?? []);
+    expect(strokes.length, "samples.json 里连一个模板条目都没有了").toBeGreaterThan(0);
+    for (const st of strokes) {
+      const keys = Object.keys(st).filter((k) => !k.startsWith("$"));
+      expect(
+        keys.sort(),
+        `标注模板里的键是 ${JSON.stringify(keys)}，而加载器读的是 startMs/endMs`,
+      ).toEqual(["endMs", "startMs"]);
+    }
+  });
+});
