@@ -9,11 +9,11 @@
 
 | 层面 | 验收方式 | 状态 |
 | --- | --- | --- |
-| P0 可观测性 | 适合该机位的持拍侧肩肘腕有效帧比例 ≥ 80%；低质量帧能被单独标记 | 未测 |
+| P0 可观测性 | 适合该机位的持拍侧肩肘腕有效帧比例 ≥ 80%；低质量帧能被单独标记 | 🟡 **一部分已实测**（一支素材：持拍侧肩肘腕三者置信度均 ≥ 门槛的帧 **244/244 = 100%**，检出人体同样 244/244；判"有效"用的是管线同一个 `DEFAULT_QUALITY_CONFIG.minScore`）。低质量帧能被单独标记 ✅（逐帧 `quality`/`qualityReasons` + 组级质量汇总）。**仍不完整**：只有一个机位、一个人、一支素材，**不能外推**到别的机位或光照 —— 见 `docs/evaluation-log.md`。**它顺带定位了瓶颈**：可观测性不是这支素材的限制，分段才是 |
 | P0 几何正确性 | 人工抽查可见的二维关节位置与角度，检查宽高比例、左右、裁剪、单位；二维肘角绝对误差 MAE ≤ 10°（不代表真实三维关节误差） | 未测 |
 | P1 挥拍分段 | 对人工标注的完整挥拍一对一匹配，temporal IoU ≥ 0.5 计匹配，precision 与 recall 均 ≥ 85%，另报边界误差 | 未测 |
-| P1 完整链路 | 不手工逐次截取，自动分组并调用真实模型，反馈能回指真实证据 | 未测 |
-| P1 速度 | 按延迟定义记录端到端延迟、超时与成功比例 | 未测 |
+| P1 完整链路 | 不手工逐次截取，自动分组并调用真实模型，反馈能回指真实证据 | 🟡 **工具链已就绪、也各测过一半**：自动分组 → 真实 API → 反馈回指证据这条**浏览器端到端**链路有回归（`video-to-analysis.e2e.ts`，但走的是 **mock** 模型）；真实模型那一半只测过**用真实证据包直调**（`docs/evaluation-log.md` 事实 1/6：图片确实被使用、证据引用合规）。**两者合起来的那一条**（自动分组 + 真实模型）**没跑过**，而且不能自动跑 —— e2e 刻意用 `PPC_NO_ENV_FILE=1` 隔离 `.env` 以免**真花钱**（F-041），所以这一步要不要花这笔钱得你定 |
+| P1 速度 | 按延迟定义记录端到端延迟、超时与成功比例 | 🟡 **已有第一轮实测**（真实模型 `deepseek-flash`，短提示）：单次中位 **3928ms**、max 4753ms、端到端 3156~4557ms；超时与截断各观测到一次（见下方阈值变更记录 1.0.1/1.0.2）。**仍缺**：用**真实证据包**统计的超时率与成功率（第一轮那批是短提示，对真实包偏紧 —— 正是 1.0.2 调阈值的原因） |
 | P2 提示可靠性 | 高频语音启用目标：发出的目标问题提醒 precision ≥ 90%，可判组覆盖率 ≥ 60%；同时报告 recall、样本数和不确定性 | 未进入 |
 | P2 持续使用 | 20 分钟练习无逐渐增长的任务队列或内存泄漏趋势 | 🟡 **已实测一次（合成帧，非真人练习）**：队列积压首→末 2 分钟均值 0.7 → 1.0（全程最大 1，无积压）；吞吐 30.0 → 30.0 fps；堆 5.8 → 7.0 MiB（峰值 9.1）。见 `docs/evaluation-log.md`。**仍未用真人连续练习验证** |
 | P2 用户价值 | 至少完成"提示 → 下一组再练 → 指标/教练复核"循环，并比较隔次关闭提示后的表现 | 未进入 |
@@ -35,18 +35,30 @@
 
 以下测试**只**验证代码边界与程序契约，**不能**用于宣称真实识别准确率：
 
-| 范围 | 位置 | 用例数 |
-| --- | --- | --- |
-| 契约 schema | `packages/contracts/test/` | 12 |
-| 几何 / 长宽比修正 / 坐标变换 | `packages/motion-core/test/geometry.test.ts` | 22 |
-| 因果滤波 / 速度估计 / 采样统计 | `packages/motion-core/test/filter.test.ts` | 15 |
-| 质量检查 / 组质量汇总 | `packages/motion-core/test/quality.test.ts` | 14 |
-| 挥拍分段状态机 | `packages/motion-core/test/segmentation.test.ts` | 11 |
-| 特征计算 | `packages/motion-core/test/features.test.ts` | 20 |
-| 本地规则与审核约束 | `packages/motion-core/test/rules.test.ts` | 13 |
-| 模型输出校验 | `apps/api/test/validate.test.ts` | 21 |
-| API 端到端（mock） | `apps/api/test/server.test.ts` | 7 |
-| 帧调度 / 缓存边界 / 语音上下文 | `apps/web/test/` | 37 |
+| 覆盖什么 | 在哪 |
+| --- | --- |
+| 契约 schema（含跨字段 refine：关键帧↔挥拍、逐板↔挥拍、判据↔测量） | `packages/contracts/test/{contracts,consistency,fuzz}.test.ts` |
+| 畸形输入不得抛错（模糊测试） | `packages/contracts/test/fuzz.test.ts`、`apps/api/test/fuzz.test.ts` |
+| 几何 / 长宽比修正 / 坐标变换 / 体尺度 | `packages/motion-core/test/{geometry,edge-cases}.test.ts` |
+| 因果滤波 / 速度估计 / 采样统计 | `packages/motion-core/test/filter.test.ts` |
+| 质量检查 / 组质量汇总 / 就绪判定 | `packages/motion-core/test/{quality,readiness}.test.ts` |
+| 挥拍分段状态机 / 阶段事件 / 合并机制 | `packages/motion-core/test/{segmentation,segmentation-merge}.test.ts` |
+| 分段与事件的评估口径（IoU、边界误差、事件时间误差） | `packages/motion-core/test/segmentation-metrics.test.ts` |
+| 特征计算（含逐阶段时长、组内一致性） | `packages/motion-core/test/features.test.ts` |
+| 本地规则与审核约束 | `packages/motion-core/test/rules.test.ts` |
+| 阈值快照与代码**双向**一致（`configs/thresholds.json` 只被这个测试读） | `packages/motion-core/test/thresholds-consistency.test.ts` |
+| 分布判据（阈值诊断用的谷底识别） | `packages/motion-core/test/distribution.test.ts` |
+| 手部几何与左右分配 | `packages/motion-core/test/{hand,hand-assignment}.test.ts` |
+| 提示词构建 / 模型输出校验 | `apps/api/test/{prompt,validate}.test.ts` |
+| API 端到端（mock）、去重、调用预算、知识门禁、密钥与配置 | `apps/api/test/{server,analyze,dedupe,call-budget,knowledge,config,env-file,keyframe-guard}.test.ts` |
+| 采集 / 调度 / 关键帧链路 / 会话与遥测 / 复查页组件（jsdom） | `apps/web/test/` |
+| 真实浏览器（Canvas、Worker、ImageBitmap、媒体元素、真实素材探针） | `apps/web/e2e/`（`pnpm test:e2e`） |
+
+> **这里刻意不再列每个文件的用例数**：那种"测试普查表"每加一批测试就过期一次，
+> 而它过期时**没有任何门禁会红**（`check:docs` 只交叉核对各文档声明的**总数**）。
+> 上一版就烂在这里 —— 表里写着"契约 schema 12 项""分段状态机 11 项"，而实际早已不是。
+> 权威数字只有一处：`pnpm verify` 的输出，以及 `README.md` / `docs/roadmap.md` 里
+> 那份**由 `check:docs` 交叉核对**的分包总数。
 
 ## 阈值变更记录
 

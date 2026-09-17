@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import type { EvidencePacket, StrokeEvent } from "@pingpong/contracts";
-import { boundaryToleranceMs } from "@pingpong/motion-core";
+import { boundaryToleranceMs, DEFAULT_QUALITY_CONFIG } from "@pingpong/motion-core";
 
 const VIDEO = process.env.PPC_VERIFY_VIDEO ?? "";
 const hasVideo = VIDEO !== "" && existsSync(VIDEO);
@@ -390,6 +390,22 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
               const scores = names.map((n) => keypoints2D.find((k) => k.name === n)?.score ?? null);
               return scores.some((s) => s == null) ? null : Math.min(...(scores as number[]));
             })(),
+            /*
+             * 持拍侧肩肘腕的**最低置信度**（这一版素材是右手）。
+             *
+             * 用来回答 `docs/acceptance.md` 的第一条验收（P0 可观测性）：
+             * 「持拍侧肩肘腕有效帧比例 ≥ 80%」。这一条此前是**未测** ——
+             * 而它是整条测量链的地基：这三点的可见率不够，后面的角度与相对位置
+             * 都建在稀薄的样本上。
+             *
+             * 判"有效"的门槛必须与管线用**同一个**常量（`DEFAULT_QUALITY_CONFIG.minScore`），
+             * 不能在这里另写一个 0.5 —— 同一个事实只能有一个定义（F-036 的教训）。
+             */
+            racketArmMinScore: (() => {
+              const names = ["right_shoulder", "right_elbow", "right_wrist"];
+              const scores = names.map((n) => keypoints2D.find((k) => k.name === n)?.score ?? null);
+              return scores.some((s) => s == null) ? null : Math.min(...(scores as number[]));
+            })(),
           });
         }
 
@@ -555,6 +571,43 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
     expect(
       out.detectedStrokes.length,
       "逐帧跑完整段真实素材，一次挥拍都没检出 —— 分段链路在真实数据上不工作",
+    ).toBeGreaterThan(0);
+
+    /*
+     * P0 可观测性（`docs/acceptance.md` 的第一条验收）：
+     * **持拍侧肩肘腕的有效帧比例**，候选门槛 ≥ 80%。
+     *
+     * 为什么量这个：它是整条测量链的地基 —— 这三点的可见率不够，
+     * 后面的肘角、相对位置、阶段时长**全都建在稀薄的样本上**，而界面上看不出来。
+     * 这一条此前一直是「未测」，因为没人把逐帧的持拍侧置信度导出来。
+     *
+     * 判"有效"用的是**管线同一个门槛**（`DEFAULT_QUALITY_CONFIG.minScore`），
+     * 不在这里另写一个值 —— 同一个事实只能有一个定义（F-036）。
+     *
+     * ⚠️ **只报告、不断言门槛**：低于 80% 是关于这支素材与机位的**发现**，
+     * 不是代码缺陷；把它写成断言会把"素材问题"变成"测试失败"，
+     * 逼着以后的人去调数字。断言只守**导出本身**：至少有一帧带着这个读数
+     * （否则导出静默退化成一个恒 null 的字段，而这正是 F-028 那一类）。
+     */
+    const minScore = DEFAULT_QUALITY_CONFIG.minScore;
+    const armScores = timeline.map((f) => f.racketArmMinScore as number | null);
+    const usableFrames = armScores.filter((s) => s != null && s >= minScore).length;
+    const usableRatio = usableFrames / timeline.length;
+    const detectedRatio = posed / timeline.length;
+    console.warn(
+      [
+        "",
+        `P0 可观测性（候选门槛：持拍侧肩肘腕有效帧比例 ≥ 80%）：`,
+        `  检出人体 ${posed}/${timeline.length} 帧（${(detectedRatio * 100).toFixed(1)}%）`,
+        `  持拍侧肩肘腕三者都 ≥ ${minScore} 的帧：${usableFrames}/${timeline.length}` +
+          `（**${(usableRatio * 100).toFixed(1)}%**）`,
+        `  ⚠️ 只有一个机位、一支素材、一个人 —— 这个数字不能外推到别的机位`,
+        "",
+      ].join("\n"),
+    );
+    expect(
+      armScores.filter((s) => s != null).length,
+      "逐帧的持拍侧置信度一帧都没导出 —— 这条读数静默退化了（检查 racketArmMinScore）",
     ).toBeGreaterThan(0);
   });
 
