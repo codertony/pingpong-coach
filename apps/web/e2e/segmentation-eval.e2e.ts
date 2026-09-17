@@ -22,7 +22,11 @@ import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
 import type { EvidencePacket, StrokeEvent } from "@pingpong/contracts";
-import { boundaryToleranceMs, DEFAULT_QUALITY_CONFIG } from "@pingpong/motion-core";
+import {
+  boundaryToleranceMs,
+  contactSheetStepMs,
+  DEFAULT_QUALITY_CONFIG,
+} from "@pingpong/motion-core";
 
 const VIDEO = process.env.PPC_VERIFY_VIDEO ?? "";
 const hasVideo = VIDEO !== "" && existsSync(VIDEO);
@@ -48,10 +52,7 @@ const EXPECTED_STROKE_MS = Number(process.env.PPC_EXPECTED_STROKE_MS ?? 800);
  * 之前写死 250ms ⇒ **默认导出的表不满足它自己的自检**（800ms 单板需 ±200ms）。
  * 一个默认产物过不了自己自检的工具，等于把问题留给用户去发现。
  */
-const DERIVED_STEP_MS = Math.min(
-  250,
-  Math.max(50, Math.floor(boundaryToleranceMs(EXPECTED_STROKE_MS) / 2)),
-);
+const DERIVED_STEP_MS = contactSheetStepMs(EXPECTED_STROKE_MS);
 /** 实际使用的格子宽度（可被环境变量覆盖）。 */
 const SHEET_STEP_MS = Number(process.env.PPC_CONTACT_SHEET_STEP_MS ?? DERIVED_STEP_MS);
 

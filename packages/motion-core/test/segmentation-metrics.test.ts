@@ -12,6 +12,7 @@ import { describe, expect, it } from "vitest";
 import {
   IOU_MATCH_THRESHOLD,
   boundaryToleranceMs,
+  contactSheetStepMs,
   eventTimeErrors,
   matchSegments,
   temporalIoU,
@@ -330,5 +331,42 @@ describe("eventTimeErrors — 逐类事件的时刻误差", () => {
 
     expect(b.map((r) => r.eventType)).toEqual(a.map((r) => r.eventType));
     expect(b.map((r) => r.signedMeanMs)).toEqual(a.map((r) => r.signedMeanMs));
+  });
+});
+
+/**
+ * 标注用的格子宽度（F-043）。
+ *
+ * 这个推导原先写在导出脚本里，而脚本的自检**只打印不 assert** ——
+ * 于是有人把它改回写死的 250 时，`pnpm verify` **全绿**，只有一行警告变了。
+ * 后果不是"多一条警告"：默认导出的联系表会**粗于它自己声明的判据**，
+ * 标注者照着标就会系统性低报识别质量，而那正是 B4 唯一剩下的关键路径。
+ */
+describe("contactSheetStepMs —— 格子宽度必须由判据推出来", () => {
+  it("**默认格子必然细于容差**（写死 250 会让这条红）", () => {
+    for (const expected of [600, 800, 1000, 1500, 2200]) {
+      const step = contactSheetStepMs(expected);
+      expect(
+        step,
+        `${expected}ms 单板：格子 ${step}ms 粗于容差 ±${boundaryToleranceMs(expected)}ms`,
+      ).toBeLessThanOrEqual(boundaryToleranceMs(expected));
+    }
+  });
+
+  it("取容差的**一半**，且是整数毫秒（相邻两格必然跨住真实边界）", () => {
+    // 800ms 单板、IoU 0.5 ⇒ 容差 ±200ms ⇒ 格子 100ms
+    expect(contactSheetStepMs(800)).toBe(100);
+    expect(Number.isInteger(contactSheetStepMs(800))).toBe(true);
+  });
+
+  it("上下界是**可读性**约束：再粗不超 250、再细不低 50", () => {
+    expect(contactSheetStepMs(100_000)).toBe(250);
+    expect(contactSheetStepMs(10)).toBe(50);
+  });
+
+  it("非法输入落到下限，而不是 NaN / 负数", () => {
+    expect(contactSheetStepMs(Number.NaN)).toBe(50);
+    expect(contactSheetStepMs(0)).toBe(50);
+    expect(contactSheetStepMs(-800)).toBe(50);
   });
 });

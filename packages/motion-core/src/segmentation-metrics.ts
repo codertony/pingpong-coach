@@ -71,6 +71,30 @@ export function boundaryToleranceMs(
   return (durationMs * (1 - threshold)) / 2;
 }
 
+/**
+ * 人工标注用的**联系表格子宽度**（毫秒）—— 由验收判据推出来，不是一个魔数。
+ *
+ * 判据是 IoU ≥ 0.5 ⇒ 两端各偏不超过单板时长的 25%（`boundaryToleranceMs`）。
+ * 格子取**容差的一半**：这样相邻两格必然跨住真实边界，标注者照着格子读锚点，
+ * 最坏也就差半格。
+ *
+ * 上下界是**可读性**约束，不是判据：再粗就标不准（250ms），再细会把表撑到没边（50ms）。
+ * 输出与内层结果都取整到毫秒，避免出现 `83.333333` 这种格子宽度。
+ *
+ * ## 为什么要做成函数而不是在导出脚本里写一行
+ *
+ * 它此前就是导出脚本里的一行常量推导，而那个脚本**只打印**自检结论、不 assert ——
+ * 于是有人把它改回写死的 250 时，测试**全绿**，只有一行警告变了（F-043 的回归）。
+ * 移到这里，`segmentation-metrics.test.ts` 就能钉住"默认格子必然细于容差"这条关系。
+ */
+export function contactSheetStepMs(
+  expectedStrokeMs: number,
+  threshold: number = IOU_MATCH_THRESHOLD,
+): number {
+  const half = Math.floor(boundaryToleranceMs(expectedStrokeMs, threshold) / 2);
+  return Math.min(250, Math.max(50, half));
+}
+
 export function temporalIoU(a: TimeWindow, b: TimeWindow): number {
   const inter = overlapMs(a, b);
   const union = spanMs(a) + spanMs(b) - inter;
