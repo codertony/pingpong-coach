@@ -64,3 +64,22 @@ describe("e2e 必须隔离 .env（F-041）", () => {
     }
   });
 });
+
+describe("dev server 必须绑 127.0.0.1（F-009 的附带修复）", () => {
+  it("vite 的 server.host 显式设成 127.0.0.1（不是 vite 的 localhost 默认值）", () => {
+    /*
+     * vite 默认绑 `localhost`，Windows 上解析成 IPv6 的 `::1` ——
+     * 实测表现是 `http://localhost:5173` 通、`http://127.0.0.1:5173` **连不上**。
+     * 而 README 与其它文档写的都是 `127.0.0.1`，用户照着敲会打不开，现象是连接被拒，
+     * 很容易被误判成"服务没起来"（F-009 记了完整排查）。
+     *
+     * 这类"配置行被删掉"的回归没有任何测试会红 —— 所以在这里钉住那一行。
+     */
+    const config = readFileSync(resolve(here, "../../web/vite.config.ts"), "utf8");
+    expect(
+      config,
+      "vite.config.ts 里的 server.host 不见了 —— 默认会绑 ::1，" +
+        "而文档让用户开 127.0.0.1（F-009）",
+    ).toMatch(/host:\s*process\.env\.HOST\s*\?\?\s*"127\.0\.0\.1"/);
+  });
+});
