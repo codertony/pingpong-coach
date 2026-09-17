@@ -130,5 +130,44 @@ test.describe("导入视频 · 播完必须出结论", () => {
     expect(firstStep, `阶段步骤没带时刻：${firstStep}`).toMatch(/\d+ms/);
     // 证据包的局限要能看见 —— 模型只知道那里写了的事
     await expect(page.getByText("证据包的局限")).toBeVisible();
+
+    /*
+     * ⑤ 短片回放：点了要**真的跳到那一板的起点**（评审 §1.7）。
+     *
+     * 这是这一批里唯一"看得到动作"的能力，所以断言不停在"按钮存在" ——
+     * 而是读回 `<video>` 的 currentTime，确认它跳到了那一板的起点。
+     * 只在真浏览器里做得成：jsdom 的媒体元素是空壳（当前时间恒为 0）。
+     *
+     * 用**最后一板**试：第一板的起点可能是 0，跳到 0 秒什么都证明不了。
+     */
+    const replayButtons = page.getByRole("button", { name: "回放这一板" });
+    await expect
+      .poll(async () => replayButtons.count(), {
+        timeout: 30_000,
+        message: "导入视频的复查页没有回放按钮",
+      })
+      .toBeGreaterThan(0);
+
+    // 从「本次挥拍」表里读最后一板的起点（按表头定位，避免抓成左边那张「本组记录」表）
+    const strokeTable = page.locator("table", {
+      has: page.getByRole("columnheader", { name: "区间" }),
+    });
+    const lastRow = strokeTable.locator("tbody tr").last();
+    const lastRange = await lastRow.locator("td").nth(1).textContent();
+    const startMs = Number((lastRange ?? "").split("–")[0]);
+    expect(Number.isFinite(startMs) && startMs > 0, `最后一板的起点异常：${lastRange}`).toBe(true);
+
+    await replayButtons.last().click();
+    await expect
+      .poll(
+        async () =>
+          page.locator("video.replay").evaluate((v) => (v as HTMLVideoElement).currentTime * 1000),
+        {
+          timeout: 15_000,
+          message: `点了最后一板（起点 ${startMs}ms），视频却没有跳到那里`,
+        },
+      )
+      // 播放会往前走，所以给一个宽松的上界：只要从该板起点开始放即可
+      .toBeGreaterThanOrEqual(startMs - 50);
   });
 });

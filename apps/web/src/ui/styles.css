@@ -372,6 +372,19 @@ td.num {
   font-size: 12px;
 }
 
+/*
+ * 复查页的回放画面。整栏只有一个（每板一个会同时解同一支文件四次，
+ * 而且四个停在不同的位置，读的人分不清在看哪一个）。
+ */
+.replay {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 8px;
+  background: #000;
+  display: block;
+  margin-bottom: 6px;
+}
+
 .muted {
   color: var(--muted);
 }

@@ -70,6 +70,33 @@ export function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   /** 导入视频时，采集元素被挂进这个容器（显示与采集同一个元素，见 F-040） */
   const videoHostRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * 复查页回放用的对象 URL。
+   *
+   * 为什么复查页要**自己**一个 URL 而不是复用练习页那个 `<video>`：
+   * 切到复查页时练习页整块被卸载（元素不存在了），所以复用的是**同一支文件**，
+   * 不是同一个元素。源时间与 `video.currentTime` 的换算关系由导入链路保证
+   * （`emit(video.currentTime * 1000)`），这里不需要任何映射。
+   *
+   * 摄像头链路**没有录像**（全仓库没有 MediaRecorder），所以这里只可能是
+   * 导入的视频；没有录像这件事由复查页如实说明，不拿关键帧冒充回放。
+   */
+  const replaySource = useMemo(
+    () =>
+      sourceKind === "video" && videoFile
+        ? { url: URL.createObjectURL(videoFile), fileName: videoFile.name }
+        : null,
+    [sourceKind, videoFile],
+  );
+  // 换文件就把上一支的 URL 释放掉，否则每换一次都漏一个 blob
+  useEffect(() => {
+    const url = replaySource?.url;
+    return () => {
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [replaySource]);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<PoseEngine | null>(null);
   const schedulerRef = useRef<FrameScheduler | null>(null);
@@ -473,54 +500,63 @@ export function App() {
   }, [tab, running, sourceKind, mirrored]);
 
   /** 一组完成后：发起一次模型分析，并把结果并入复查。 */
-  const handleGroup = useCallback(async (packet: EvidencePacket) => {
-    const groupAtStart = packet.groupId;
-    setStatusText(`本组证据已就绪（${packet.strokes.length} 次挥拍），正在请求分析…`);
-    const outcome = await analyzeGroup(packet);
+  const handleGroup = useCallback(
+    async (packet: EvidencePacket) => {
+      const groupAtStart = packet.groupId;
+      setStatusText(`本组证据已就绪（${packet.strokes.length} 次挥拍），正在请求分析…`);
+      const outcome = await analyzeGroup(packet);
 
-    // 写入复查记录
-    const item: ReviewItem = {
-      requestId: packet.requestId,
-      groupId: packet.groupId,
-      sessionId: packet.sessionId,
-      focusId: packet.focusId,
-      packet,
-      feedback: outcome.feedback,
-      error: outcome.error,
-      elapsedMs: outcome.elapsedMs,
-      deduplicated: outcome.deduplicated,
-      userRating: null,
-    };
-    setReviews((prev) => [item, ...prev].slice(0, 30));
+      // 写入复查记录
+      const item: ReviewItem = {
+        requestId: packet.requestId,
+        groupId: packet.groupId,
+        sessionId: packet.sessionId,
+        focusId: packet.focusId,
+        packet,
+        feedback: outcome.feedback,
+        error: outcome.error,
+        elapsedMs: outcome.elapsedMs,
+        deduplicated: outcome.deduplicated,
+        userRating: null,
+        // 记住这一组**当时的来源**：能不能回放取决于它，而不是当前选的是什么。
+        // 不记的话，切一次来源就会给一组没有录像的数据配一个回放按钮（或反过来）。
+        sourceKind,
+        videoFileName: sourceKind === "video" && videoFile ? videoFile.name : null,
+      };
+      setReviews((prev) => [item, ...prev].slice(0, 30));
 
-    if (outcome.feedback) {
-      setFeedback(outcome.feedback);
-      // 只在仍是同一分组的上下文下播报
-      if (outcome.feedback.cue) {
-        const spoke = speechRef.current?.speak({
-          text: outcome.feedback.cue,
-          sessionId: packet.sessionId,
-          groupId: packet.groupId,
-          focusId: packet.focusId,
-        });
-        if (!spoke) {
-          setStatusText("反馈已保存；语音未播报（上下文已切换或语音不可用）");
-          return;
+      if (outcome.feedback) {
+        setFeedback(outcome.feedback);
+        // 只在仍是同一分组的上下文下播报
+        if (outcome.feedback.cue) {
+          const spoke = speechRef.current?.speak({
+            text: outcome.feedback.cue,
+            sessionId: packet.sessionId,
+            groupId: packet.groupId,
+            focusId: packet.focusId,
+          });
+          if (!spoke) {
+            setStatusText("反馈已保存；语音未播报（上下文已切换或语音不可用）");
+            return;
+          }
         }
+        setStatusText(`本组反馈已送达（${Math.round(outcome.elapsedMs)}ms）`);
+      } else if (outcome.error) {
+        // 模型失败不影响本地训练
+        setStatusText(`模型侧未返回结论（${outcome.error.code}），本地训练继续，可查看复查页`);
       }
-      setStatusText(`本组反馈已送达（${Math.round(outcome.elapsedMs)}ms）`);
-    } else if (outcome.error) {
-      // 模型失败不影响本地训练
-      setStatusText(`模型侧未返回结论（${outcome.error.code}），本地训练继续，可查看复查页`);
-    }
 
-    // 更新语音上下文到下一组
-    speechRef.current?.setContext({
-      sessionId: packet.sessionId,
-      groupId: groupAtStart,
-      focusId: packet.focusId,
-    });
-  }, []);
+      // 更新语音上下文到下一组
+      speechRef.current?.setContext({
+        sessionId: packet.sessionId,
+        groupId: groupAtStart,
+        focusId: packet.focusId,
+      });
+      // 依赖里必须有 sourceKind / videoFile：这一组**当时的来源**要写进复查记录
+      // （决定能不能回放），少了它们就会记成开始练习时的那一套。
+    },
+    [sourceKind, videoFile],
+  );
 
   const rateReview = useCallback((requestId: string, rating: ReviewItem["userRating"]) => {
     setReviews((prev) =>
@@ -690,6 +726,7 @@ export function App() {
           onRate={rateReview}
           onExport={exportSamples}
           thresholds={DEFAULT_THRESHOLDS}
+          replay={replaySource}
         />
       )}
     </div>

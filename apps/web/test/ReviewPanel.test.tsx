@@ -138,17 +138,29 @@ function makeReviewItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     elapsedMs: 34,
     deduplicated: false,
     userRating: null,
+    // 默认给"导入视频"：这样才能让回放那条路被默认用例走到。
+    // 摄像头那条（没有录像）另有专门用例。
+    sourceKind: "video",
+    videoFileName: "forehand-1.mp4",
     ...overrides,
   };
 }
 
-function renderPanel(items: ReviewItem[], onRate: (id: string, r: UserRating) => void = vi.fn()) {
+/** 与默认 fixture 的 `videoFileName` 一致的"当前加载的那支视频"。 */
+const MATCHING_REPLAY = { url: "blob:fake-forehand-1", fileName: "forehand-1.mp4" };
+
+function renderPanel(
+  items: ReviewItem[],
+  onRate: (id: string, r: UserRating) => void = vi.fn(),
+  replay: { url: string; fileName: string } | null = MATCHING_REPLAY,
+) {
   return render(
     <ReviewPanel
       reviews={items}
       onRate={onRate}
       onExport={vi.fn()}
       thresholds={DEFAULT_THRESHOLDS}
+      replay={replay}
     />,
   );
 }
@@ -314,6 +326,94 @@ describe("ReviewPanel · 逐板数值与过程", () => {
     expect(screen.getByText("证据包的局限")).toBeInTheDocument();
     expect(screen.getByText(/关键帧锚在/)).toBeInTheDocument();
     expect(screen.getByText(/没有可用画面/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * 短片回放（评审 §1.7）。
+ *
+ * 这一栏最容易做错的地方**不是播放本身，而是"什么情况下不该放"**：
+ * 摄像头链路根本没有录像（全仓库没有 MediaRecorder），而"换了一支视频"
+ * 会让时间轴对不上 —— 那种情况下放出来的是一段不相干的画面，
+ * 却看起来像这一板的证据。所以下面把三种"不能放"分开钉住。
+ */
+describe("ReviewPanel · 短视频回放", () => {
+  const videoEl = (): HTMLVideoElement => {
+    const el = document.querySelector("video.replay");
+    expect(el, "回放画面没渲染出来").not.toBeNull();
+    return el as HTMLVideoElement;
+  };
+
+  /**
+   * 起点**故意不是 0**。
+   *
+   * 默认 fixture 那一板从 0ms 开始，而 `video.currentTime` 初值也是 0 ——
+   * 于是"跳到起点"与"根本没跳"结果一样，断言会**空转通过**
+   * （把 seek 那一行删掉，测试照样绿）。起点挪到 1200ms 之后，
+   * 只有真的跳了才会读到 1.2 秒。
+   */
+  const packetStartingAt = (startMs: number): EvidencePacket => {
+    const base = makePacket();
+    return makePacket({
+      strokes: [{ ...base.strokes[0]!, startMs, endMs: startMs + 1000 }],
+    });
+  };
+
+  it("导入视频：每一板都有一个「回放这一板」按钮", () => {
+    renderPanel([makeReviewItem()]);
+    expect(screen.getAllByText("回放这一板")).toHaveLength(1);
+    expect(videoEl().getAttribute("src")).toBe(MATCHING_REPLAY.url);
+  });
+
+  it("点回放会**定位到该板起点**（源时间与视频时间同一把尺子）", () => {
+    const packet = packetStartingAt(1200);
+    renderPanel([makeReviewItem({ packet })]);
+    expect(videoEl().currentTime, "还没点就已经在起点了？这条用例会空转").toBe(0);
+    fireEvent.click(screen.getByText("回放这一板"));
+    // 用 currentTime 断言"确实跳过去了"，而不是只断言按钮变了字
+    expect(videoEl().currentTime).toBeCloseTo(1.2, 5);
+    // 按钮变成"正在回放…"，用户知道点中了哪一板
+    expect(screen.getByText("正在回放…")).toBeInTheDocument();
+  });
+
+  it("**未闭合的板**不给放（不知道停在哪），按钮禁用并说明原因", () => {
+    const packet = makePacket({
+      strokes: [{ ...makePacket().strokes[0]!, endMs: null }],
+    });
+    renderPanel([makeReviewItem({ packet })]);
+    const btn = screen.getByText("回放这一板") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    expect(btn.title).toContain("回放不知道停在哪");
+  });
+
+  it("**摄像头来源**：明说没有录像，而不是只把按钮藏起来", () => {
+    // 藏起来读起来像"这一版没做回放"；说出来才是"这条路本来就没有录像"。
+    // 摄像头链路只保留关键帧、不做录制 —— 这是个产品事实，用户该知道。
+    renderPanel([makeReviewItem({ sourceKind: "camera", videoFileName: null })]);
+    expect(screen.queryByText("回放这一板")).toBeNull();
+    expect(screen.getByText(/来自摄像头/)).toBeInTheDocument();
+    expect(screen.getByText(/不录制视频/)).toBeInTheDocument();
+  });
+
+  it("**换了一支视频**：拒绝回放并说明时间轴对不上（最危险的一种）", () => {
+    renderPanel(
+      [makeReviewItem()],
+      vi.fn(),
+      // 当前加载的是另一支文件
+      { url: "blob:other", fileName: "another-clip.mp4" },
+    );
+    expect(screen.queryByText("回放这一板")).toBeNull();
+    expect(screen.getByText(/时间轴对不上/)).toBeInTheDocument();
+    // 两边的文件名都要写出来，用户才知道该重新导入哪一支
+    expect(screen.getByText(/forehand-1\.mp4/)).toBeInTheDocument();
+    expect(screen.getByText(/another-clip\.mp4/)).toBeInTheDocument();
+  });
+
+  it("**文件已不在本页**（刷新过）：明说并给出可执行的下一步", () => {
+    renderPanel([makeReviewItem()], vi.fn(), null);
+    expect(screen.queryByText("回放这一板")).toBeNull();
+    expect(screen.getByText(/已不在本页/)).toBeInTheDocument();
+    expect(screen.getByText(/重新导入同一支视频/)).toBeInTheDocument();
   });
 });
 

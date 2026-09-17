@@ -1,5 +1,5 @@
-import { Fragment, useState } from "react";
-import type { CoachFeedback, EvidencePacket, FeatureValue } from "@pingpong/contracts";
+import { Fragment, useEffect, useRef, useState } from "react";
+import type { CoachFeedback, EvidencePacket, FeatureValue, StrokeEvent } from "@pingpong/contracts";
 import { PHASE_EVENT_LABEL } from "@pingpong/contracts";
 import type { ThresholdConfig } from "@pingpong/motion-core";
 
@@ -16,6 +16,22 @@ export interface ReviewItem {
   elapsedMs: number;
   deduplicated: boolean;
   userRating: UserRating | null;
+  /**
+   * 这一组是从哪来的。
+   *
+   * 为什么复查记录要记住它：**摄像头链路不录制视频**（只保留关键帧），
+   * 所以"能不能回放"取决于这一组当时的来源，而不是当前选的是什么。
+   * 不记的话，切一次来源就会给一组没有录像的数据配一个回放按钮。
+   */
+  sourceKind: "camera" | "video";
+  /** 来源是视频时的文件名，用于确认"要回放的就是这一支" */
+  videoFileName: string | null;
+}
+
+/** 可回放的那支视频（由上层交出；没有就是没有，不给替代品）。 */
+export interface ReplaySource {
+  url: string;
+  fileName: string;
 }
 
 interface Props {
@@ -23,12 +39,108 @@ interface Props {
   onRate: (requestId: string, rating: UserRating) => void;
   onExport: () => void;
   thresholds: ThresholdConfig;
+  replay: ReplaySource | null;
+}
+
+/**
+ * 这一组能不能回放；不能的话，**为什么**。
+ *
+ * 三种"不能"必须分开说 —— 合成一句"不可用"会把三种完全不同的处境混成一个：
+ * 1. 摄像头来的：**根本没有录像**（链路只保留关键帧，不做录制）；
+ * 2. 视频来的，但那支文件已经不在了（刷新过、重新选过）；
+ * 3. 视频来的、文件也在，但**不是这一组用的那一支** —— 这一种最危险：
+ *    看起来能放，实际时间轴对不上，等于拿一段不相干的画面当这一板的证据。
+ */
+type ReplayStatus = { ok: true; source: ReplaySource } | { ok: false; reason: string };
+
+function replayStatus(item: ReviewItem, replay: ReplaySource | null): ReplayStatus {
+  if (item.sourceKind === "camera") {
+    return {
+      ok: false,
+      reason:
+        "这一组来自摄像头：本地链路不录制视频（只保留关键帧），所以没有画面可回放。" +
+        "要看细节请用下面「关键帧」那一栏。",
+    };
+  }
+  const name = item.videoFileName ?? "（文件名未知）";
+  if (!replay) {
+    return {
+      ok: false,
+      reason: `这一组来自视频「${name}」，但那支文件已不在本页（刷新过或重新选过）—— 重新导入同一支视频才能回放。`,
+    };
+  }
+  if (item.videoFileName != null && replay.fileName !== item.videoFileName) {
+    return {
+      ok: false,
+      reason:
+        `这一组来自「${name}」，而当前加载的是「${replay.fileName}」—— ` +
+        `时间轴对不上，放了也是不相干的画面，所以这里不给放。`,
+    };
+  }
+  return { ok: true, source: replay };
 }
 
 /** 复查页：关键帧、数值时序、反馈依据、用户评价、样本导出。 */
-export function ReviewPanel({ reviews, onRate, onExport, thresholds }: Props) {
+export function ReviewPanel({ reviews, onRate, onExport, thresholds, replay }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selected = reviews.find((r) => r.requestId === selectedId) ?? reviews[0] ?? null;
+
+  /*
+   * 回放：整个面板**只有一个** <video>，每一板用按钮去驱动它。
+   *
+   * 为什么不是每板各放一个：一组四板就是四个 <video> 解同一支文件，
+   * 解码开销白花，而且四个都停在不同的位置上，读的人分不清在看哪一个。
+   *
+   * 到板尾自动停：用 `timeupdate` 判断而不是 `setTimeout` ——
+   * 播放速率、缓冲、后台标签页降频都会让定时估算跑偏，而 timeupdate 报的是
+   * 解码器真实的当前时间。
+   */
+  const [playingId, setPlayingId] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const stopAtRef = useRef<number | null>(null);
+
+  // 显式标注：不标的话三元里那个字面量会把 ok 拓宽成 boolean，
+  // 下面的判别式联合就失效了（TS 只会在用的时候报"没有 source"）
+  const status: ReplayStatus = selected
+    ? replayStatus(selected, replay)
+    : { ok: false, reason: "" };
+
+  // 换一条记录就停掉上一条的回放：留着会让"正在放"的标记指向另一组。
+  // 只在**真的在放**的时候才调 pause()（用 stopAtRef 判断）——
+  // 没在放也去调，jsdom 里会刷一屏 "Not implemented"，真实浏览器里也没意义。
+  useEffect(() => {
+    if (stopAtRef.current == null) return;
+    videoRef.current?.pause();
+    stopAtRef.current = null;
+    setPlayingId(null);
+  }, [selected?.requestId]);
+  // 组件卸载时也要停，否则离开复查页后音频还在走
+  useEffect(() => () => videoRef.current?.pause(), []);
+
+  const playStroke = (s: StrokeEvent): void => {
+    const video = videoRef.current;
+    if (!video || !status.ok) return;
+    // 源时间 == video.currentTime×1000（导入链路就是这么取的时间戳），
+    // 所以这两个数字是可以直接对齐的，不需要任何映射
+    video.currentTime = s.startMs / 1000;
+    stopAtRef.current = s.endMs;
+    setPlayingId(s.strokeId);
+    // jsdom 里 `play()` 未实现、**返回 undefined**（真实浏览器返回 Promise），
+    // 所以这里对返回值做可选链：两种环境都不会炸，也仍然吞掉真实的播放失败。
+    const playback: Promise<void> | undefined = video.play();
+    void playback?.catch(() => setPlayingId(null));
+  };
+
+  const onTimeUpdate = (): void => {
+    const video = videoRef.current;
+    const stopAt = stopAtRef.current;
+    if (!video || stopAt == null) return;
+    if (video.currentTime * 1000 >= stopAt) {
+      video.pause();
+      stopAtRef.current = null;
+      setPlayingId(null);
+    }
+  };
 
   if (reviews.length === 0) {
     return (
@@ -244,6 +356,32 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds }: Props) {
                 状态机的阶段转变（离开准备区／确认回身／重新进区／本板闭合），
                 <strong>不是击球时刻</strong> —— 本版没有触球与随挥事件，也没有随挥末端。
               </div>
+
+              {status.ok ? (
+                <>
+                  <video
+                    ref={videoRef}
+                    className="replay"
+                    src={status.source.url}
+                    controls
+                    playsInline
+                    muted
+                    onTimeUpdate={onTimeUpdate}
+                    onEnded={() => setPlayingId(null)}
+                  />
+                  <div className="small muted" style={{ marginBottom: 8 }}>
+                    按「回放这一板」会跳到该板起点、到板尾自动停。画面上的时间是
+                    <strong>源视频时间</strong>，与下面每板的时刻、以及关键帧上的
+                    <span className="mono small">@Nms</span> 是同一把尺子。
+                  </div>
+                </>
+              ) : (
+                <div className="notice warn" style={{ marginBottom: 10 }}>
+                  <strong>这一组没有可回放的画面</strong>
+                  <div className="small">{status.reason}</div>
+                </div>
+              )}
+
               {selected.packet.strokes.map((s, i) => {
                 const entry = selected.packet.perStrokeFeatures.find(
                   (e) => e.strokeId === s.strokeId,
@@ -259,6 +397,21 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds }: Props) {
                       <span className={`badge ${s.complete ? "ok" : "warn"}`}>
                         {s.complete ? "完整" : "不完整"}
                       </span>
+                      {status.ok && (
+                        <button
+                          className={playingId === s.strokeId ? "primary" : ""}
+                          style={{ marginLeft: "auto" }}
+                          onClick={() => playStroke(s)}
+                          disabled={s.endMs == null}
+                          title={
+                            s.endMs == null
+                              ? "这一板没有闭合时间，回放不知道停在哪"
+                              : `跳到 ${s.startMs}ms 起放，到 ${s.endMs}ms 停`
+                          }
+                        >
+                          {playingId === s.strokeId ? "正在回放…" : "回放这一板"}
+                        </button>
+                      )}
                     </div>
                     {s.phaseEvents.length > 0 ? (
                       <div className="phase-line">
