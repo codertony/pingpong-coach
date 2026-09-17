@@ -1,5 +1,11 @@
 import { Fragment, useEffect, useRef, useState } from "react";
-import type { CoachFeedback, EvidencePacket, FeatureValue, StrokeEvent } from "@pingpong/contracts";
+import type {
+  CoachFeedback,
+  EvidenceKeyframe,
+  EvidencePacket,
+  FeatureValue,
+  StrokeEvent,
+} from "@pingpong/contracts";
 import { PHASE_EVENT_LABEL } from "@pingpong/contracts";
 import type { ThresholdConfig } from "@pingpong/motion-core";
 import type { ElbowTrace } from "../training/training-session.js";
@@ -89,6 +95,55 @@ function replayStatus(item: ReviewItem, replay: ReplaySource | null): ReplayStat
   return { ok: true, source: replay };
 }
 
+/**
+ * 角色 → 中文阶段名（跨板对照的行标题）。
+ *
+ * 为什么不直接用 `PHASE_EVENT_LABEL`：那张表是**事件类型** → 中文，这里的是
+ * **关键帧角色**。产品里两者一一对应（backswing ↔ backswing_start、…，
+ * 由 F-058 的选帧器保证：角色是从事件类型推出来的），但 `role` 还多一个 `other`
+ * （没有对应事件），所以不是同一张表，不能直接替代。
+ */
+const ROLE_LABEL: Record<EvidenceKeyframe["role"], string> = {
+  backswing: "引拍",
+  forward: "前挥",
+  return: "还原",
+  ready: "回到准备位",
+  other: "其他",
+};
+
+/** 行序按动作的时间顺序，而不是"哪一板先出现" */
+const ROLE_ORDER = ["backswing", "forward", "return", "ready", "other"] as const;
+
+/**
+ * 把关键帧按阶段分组，只留下**至少两板**可对照的那些。
+ *
+ * 两条取舍：
+ * - **一行里只有一张图就不叫对照** —— 那是上面那块平铺的关键帧表，不必重复；
+ * - **同一板在同一行里只留一张**：拉锯的一板可能有两次「引拍开始」、因而有两张
+ *   引拍的图，而这一栏是"一板一列"的对照，同一板占两列会让人以为是两板。
+ */
+function crossStrokeRowsOf(packet: EvidencePacket): Array<{
+  role: EvidenceKeyframe["role"];
+  items: EvidenceKeyframe[];
+}> {
+  const byRole = new Map<EvidenceKeyframe["role"], EvidenceKeyframe[]>();
+  for (const k of packet.keyframes) {
+    const list = byRole.get(k.role);
+    if (list) list.push(k);
+    else byRole.set(k.role, [k]);
+  }
+  return ROLE_ORDER.flatMap((role) => {
+    const seenStroke = new Set<string>();
+    const onePerStroke: EvidenceKeyframe[] = [];
+    for (const k of byRole.get(role) ?? []) {
+      if (seenStroke.has(k.strokeId)) continue;
+      seenStroke.add(k.strokeId);
+      onePerStroke.push(k);
+    }
+    return onePerStroke.length >= 2 ? [{ role, items: onePerStroke }] : [];
+  });
+}
+
 /** 复查页：关键帧、数值时序、反馈依据、用户评价、样本导出。 */
 export function ReviewPanel({ reviews, onRate, onExport, thresholds, replay }: Props) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -113,6 +168,11 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds, replay }: P
   const status: ReplayStatus = selected
     ? replayStatus(selected, replay)
     : { ok: false, reason: "" };
+
+  // 跨板对照的分组与"第 N 板"编号都来自这一份包，不在渲染里临时重算
+  const crossStrokeRows = selected ? crossStrokeRowsOf(selected.packet) : [];
+  const strokeIndexOf = (strokeId: string): number =>
+    selected?.packet.strokes.findIndex((s) => s.strokeId === strokeId) ?? -1;
 
   // 换一条记录就停掉上一条的回放：留着会让"正在放"的标记指向另一组。
   // 只在**真的在放**的时候才调 pause()（用 stopAtRef 判断）——
@@ -355,6 +415,44 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds, replay }: P
                 <div className="small muted">
                   本组没有可展示的关键帧（可能编码失败或缓存已淘汰）。数值测量仍然有效。
                 </div>
+              )}
+            </div>
+
+            <div className="panel">
+              <h2>同阶段 · 跨板对照</h2>
+              <div className="small muted" style={{ marginBottom: 10 }}>
+                把<strong>同一个阶段</strong>的图按板排成一行 —— 看的是"这几板彼此像不像"。 它是
+                <strong>你自己这几板之间</strong>的对照，<strong>不是与标准的对照</strong>：
+                系统里没有审核过的参考模板，所以这里既不说哪一板"对"， 也不说这几板"一致就算好"——
+                <strong>稳定地做错也是一致的</strong>。
+              </div>
+              {crossStrokeRows.length === 0 ? (
+                <div className="small muted">
+                  本组每个阶段都只有一板有图（或一板都没有），凑不出可对照的第二板。
+                </div>
+              ) : (
+                crossStrokeRows.map(({ role, items }) => (
+                  <div className="stroke-block" key={role}>
+                    <div className="row">
+                      <strong>{ROLE_LABEL[role]}</strong>
+                      <span className="small muted">这 {items.length} 板的同一阶段</span>
+                    </div>
+                    <div className="kf-grid">
+                      {items.map((k) => (
+                        <div className="kf" key={k.id}>
+                          <img src={`data:image/jpeg;base64,${k.jpegBase64}`} alt={k.id} />
+                          <div className="meta">第 {strokeIndexOf(k.strokeId) + 1} 板</div>
+                          <div className="meta muted">
+                            {k.sourceTimeMs}ms ·{" "}
+                            {k.eventTimeOffsetMs === 0
+                              ? "恰在转变时刻"
+                              : `距事件 +${k.eventTimeOffsetMs}ms`}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
               )}
             </div>
 

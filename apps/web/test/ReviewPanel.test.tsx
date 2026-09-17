@@ -12,7 +12,12 @@ import "./setup";
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ReviewPanel, type ReviewItem, type UserRating } from "../src/ui/ReviewPanel.js";
-import type { CoachFeedback, EvidencePacket, FeatureValue } from "@pingpong/contracts";
+import type {
+  CoachFeedback,
+  EvidenceKeyframe,
+  EvidencePacket,
+  FeatureValue,
+} from "@pingpong/contracts";
 import { DEFAULT_THRESHOLDS } from "@pingpong/motion-core";
 
 function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePacket {
@@ -351,6 +356,91 @@ describe("ReviewPanel · 逐板数值与过程", () => {
     expect(screen.getByText("证据包的局限")).toBeInTheDocument();
     expect(screen.getByText(/关键帧锚在/)).toBeInTheDocument();
     expect(screen.getByText(/没有可用画面/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * 同阶段 · 跨板对照（评审 §1.7 的"并排图"，**只做用户自己那半边**）。
+ *
+ * 参考模板那半边要等 P2，但"这几板彼此像不像"不需要参考 —— 而它恰恰是
+ * 方案 §1.4 第 ④ 条（个人基线）与复查页"跨板复核"要的东西。
+ *
+ * 这一栏最容易犯的错是**把"一致"说成"对"**：稳定地做错也一样一致，
+ * 所以文案必须把话说明白（仓库里有一条测试专门钉住这个逻辑）。
+ */
+describe("ReviewPanel · 同阶段跨板对照", () => {
+  /** 两板，各自四个阶段各一张图。 */
+  const twoStrokes = (): EvidencePacket => {
+    const base = makePacket();
+    const s1 = base.strokes[0]!;
+    const s2 = { ...s1, strokeId: "st-2", startMs: 1200, endMs: 2200 };
+    const kfOf = (strokeId: string, role: EvidenceKeyframe["role"], id: string, ms: number) => ({
+      ...base.keyframes[0]!,
+      id,
+      strokeId,
+      role,
+      sourceTimeMs: ms,
+      frameId: `f-${id}`,
+    });
+    const kfs = [
+      kfOf("st-1", "backswing", "a1", 240),
+      kfOf("st-1", "forward", "b1", 400),
+      kfOf("st-2", "backswing", "a2", 1440),
+      kfOf("st-2", "forward", "b2", 1600),
+    ];
+    return makePacket({
+      strokes: [s1, s2],
+      perStrokeFeatures: [base.perStrokeFeatures[0]!, { strokeId: "st-2", features: [] }],
+      keyframes: kfs,
+    });
+  };
+
+  it("同一阶段有两板时就排成一行，并标出第几板", () => {
+    renderPanel([makeReviewItem({ packet: twoStrokes() })]);
+    expect(screen.getByText("同阶段 · 跨板对照")).toBeInTheDocument();
+    // 这个 fixture 里引拍与前挥各有两板 → 两行；还原/闭合只有一板，不成行
+    expect(screen.getAllByText("这 2 板的同一阶段")).toHaveLength(2);
+    expect(screen.getAllByText("第 1 板").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("第 2 板").length).toBeGreaterThan(0);
+  });
+
+  it("**明说这是自己几板之间的对照，不是与标准的对照**", () => {
+    renderPanel([makeReviewItem({ packet: twoStrokes() })]);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("不是与标准的对照");
+    // 红线：一致性不等于正确性 —— 这句话必须在页面上，不能只在测试里
+    expect(text).toContain("稳定地做错也是一致的");
+  });
+
+  it("**同一板同一阶段只占一列**：拉锯的两张引拍图不会伪装成两板", () => {
+    const base = twoStrokes();
+    const sawtooth = makePacket({
+      strokes: base.strokes,
+      perStrokeFeatures: base.perStrokeFeatures,
+      keyframes: [
+        ...base.keyframes,
+        // 第 1 板又多一张引拍（状态机走出两次「引拍开始」）
+        {
+          ...base.keyframes[0]!,
+          id: "a1b",
+          strokeId: "st-1",
+          role: "backswing",
+          sourceTimeMs: 300,
+        },
+      ],
+    });
+    renderPanel([makeReviewItem({ packet: sawtooth })]);
+    // 引拍那一行仍只有两张图（每板一张）
+    const backswingRow = [...document.querySelectorAll(".stroke-block")].find((el) =>
+      el.textContent?.startsWith("引拍"),
+    );
+    expect(backswingRow?.querySelectorAll(".kf")).toHaveLength(2);
+  });
+
+  it("每板都只有一个阶段有图时**明说凑不出对照**，而不是留一片空白", () => {
+    const base = makePacket();
+    renderPanel([makeReviewItem({ packet: base })]);
+    expect(screen.getByText(/凑不出可对照的第二板/)).toBeInTheDocument();
   });
 });
 

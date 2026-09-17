@@ -232,5 +232,35 @@ test.describe("导入视频 · 播完必须出结论", () => {
       .toBeGreaterThan(0);
     // 说明里必须给出覆盖率 —— 缺了多少要看得见，不能只有一条好看的线
     await expect(page.getByText(/共 \d+\/\d+ 帧测到肘角/)).toBeVisible();
+
+    /*
+     * ⑦ 同阶段·跨板对照（评审 §1.7 的"并排图"，只做用户自己那半边）。
+     *
+     * 真实素材这一段检出了 4 板，所以至少有一个阶段是"多板都有图"的。
+     * 断言"每一行里的图数 ≥ 2"—— 那正是这一栏的定义：一行不足两板就不叫对照。
+     */
+    await expect(page.getByText("同阶段 · 跨板对照")).toBeVisible();
+    // 红线：不能让用户把"这几板一致"读成"这几板对"
+    await expect(page.getByText(/不是与标准的对照/)).toBeVisible();
+    await expect(page.getByText(/稳定地做错也是一致的/)).toBeVisible();
+    const crossRows = page.locator(".stroke-block", { has: page.locator(".kf-grid") });
+    const rowCount = await crossRows.count();
+    if (rowCount === 0) {
+      /*
+       * 这一次的组分不出"有两板可对照"的阶段 —— 那是允许的（成组只要求凑满几板，
+       * 不保证每个阶段都落到多板上；而且这条链路按浏览器实际交付的帧处理，
+       * 两次跑出来的组不保证一样）。但**必须明说**，不能留一片空白让人以为漏了。
+       */
+      await expect(crossRows).toHaveCount(0);
+      await expect(page.getByText(/凑不出可对照的第二板/)).toBeVisible();
+    } else {
+      for (let i = 0; i < rowCount; i++) {
+        const row = crossRows.nth(i);
+        const n = await row.locator(".kf").count();
+        expect(n, `跨板对照有一行只有 ${n} 张图 —— 对照至少要两板`).toBeGreaterThanOrEqual(2);
+        // 每张图要标出它是第几板，否则"跨板"就无从读起
+        await expect(row.getByText(/^第 \d+ 板$/).first()).toBeVisible();
+      }
+    }
   });
 });
