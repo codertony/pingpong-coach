@@ -70,7 +70,7 @@
   },
   "samples": [
     {
-      "$comment": "**模板，等你填**（填完它才会有第一份真实数字；填之前它会被明确列为「未计入」，不会污染任何分母）。要填三处：annotatorId（**必须写**，报告按标注者分开）、strokes 里每一板的 startMs/endMs、以及要报事件定位时的 events。每段素材跑一次 step1 的探针，把导出物另存到自己的目录（例如 .tmp-eval/clip-02/）再把路径写进 observedFile。",
+      "$comment": "**模板，等你填**（填完它才会有第一份真实数字；填之前它会被明确列为「未计入」，不会污染任何分母）。要填三处：annotatorId（**必须写**，报告按标注者分开）、strokes 里每一板的 startMs/endMs、以及要报事件定位时的 events。每段素材跑一次 step1 的探针，**给每段一个自己的输出目录**（`PPC_EVAL_OUT=../.tmp-eval/clip-01`）—— 所有导出都落在同一个默认目录里，第二次跑会**覆盖**第一次的观测，而那份观测是这条样本 observedFile 指向的东西，覆盖之后它就从「缺人工标注」变成「缺回放观测」，标注白标。然后把那个路径写进 observedFile。",
       "id": "clip-01",
       "label": "正常执行",
       "racketSideVisibility": "visible",

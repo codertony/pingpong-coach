@@ -491,7 +491,10 @@ pnpm annotate:tolerance
 
 ```bash
 # ① 导出观测 + 分块联系表 + 帧索引（时间戳烧在画面里）
-PPC_VERIFY_VIDEO="<素材绝对路径>" pnpm --filter @pingpong/web test:e2e segmentation-eval
+#    ⚠️ 每段素材给一个**自己的输出目录**（PPC_EVAL_OUT 相对 apps/web/e2e 解析）——
+#    共用一个目录时，跑第二段会**覆盖**第一段的观测，而那条样本的 observedFile
+#    正指着它：覆盖之后它只会显示「缺回放观测」，你标过的真值等于白标。
+PPC_VERIFY_VIDEO="<素材绝对路径>" PPC_EVAL_OUT=../.tmp-eval/clip-01   pnpm --filter @pingpong/web test:e2e segmentation-eval
 
 # ② 照着 strips/*.png 读时刻，填进 evaluation/samples.json 的 samples[0]
 #    那里有一条**带注释的待填模板**：annotatorId + 每一板的 startMs/endMs
