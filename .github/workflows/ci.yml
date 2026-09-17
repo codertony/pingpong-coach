@@ -53,8 +53,14 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
-      - name: 类型检查
+      - name: 类型检查（四个包）
         run: pnpm typecheck
+
+      - name: 类型检查（scripts/）
+        # `scripts/` 不是 workspace 包，`pnpm -r typecheck` 从来不管它们 ——
+        # 于是"改成 TS 换类型安全"这个目的**一半没实现**（F-034 实测找出 4 个问题）。
+        # 本地 `verify` 里有这一步，CI 之前**没有**，等于只在本地守。
+        run: pnpm typecheck:scripts
 
       - name: 依赖边界与纪律检查
         run: pnpm lint
@@ -69,6 +75,12 @@ jobs:
 
       - name: 文档一致性（命令 / 路径 / 测试总数声明）
         run: pnpm check:docs
+
+      - name: 密钥守卫（被跟踪文件里有没有像密钥的串）
+        # ⚠️ 这一步此前**只在本地 verify 与 CI 之间缺了一环**：README 写着
+        # "pnpm verify 里有一道 check:secrets 守卫"，而 CI 的 verify job 没跑它 ——
+        # 也就是说别人提的 PR 上，这道守卫**从来没运行过**。
+        run: pnpm check:secrets
 
       - name: 单元测试
         run: pnpm test

@@ -117,3 +117,47 @@ describe("标注字段名不许与加载器脱节（samples.json ↔ eval:replay
     }
   });
 });
+
+describe("CI 必须逐条覆盖本地 pnpm verify（顺序也一样）", () => {
+  it("本地 verify 的每一步，CI 的 verify job 里都有，且顺序一致", () => {
+    /*
+     * 踩过的坑：CI 的 verify job 标题写着"与本地 `pnpm verify` **逐条对齐**"，
+     * 而它**漏了两步** —— `typecheck:scripts`（F-034：scripts/ 从来没被类型检查过）
+     * 和 `check:secrets`（密钥守卫）。后者尤其要命：README 写着"pnpm verify 里有一道
+     * check:secrets 守卫"，于是所有人以为 CI 上也在守，实际上**只在本地守** ——
+     * 别人提上来的 PR 里，那道守卫从来没运行过。
+     *
+     * 这类"两个地方各写一份清单"的漂移，靠人同步一定会漏（本仓库已经栽过好几次），
+     * 所以这里让它**机械对齐**：以 package.json 的 verify 链为唯一来源，逐个查 CI。
+     */
+    const pkg = JSON.parse(readFileSync(resolve(repoRoot, "package.json"), "utf8")) as {
+      scripts?: Record<string, string>;
+    };
+    const verifyChain = (pkg.scripts?.verify ?? "")
+      .split("&&")
+      .map((seg) => /pnpm\s+([^\s&]+)/.exec(seg.trim())?.[1])
+      .filter((x): x is string => x != null);
+    expect(verifyChain.length, "verify 链解析出来太短，守卫会形同虚设").toBeGreaterThan(5);
+
+    const ci = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    const start = ci.indexOf("\n  verify:");
+    const end = ci.indexOf("\n  e2e:");
+    expect(start, "找不到 verify job").toBeGreaterThan(-1);
+    expect(end, "找不到 e2e job（用于界定 verify job 的边界）").toBeGreaterThan(start);
+    const ciSteps = [...ci.slice(start, end).matchAll(/run:\s*pnpm\s+([^\s&|]+)/g)].map(
+      (m) => m[1]!,
+    );
+
+    for (const step of verifyChain) {
+      expect(
+        ciSteps,
+        `CI 的 verify job 里没有 \`pnpm ${step}\` —— 本地跑得到、CI 里没人守`,
+      ).toContain(step);
+    }
+    const positions = verifyChain.map((s2) => ciSteps.indexOf(s2));
+    expect(
+      positions,
+      `CI 里的门禁顺序与本地 verify 不一致：本地 ${JSON.stringify(verifyChain)}，CI ${JSON.stringify(ciSteps)}`,
+    ).toEqual([...positions].sort((a, b) => a - b));
+  });
+});
