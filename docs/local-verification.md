@@ -499,6 +499,10 @@ PPC_VERIFY_VIDEO="<素材绝对路径>" PPC_EVAL_OUT=../.tmp-eval/clip-01   pnpm
 # ② 照着 strips/*.png 读时刻，填进 evaluation/samples.json 的 samples[0]
 #    那里有一条**带注释的待填模板**：annotatorId + 每一板的 startMs/endMs
 #    （要报事件定位再填 events）。字段名必须是 startMs/endMs —— 写错会被丢弃并告警。
+#
+#    ⚠️ 标注期间**不要打开**同目录下的 segmentation-observed.json：那是**检出结果**。
+#       §1.8 第 1 条：先看过算法输出再标，标出来的是"我同意算法"，不是"我看见的事实" ——
+#       这批标注的全部价值就在它**独立于算法**。联系表（PNG）是原始画面，随便看。
 
 # ③ 跑指标：缺标注它会**明确拒绝**给数字，而不是编一个
 pnpm eval:replay --manifest evaluation/samples.json
