@@ -105,6 +105,71 @@ describe("buildPrompt — 挥拍渲染", () => {
   });
 });
 
+/**
+ * 关键帧那一行（R4）。
+ *
+ * 在此之前每张图只有 `角色=forward`，而"forward"当时只是**按区间时间比例挑的位置**。
+ * 现在每张图锚在检出的阶段转变上，行里必须写清**属于哪一板、偏了多少**，
+ * 否则模型只能拿时间戳去猜（一组最多 4 板、二十几张图）。
+ */
+describe("buildPrompt — 关键帧渲染", () => {
+  /** 只取关键帧那几行 —— 段落说明里也会出现「板=」「恰在转变时刻」这些字样，
+   *  不筛行的话断言会被说明本身满足（这是第一次写这几条时真踩过的坑）。 */
+  const kfLines = (user: string): string[] =>
+    user
+      .split("\n")
+      .filter((l) => l.startsWith("- kf"))
+      .map((l) => l.trim());
+
+  it("每行带板号，模型才知道这张图属于哪一板", () => {
+    const { user } = buildPrompt(makePacket(), [], noAllowed);
+    const lines = kfLines(user);
+    expect(lines).toHaveLength(3);
+    for (const l of lines) expect(l).toContain("板=stroke-1");
+  });
+
+  it("恰在转变时刻的那张写成「恰在转变时刻」，不写成 +0ms", () => {
+    const packet = makePacket({
+      keyframes: makePacket().keyframes.map((k) => ({ ...k, eventTimeOffsetMs: 0 })),
+    });
+    const { user } = buildPrompt(packet, [], noAllowed);
+    for (const l of kfLines(user)) {
+      expect(l).toContain("恰在转变时刻");
+      expect(l).not.toContain("+0ms");
+    }
+  });
+
+  it("相位内的那张带符号写出来（+120ms），与「恰在转变时刻」分得开", () => {
+    const packet = makePacket({
+      keyframes: makePacket().keyframes.map((k) => ({ ...k, eventTimeOffsetMs: 120 })),
+    });
+    const { user } = buildPrompt(packet, [], noAllowed);
+    for (const l of kfLines(user)) {
+      expect(l).toContain("距事件 +120ms");
+      expect(l).not.toContain("恰在转变时刻");
+    }
+  });
+
+  it("偏移为负时**照实渲染**（不吞掉负号、不取绝对值）", () => {
+    // 负偏移表示那张图取在锚定事件之前。发端不该产出这种图（候选只从事件窗里取），
+    // 但渲染层不许"把它抹平成一个正数"—— 那会把一个数据问题藏起来。
+    const packet = makePacket({
+      keyframes: makePacket().keyframes.map((k) => ({ ...k, eventTimeOffsetMs: -80 })),
+    });
+    const { user } = buildPrompt(packet, [], noAllowed);
+    for (const l of kfLines(user)) {
+      expect(l).toContain("距事件 -80ms");
+      expect(l).not.toContain("+80ms");
+    }
+  });
+
+  it("没有关键帧时不渲染任何关键帧行，占位照旧", () => {
+    const { user } = buildPrompt(makePacket({ keyframes: [] }), [], noAllowed);
+    expect(user).toContain("（无关键帧）");
+    expect(kfLines(user)).toEqual([]);
+  });
+});
+
 describe("buildPrompt — 审核状态与允许集合", () => {
   it("无已审核参考时，提示词写明「不得输出技术动作合格」", () => {
     const { user } = buildPrompt(makePacket(), [], noAllowed);

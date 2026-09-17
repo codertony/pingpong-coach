@@ -1,5 +1,6 @@
 /**
- * R2 / R3 回归：关键帧的**阶段标签**与**候选是否真的有图**。
+ * R2 / R3 / R4 回归：关键帧的**阶段标签**、**候选是否真的有图**、
+ * 以及**这张图是按什么挑出来的**。
  *
  * ## R2 · 阶段标签全丢
  *
@@ -19,6 +20,15 @@
  * 找不到只记一笔 `missing`。而图片是**每 3 帧**采一张，姿态帧却帧帧都有 ——
  * 两个集合不一样大，于是"挑中的那几张恰好没采图"是常态，
  * **附近明明有可用的图，却白白少发几张**给模型。
+ *
+ * ## R4 · 「按时间挑的图」不能冒充事件时刻
+ *
+ * 这一条经历了两个阶段，值得记下来：
+ * 1. 事件还没有的时候（F-054 之前），能做到的极限是**如实写明**「这些图是按区间
+ *    时间比例挑的，不是检出的事件时刻」—— 名字像事件，不能让它被读成事件；
+ * 2. 事件有了之后，比例挑法**整条拆掉**，改为每张图锚在检出的阶段转变上
+ *    （`selectRepresentativeFrames`）。所以那句免责声明不再成立，
+ *    换成"锚在哪些事件上、各偏了多少毫秒"，而且**配不上图时要报缺失**。
  */
 
 import { describe, expect, it } from "vitest";
@@ -34,11 +44,13 @@ import { makeConfig, makeFrame, OFFSETS, READY } from "./helpers/synthetic-strok
  */
 function run(withPixels: boolean | number): {
   keyframes: EvidenceKeyframe[];
+  packets: EvidencePacket[];
   keyframesMissing: number | null;
   statuses: string[];
   limitations: string[];
 } {
   const keyframes: EvidenceKeyframe[] = [];
+  const packets: EvidencePacket[] = [];
   const statuses: string[] = [];
   const limitations: string[] = [];
   const session = new TrainingSession(makeConfig({ strokesPerGroup: 1_000_000 }), {
@@ -46,6 +58,7 @@ function run(withPixels: boolean | number): {
     onStroke: () => {},
     onFeedback: () => {},
     onGroupComplete: (p: EvidencePacket) => {
+      packets.push(p);
       keyframes.push(...p.keyframes);
       limitations.push(...p.limitations);
     },
@@ -69,7 +82,7 @@ function run(withPixels: boolean | number): {
   session.finishGroup("测试用：本组到此为止");
   const missing = session.telemetry.keyframesMissing;
   session.dispose();
-  return { keyframes, keyframesMissing: missing, statuses, limitations };
+  return { keyframes, packets, keyframesMissing: missing, statuses, limitations };
 }
 
 describe("R2 · 关键帧带上了阶段角色", () => {
@@ -82,26 +95,75 @@ describe("R2 · 关键帧带上了阶段角色", () => {
       roles.every((r) => r === "other"),
       "所有关键帧的角色都是 other —— 阶段标签又丢了（role 的默认值复活了？）",
     ).toBe(false);
-    // 选帧逻辑一定会挑锚点附近那张（forward）和区间前段那张（backswing）
+    // 角色现在**由事件推出**：这一板的合成动作里确实有引拍与前挥两个转变，
+    // 所以对应的两张一定存在（不再依赖"锚点附近/区间前段"这种比例位置）
     expect(roles, `角色集合是 ${JSON.stringify([...new Set(roles)])}`).toContain("forward");
     expect(roles).toContain("backswing");
   });
 });
 
-describe("R4 · 不让「按时间挑的图」冒充事件时刻", () => {
-  it("有图时**如实写明**关键帧是按区间时间比例挑的，不是检出的事件", () => {
-    const { keyframes, limitations } = run(true);
+describe("R4 · 关键帧锚在检出的事件上，不是按时间比例挑的", () => {
+  it("每张图都写明**属于哪一板、锚在哪个事件上偏了多少**", () => {
+    const { keyframes, packets } = run(true);
     expect(keyframes.length).toBeGreaterThan(0);
+
+    const strokeIds = new Set(packets.flatMap((p) => p.strokes.map((s) => s.strokeId)));
+    for (const k of keyframes) {
+      expect(k.strokeId, `关键帧 ${k.id} 没有板号`).toBeTruthy();
+      expect(strokeIds, `关键帧 ${k.id} 声明了一个不存在的板`).toContain(k.strokeId);
+      // 偏移按定义是「本帧时刻 − 锚定事件时刻」，而候选只从**事件窗内**取，
+      // 所以它不可能为负 —— 负偏移意味着挑到了事件之前的帧（借窗外的图）
+      expect(
+        k.eventTimeOffsetMs,
+        `关键帧 ${k.id} 的偏移是负的（${k.eventTimeOffsetMs}）—— 挑到了锚定事件之前的帧`,
+      ).toBeGreaterThanOrEqual(0);
+    }
+    // 至少有若干张是**恰在转变时刻**的，否则"锚在事件上"就是空话
     expect(
-      limitations.join("\n"),
-      "关键帧的 role 名字很像事件（backswing / forward），却没说明它是怎么挑的",
-    ).toContain("按挥拍区间的时间比例挑选");
+      keyframes.filter((k) => k.eventTimeOffsetMs === 0).length,
+      "没有一张图落在转变时刻上",
+    ).toBeGreaterThan(0);
   });
 
-  it("**没有图**时不带这句话 —— 它只在真的有图时才有意义", () => {
+  it("限制说明改成**按实际挑法**讲，不再有「按区间时间比例挑选」那句", () => {
+    const { keyframes, limitations } = run(true);
+    expect(keyframes.length).toBeGreaterThan(0);
+    const text = limitations.join("\n");
+    expect(text, "比例挑法已经拆掉了，那句免责声明留着就是错的").not.toContain(
+      "按挥拍区间的时间比例挑选",
+    );
+    expect(text, "没说清楚图是锚在事件上的").toContain("锚在");
+    // 「前挥开始」不能被读成击球瞬间（红线 2）
+    expect(text).toContain("不要把「前挥开始」读成「击球瞬间」");
+    // 说了有几张是转变时刻、几张是相位内的峰值帧
+    expect(text).toMatch(/\d+ 张就在转变时刻/);
+  });
+
+  it("三类的张数**互斥且加起来正好等于总张数**（峰值帧与退让帧不能混为一谈）", () => {
+    // 偏移 > 0 有两种来路：故意的相位内峰值帧，与「转变那一刻没采到图」的退让。
+    // 第一版把两者一律说成峰值帧 —— 那在真实素材上就是假话（18 张里只有 6 张偏移为 0）。
+    const { keyframes, limitations } = run(3);
+    const text = limitations.join("\n");
+    const m = text.match(
+      /共 (\d+) 张，其中 (\d+) 张就在转变时刻（偏移 0ms）、(\d+) 张是该相位内的\*\*腕速峰值帧\*\*、(\d+) 张是/,
+    );
+    expect(m, `没找到三类张数那句话：${text}`).not.toBeNull();
+    const [total, atEvent, peak, fallback] = m!.slice(1).map(Number) as [
+      number,
+      number,
+      number,
+      number,
+    ];
+    expect(total).toBe(keyframes.length);
+    expect(atEvent + peak + fallback, "三类不是互斥的（加起来不等于总数）").toBe(total);
+    // 至少得有一张真的落在转变时刻上，否则「锚在事件上」是空话
+    expect(atEvent).toBeGreaterThan(0);
+  });
+
+  it("**没有图**时不带这句说明 —— 它只在真的有图时才有意义", () => {
     const { keyframes, limitations } = run(false);
     expect(keyframes).toHaveLength(0);
-    expect(limitations.join("\n")).not.toContain("按挥拍区间的时间比例挑选");
+    expect(limitations.join("\n")).not.toContain("锚在");
   });
 });
 

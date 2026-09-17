@@ -92,5 +92,26 @@ test.describe("导入视频 · 播完必须出结论", () => {
       [...feedbackStatusSchema.options],
       `结论状态不是契约里的四档之一，而是「${verdict}」`,
     ).toContain(verdict);
+
+    /*
+     * ③ 关键帧那一栏必须**说出这张图是哪一板、锚在哪个事件上偏了多少**（R4）。
+     *
+     * 为什么断言"先有图"再断言"图上有话"：如果图本来就是空的，下面那两条会**空转通过** ——
+     * 而"通过条件不需要被验的行为也能满足"是本仓库栽过好几次的形态（F-029 的教训）。
+     * 真实导入链路会走产品的 `KeyframeCapturer`，所以这里图应当非空；
+     * 真的空了就该红，那是 F-028 那一类"图片链路断了"的信号。
+     */
+    const kfGrid = page.locator(".kf-grid .kf");
+    await expect
+      .poll(async () => kfGrid.count(), {
+        timeout: 30_000,
+        message: "复查页一张关键帧都没有 —— 图片链路没接通，下面的断言只会空转",
+      })
+      .toBeGreaterThan(0);
+    const metas = await kfGrid.locator(".meta").allTextContents();
+    expect(
+      metas.some((m) => m.includes("板 ") && m.includes("距事件")),
+      `关键帧没写清属于哪一板、锚在哪个事件上，页面上是：${JSON.stringify(metas)}`,
+    ).toBe(true);
   });
 });

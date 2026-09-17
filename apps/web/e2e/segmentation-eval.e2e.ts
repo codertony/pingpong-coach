@@ -21,7 +21,7 @@ import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { test, expect, type Page } from "@playwright/test";
-import type { StrokeEvent } from "@pingpong/contracts";
+import type { EvidencePacket, StrokeEvent } from "@pingpong/contracts";
 import { boundaryToleranceMs } from "@pingpong/motion-core";
 
 const VIDEO = process.env.PPC_VERIFY_VIDEO ?? "";
@@ -234,6 +234,8 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
         /** onStroke 只对**已闭合**的挥拍触发，但 endMs 的类型允许 null —— 老实计数 */
         let droppedIncomplete = 0;
         const statuses: string[] = [];
+        /** 成组后拿到的证据包（评估里只成一次组，见下面的 finishGroup） */
+        const packets: Array<Record<string, unknown>> = [];
         const session = new window.__fixture.TrainingSession(
           window.__fixture.buildTrainingConfig({
             sessionId: "eval_replay_1",
@@ -260,10 +262,25 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
                 // 阶段事件（R4）：导出给 `eval:replay` 做**事件定位**评估用。
                 // 与分段指标是两件独立的事 —— 一板可能被完整找到而阶段时刻全错。
                 phaseEvents: s.phaseEvents,
+                // 证据帧 id：关键帧只允许从这里挑（契约 refine 强制）。
+                // 不导出它，「关键帧与证据帧对齐」这条自己就没法自查。
+                evidenceFrameIds: s.evidenceFrameIds,
               });
             },
             onFeedback: () => {},
-            onGroupComplete: () => {},
+            onGroupComplete: (p: EvidencePacket) => {
+              packets.push({
+                keyframes: p.keyframes.map((k) => ({
+                  id: k.id,
+                  frameId: k.frameId,
+                  sourceTimeMs: k.sourceTimeMs,
+                  role: k.role,
+                  strokeId: k.strokeId,
+                  eventTimeOffsetMs: k.eventTimeOffsetMs,
+                })),
+                limitations: p.limitations,
+              });
+            },
           },
         );
 
@@ -272,6 +289,9 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
         let autoCalibrated = false;
         const stepMs = 1000 / fps;
         const totalFrames = Math.floor((durationSec * 1000) / stepMs);
+        // 抽帧节奏取自**产品常量**，不在这里另写一个 3 —— 两边一旦不同，
+        // 量出来的「有几个转变没配上图」就不是线上的那个数
+        const everyNFrames = window.__fixture.KEYFRAME_CAPTURE_EVERY_N_FRAMES;
 
         for (let i = 0; i < totalFrames; i++) {
           const tSec = (i * stepMs) / 1000;
@@ -306,8 +326,23 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
           }
 
           const sourceTimeMs = Math.round(i * stepMs);
+          const frameId = `eval_${i}`;
+          /*
+           * 按**生产节奏**（每 3 帧一张）往缓存里放一张图。
+           *
+           * 字节是**占位符**，不是真的 JPEG：这一步量的是「选帧器挑了哪些帧」，
+           * 而选帧只看**帧 id 与时间戳**，与图像内容无关。这些包也**不发往模型**
+           * （本用例从头到尾不调模型），占位字节不会外流。
+           *
+           * 为什么不用真实的 `createKeyframeCapturer`：它是 fire-and-forget、
+           * **没有 flush**（编码失败只影响那一帧），而评估要在循环结束后**立刻**成组 ——
+           * 真编码会和成组抢时间，测出间歇性的「一张图都没有」。
+           */
+          if (i % everyNFrames === 0) {
+            session.addFramePixels(frameId, sourceTimeMs, new Uint8Array([1, 2, 3, 4]), W, H);
+          }
           session.pushPoseResult({
-            frameId: `eval_${i}`,
+            frameId,
             sourceEpoch: 0,
             sourceTimeMs,
             receivedAtMonoMs: sourceTimeMs,
@@ -358,8 +393,22 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
           });
         }
 
+        /*
+         * 素材喂完 → **成组**，把证据包取出来。
+         *
+         * `emitGroup` 是异步的，而这里没有可 await 的句柄，所以按期等一小会儿
+         * （给 promise 链让出事件循环），再断言包一定到了 —— 用固定 sleep 假装
+         * 一定到，会变成间歇性失败。
+         */
+        session.finishGroup("评估回放结束（素材播完）");
+        for (let i = 0; i < 50 && packets.length === 0; i++) {
+          await new Promise((r) => setTimeout(r, 10));
+        }
+
         const telemetry = session.telemetry;
         session.dispose();
+
+        const group = packets[0] ?? { keyframes: [], limitations: [] };
 
         return {
           video: {
@@ -373,6 +422,10 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
           detectedStrokes: detected,
           droppedIncompleteStrokes: droppedIncomplete,
           lastStatuses: statuses.slice(-8),
+          keyframes: group.keyframes,
+          limitations: group.limitations,
+          /** 成组了没有 —— 没成组时上面的 keyframes 一定是空的，不能当成"没有图" */
+          groupEmitted: packets.length > 0,
           telemetryAtEnd: {
             framesProcessed: telemetry.framesProcessed,
             wristVisible: telemetry.wristVisible,
@@ -380,6 +433,7 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
             segmentationPhase: telemetry.segmentationPhase,
             segmentationSkippedFrames: telemetry.segmentationSkippedFrames,
             segmentationLastAbortReason: telemetry.segmentationLastAbortReason,
+            keyframesMissing: telemetry.keyframesMissing,
           },
           timeline,
         };
@@ -412,6 +466,82 @@ test.describe("真实视频 · 分段回放（供 eval:replay 使用）", () => 
         ),
         `结束时遥测：${JSON.stringify(out.telemetryAtEnd)}`,
         `逐帧观测写到 pose-timeline.json（${timeline.length} 行）`,
+        "",
+      ].join("\n"),
+    );
+
+    /*
+     * ── 关键帧到底挑到了哪几帧（R4 的实测）──
+     *
+     * 这一段要回答的是：**「图锚在检出的阶段转变上」这句话是不是真的**。
+     * 不是"看起来对不对"，而是把每张图到它锚定事件的偏移量出来。
+     *
+     * 边界（必须写清楚，否则这个数字会被读成它没有的含义）：
+     * - 它**只**说明图落在事件时刻上；事件本身准不准要**人工标注的真值**才谈得上
+     *   （评审 §12.7：工程正确性与识别质量分栏报告）。
+     * - 这里的图像字节是占位符（见上面 addFramePixels 处的说明），
+     *   所以它**不**证明图像链路、只证明选帧链路。
+     */
+    interface KfRecord {
+      id: string;
+      frameId: string;
+      sourceTimeMs: number;
+      role: string;
+      strokeId: string;
+      eventTimeOffsetMs: number;
+    }
+    const kfs = (out.keyframes ?? []) as KfRecord[];
+    const strokes = out.detectedStrokes as Array<{
+      strokeId: string;
+      evidenceFrameIds: string[];
+      phaseEvents: Array<{ eventType: string; timeMs: number }>;
+    }>;
+
+    expect(out.groupEmitted, "素材喂完却没有成组 —— 关键帧测量无从谈起").toBe(true);
+    expect(kfs.length, "一板都没挑出图 —— 选帧链路在真实素材上没有产出").toBeGreaterThan(0);
+
+    const byStroke = new Map(strokes.map((s) => [s.strokeId, s]));
+    const atEvent = kfs.filter((k) => k.eventTimeOffsetMs === 0).length;
+    const inPhase = kfs.filter((k) => k.eventTimeOffsetMs > 0).length;
+    for (const k of kfs) {
+      const owner = byStroke.get(k.strokeId);
+      expect(owner, `关键帧 ${k.id} 声明了一个不存在的板 ${k.strokeId}`).toBeDefined();
+      // 契约 refine 强制的两条：属于自己那一板、且是该板的证据帧
+      expect(
+        owner!.evidenceFrameIds,
+        `关键帧 ${k.id} 的帧不属于它声明的板 —— 借了别的板的图`,
+      ).toContain(k.frameId);
+      // 候选只从事件窗内取，所以偏移不可能为负
+      expect(
+        k.eventTimeOffsetMs,
+        `关键帧 ${k.id} 的偏移是负的（${k.eventTimeOffsetMs}）—— 挑到了锚定事件之前的帧`,
+      ).toBeGreaterThanOrEqual(0);
+    }
+
+    const offsets = kfs.filter((k) => k.eventTimeOffsetMs > 0).map((k) => k.eventTimeOffsetMs);
+    const maxOffset = offsets.length > 0 ? Math.max(...offsets) : 0;
+    const kfLimitations = (out.limitations as string[]).filter((l) => l.includes("关键帧锚在"));
+    const missLines = (out.limitations as string[]).filter((l) => l.includes("没有可用画面"));
+
+    console.warn(
+      [
+        "",
+        `关键帧：${kfs.length} 张（板数 ${new Set(kfs.map((k) => k.strokeId)).size}）`,
+        `  恰在转变时刻（偏移 0ms）：${atEvent} 张`,
+        // 不写"其余都是峰值帧"：偏移 > 0 里有**两种**来路（峰值帧 / 退让），
+        // 而包里只有偏移、看不出是哪一种 —— 分不出就说分不出
+        `  同一相位内偏后（偏移 > 0ms）：${inPhase} 张，最大 ${maxOffset}ms`,
+        `    ↑ 含「相位内的腕速峰值帧」与「转变那一刻没采到图、退到窗内最近一张」，`,
+        `      两种的**含义不同**；分开的数字由发端的 limitations 给出（见下）`,
+        `  按角色：${JSON.stringify(
+          kfs.reduce<Record<string, number>>((acc, k) => {
+            acc[k.role] = (acc[k.role] ?? 0) + 1;
+            return acc;
+          }, {}),
+        )}`,
+        ...(kfLimitations.length > 0 ? [`  发端自述：${kfLimitations.join(" / ")}`] : []),
+        `  没配上图的阶段转变：${missLines.length > 0 ? missLines.join(" / ") : "无"}`,
+        `  （图像字节是占位符：这一段证明的是**选帧**落在事件上，不是图像链路）`,
         "",
       ].join("\n"),
     );

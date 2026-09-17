@@ -53,7 +53,13 @@ export const TINY_PACKET = {
       anchor: { type: "wrist_speed_peak", timeMs: 520 },
       impactTimeMs: null,
       complete: true,
-      phaseEvents: [],
+      // 四个事件里的三个：完整的一板至少要有 stroke_closed（分段器无条件写它），
+      // 而关键帧的 role/偏移要能对上真实事件，否则这个包自己就是不自洽的样本。
+      phaseEvents: [
+        { eventType: "backswing_start", timeMs: 300, supportFrameIds: ["f-1"] },
+        { eventType: "forward_start", timeMs: 520, supportFrameIds: ["f-1"] },
+        { eventType: "stroke_closed", timeMs: 900, supportFrameIds: ["f-1"] },
+      ],
       evidenceFrameIds: ["f-1"],
       reasons: [],
     },
@@ -76,9 +82,12 @@ export const TINY_PACKET = {
       jpegBase64:
         "/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q==",
       frameId: "f-1",
+      strokeId: "st-1",
       width: 960,
       height: 540,
       role: "forward",
+      // 就取在 forward_start（520ms）那一刻
+      eventTimeOffsetMs: 0,
     },
   ],
   ruleVersion: "1.0.0",

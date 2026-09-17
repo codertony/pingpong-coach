@@ -18,10 +18,42 @@ export const evidenceKeyframeSchema = z.object({
   jpegBase64: z.string().min(1),
   /** 该帧在姿态链路中的 frameId，用于与数值严格对齐。 */
   frameId: z.string().min(1),
+  /**
+   * 这张图**属于哪一板**（评审 §6.2 第 1 条：每张图标动作编号）。
+   *
+   * 为什么必须有：一组可以有 4 板、每板若干张图，而画面本身看不出是哪一板。
+   * 不给板号时，模型只能拿时间戳去猜对齐 —— 猜错就会把第 3 板的图当成第 1 板的
+   * 证据来讲。下面的 refine 还要求 `frameId` 属于**这一板**，把「借别的板的图」
+   * 从「靠人自觉」变成「包不合法」。
+   */
+  strokeId: z.string().min(1),
   width: z.number().int().positive(),
   height: z.number().int().positive(),
   /** 该帧被选中的理由，例如 backswing / forward / return。 */
   role: z.enum(["backswing", "forward", "return", "ready", "other"]),
+  /**
+   * 距**锚定事件**的带符号毫秒偏移：`sourceTimeMs − 事件时刻`。
+   *
+   * - `0` ⟺ 这一张**就取在该事件的转变时刻**（事件帧）；
+   * - `> 0` ⟺ 取在该事件之后、同一相位内（典型是腕速峰值帧）；
+   * - `< 0` 不应当出现 —— 事件按定义在它开启的相位之前。类型上允许，是因为
+   *   把约束写进类型只会让包静默不合法；真正要守的是**语义**，
+   *   由发端（`selectRepresentativeFrames`）与回归测试保证。
+   *
+   * ## 为什么是「偏移」而不是事件 id，也不是「按什么挑的」枚举
+   *
+   * 评审 §6.2 的字段表里写的是 `eventId`。但（`strokeId`, `role`）已经唯一确定
+   * 锚定事件，且事件时刻可由 `sourceTimeMs − eventTimeOffsetMs` 反推 ——
+   * 再加一个 id 就是**同一事实两处各写各的**（F-026/F-027 栽过好几次）。
+   *
+   * 也**不做成 nullable 的「挑法」标记**（曾经的设计）：选帧器只从事件窗里挑图，
+   * 一张没有锚定事件的图根本不发出来 —— 留一个 `null` 分支等于给一条走不到的路留口子，
+   * 而「这一格永远是真的数」比「这一格有时是 null」强得多。
+   *
+   * ⚠️ 注意这里**没有** `.nonnegative()`（上一行 `sourceTimeMs` 那种）：
+   * 偏移天然是带符号的量。
+   */
+  eventTimeOffsetMs: z.number().finite(),
 });
 
 export type EvidenceKeyframe = z.infer<typeof evidenceKeyframeSchema>;
@@ -119,7 +151,7 @@ export const evidencePacketSchema = z
       .nullable(),
   })
   /**
-   * 关键帧必须属于某一板挥拍的证据帧。
+   * 关键帧必须属于**它自己声明的那一板**的证据帧。
    *
    * 上面那条"必须对齐"原先**只是注释**：schema 里没有任何东西执行它
    * （`keyframes` 只是个普通数组）。后果不只是文档没落实 ——
@@ -127,16 +159,24 @@ export const evidencePacketSchema = z
    * 于是模型可以引用一张**不属于它正在讲的那一板**的图。
    *
    * 改成 `.refine` 让"必须"成为真的：不对齐的包直接判不合法。
-   * 客户端侧也已收窄候选（只从本板证据帧里挑，见 F-029），正常链路不会撞上它。
+   *
+   * ⚠️ **第一版只查了"属于任意一板"**，那是个更弱的条件：只要图是这一组里任何一板的
+   * 证据帧就通过。一组 4 板时，"第 1 板的图配第 3 板的话"照样合法。
+   * 评审 §6.2 第 2 条要求的是「先限同一板、同一事件窗」——
+   * 所以现在按 `strokeId` 收窄到**那一板自己**。
+   *
+   * `find` 找不到时必须返回 `false`（不能写 `?? true` 这种"找不到就放行"）：
+   * 那等于"引用了不存在的板"反而合法。
    */
   .refine(
     (p) => {
-      const evidenceIds = new Set(p.strokes.flatMap((s) => s.evidenceFrameIds));
-      return p.keyframes.every((k) => evidenceIds.has(k.frameId));
+      const byId = new Map(p.strokes.map((s) => [s.strokeId, new Set(s.evidenceFrameIds)]));
+      return p.keyframes.every((k) => byId.get(k.strokeId)?.has(k.frameId) === true);
     },
     {
       message:
-        "keyframes[].frameId 必须与 strokes[].evidenceFrameIds 对齐 —— 不能拿后来的图片配前一帧骨架",
+        "keyframes[].frameId 必须是 keyframes[].strokeId 那一板的 evidenceFrameIds 之一 —— " +
+        "不能拿后来的图片配前一帧骨架，也不能借另一板的图",
       path: ["keyframes"],
     },
   )

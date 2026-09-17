@@ -206,16 +206,29 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds }: Props) {
             <div className="panel">
               <h2>关键帧</h2>
               {selected.packet.keyframes.length > 0 ? (
-                <div className="kf-grid">
-                  {selected.packet.keyframes.map((k) => (
-                    <div className="kf" key={k.id}>
-                      <img src={`data:image/jpeg;base64,${k.jpegBase64}`} alt={k.id} />
-                      <div className="meta">
-                        {k.role} · {k.sourceTimeMs}ms · {k.width}×{k.height}
+                <>
+                  <div className="small muted" style={{ marginBottom: 8 }}>
+                    每张图都<strong>锚在检出的阶段转变</strong>上（角色是状态机口径，
+                    不是解剖学结论；本组没有触球事件）。「距事件」是它与那一刻的差： 0ms
+                    表示就取在转变时刻，正数表示同一相位内偏后（腕速峰值帧就是这样）。
+                  </div>
+                  <div className="kf-grid">
+                    {selected.packet.keyframes.map((k) => (
+                      <div className="kf" key={k.id}>
+                        <img src={`data:image/jpeg;base64,${k.jpegBase64}`} alt={k.id} />
+                        <div className="meta">
+                          {k.role} · {k.sourceTimeMs}ms · {k.width}×{k.height}
+                        </div>
+                        <div className="meta muted">
+                          板 {k.strokeId} · 距事件{" "}
+                          {k.eventTimeOffsetMs === 0
+                            ? "0ms（转变时刻）"
+                            : `+${k.eventTimeOffsetMs}ms`}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </>
               ) : (
                 <div className="small muted">
                   本组没有可展示的关键帧（可能编码失败或缓存已淘汰）。数值测量仍然有效。

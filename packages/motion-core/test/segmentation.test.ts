@@ -335,6 +335,37 @@ describe("StrokeSegmenter — 阶段事件", () => {
     }
   });
 
+  /**
+   * 支撑帧必须**属于这一板**。
+   *
+   * 为什么是一条独立的不变量：`supportFrameIds` 的用途是「拿到时刻之后回到那一帧」，
+   * 而下游（关键帧选取，`selectRepresentativeFrames`）只被允许从**本板的
+   * `evidenceFrameIds`** 里挑图（契约 `evidence.ts` 的 refine 强制）。
+   * 支撑帧只要有一个不在这个集合里，「优先用事件的支撑帧」就会在那一类事件上
+   * **静默失效** —— 挑出来的帧过不了契约，整张图被丢掉，而链路不报错。
+   *
+   * 曾经真的漏了一个：`beginStroke` 收的是「驻留够久」那一帧，而
+   * ready→backswing 的转变走的是 ready 分支，`collectFrame` 只在
+   * backswing / forward / returning 三个分支里被调用 —— 于是 `backswing_start`
+   * 的支撑帧不在证据帧里（另外三个事件恰好都在）。
+   */
+  it("支撑帧必须属于本板的证据帧 —— 否则「用事件的帧挑图」会静默失效", () => {
+    const seg = new StrokeSegmenter(CONFIG);
+    seg.setReadyZone(READY_CENTER);
+    const { event } = feedFullStroke(seg, 0);
+
+    const evidence = new Set(event!.evidenceFrameIds);
+    for (const e of event!.phaseEvents) {
+      for (const frameId of e.supportFrameIds) {
+        expect(
+          evidence.has(frameId),
+          `${e.eventType} 的支撑帧 ${frameId} 不在本板 evidenceFrameIds 里 —— ` +
+            `下游只能从那里挑图，这一张会被静默丢掉`,
+        ).toBe(true);
+      }
+    }
+  });
+
   it("事件类型**只有这四种** —— 没有触球、没有随挥（红线 2：检不出来就不假装有）", () => {
     const allowed = ["backswing_start", "forward_start", "return_start", "stroke_closed"];
     const seg = new StrokeSegmenter(CONFIG);

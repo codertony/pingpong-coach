@@ -253,6 +253,19 @@ export class StrokeSegmenter {
             this.zoneDwellMs = 0;
             if (this.currentStrokeId != null) {
               this.backswingMaxDistBodyScale = distBodyScale;
+              /*
+               * 转变帧**也是这一板的证据帧**，必须在这里收。
+               *
+               * 其余三个事件（forward_start / return_start / stroke_closed）的转变都发生在
+               * backswing / forward / returning 分支里，那几个分支开头就有 `collectFrame`；
+               * 只有这一处走的是 ready 分支，从来没收过。于是 `backswing_start.supportFrameIds`
+               * 指向一个**不在本板 `evidenceFrameIds` 里**的帧。
+               *
+               * 后果不是洁癖：下游（关键帧选取）只被允许从 `evidenceFrameIds` 里挑图
+               * （契约 refine 强制），所以「优先用事件的支撑帧」会在引拍这一类上静默失效 ——
+               * 图被挑中、又过不了契约、最后被丢掉，全程不报错。
+               */
+              this.collectFrame(sample);
               this.enterPhase("backswing", sample.sourceTimeMs, sample.frameId);
             } else {
               this.enterPhase("idle", sample.sourceTimeMs, sample.frameId);

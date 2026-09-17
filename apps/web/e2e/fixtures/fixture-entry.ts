@@ -31,6 +31,7 @@ import { MODEL_ASSET } from "../../src/config/model-asset.js";
 import { TrainingSession } from "../../src/training/training-session.js";
 import { buildTrainingConfig } from "../../src/training/session-config.js";
 import {
+  KEYFRAME_CAPTURE_EVERY_N_FRAMES,
   MAX_KEYFRAME_LONG_EDGE_PX,
   createKeyframeCapturer,
   encodeKeyframeJpeg,
@@ -103,6 +104,8 @@ declare global {
       createKeyframeCapturer: typeof createKeyframeCapturer;
       fitWithinLongEdge: typeof fitWithinLongEdge;
       MAX_KEYFRAME_LONG_EDGE_PX: typeof MAX_KEYFRAME_LONG_EDGE_PX;
+      /** 生产用的抽帧节奏。评估回放要**照着它**喂图，否则量与线上不是一回事 */
+      KEYFRAME_CAPTURE_EVERY_N_FRAMES: typeof KEYFRAME_CAPTURE_EVERY_N_FRAMES;
       /** 造一个真实的 ImageBitmap（用 OffscreenCanvas 生成，不依赖图片文件） */
       makeRealBitmap: (w: number, h: number, color?: string) => Promise<ImageBitmap>;
       /** 造一段真实 Worker 脚本并返回真实 Worker 实例 */
@@ -330,6 +333,7 @@ window.__fixture = {
   createKeyframeCapturer,
   fitWithinLongEdge,
   MAX_KEYFRAME_LONG_EDGE_PX,
+  KEYFRAME_CAPTURE_EVERY_N_FRAMES,
   assignHandsToSides,
   setApiBase,
   runSyntheticGroup,

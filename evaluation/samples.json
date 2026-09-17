@@ -25,7 +25,8 @@
     "step1_exportObservation": {
       "command": "PPC_VERIFY_VIDEO=<素材绝对路径> pnpm --filter @pingpong/web test:e2e segmentation-eval",
       "outputs": [
-        "apps/web/.tmp-eval/segmentation-observed.json —— 逐帧喂入真实 TrainingSession 后检出的挥拍窗口",
+        "apps/web/.tmp-eval/segmentation-observed.json —— 逐帧喂入真实 TrainingSession 后检出的挥拍窗口。每板还带 phaseEvents（阶段转变时刻）与 evidenceFrameIds（本板证据帧），二者是 R4 的两条输入：前者用来评事件定位，后者用来核对关键帧有没有借别的板的图",
+        "apps/web/.tmp-eval/segmentation-observed.json 里的 keyframes —— 成组后证据包里的关键帧（板号、角色、距锚定事件的偏移）。**它只说明图落在事件时刻上，不说明事件检得准**：后者要人工标注的真值（评审 §12.7 要求两栏分开报）",
         "apps/web/.tmp-eval/pose-timeline.json —— 每帧的腕部位置、**当时生效的准备区坐标与实测体尺度**、分段相位（排查用；准备区两列是阈值诊断的输入）",
         "apps/web/.tmp-eval/contact-sheet.png —— 每 0.25 秒一格、时间戳烧进画面的联系表",
         "apps/web/.tmp-eval/strips/*.png —— **分块联系表**（每块 2 秒、格子 100ms，时间戳烧在画面里）。整段压一张表时相邻两格差几十秒，读不出边界；分块之后才读得出（块长可用 PPC_STRIP_SECONDS 覆盖）",

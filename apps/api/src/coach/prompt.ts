@@ -169,14 +169,35 @@ function renderStrokes(packet: EvidencePacket): string {
     .join("\n");
 }
 
+/**
+ * 一张关键帧在提示词里的说头。
+ *
+ * 板号与「距事件偏移」都是 R4 加的：在此之前每张图只有 `角色=forward`，
+ * 而"forward"当时只是**按区间时间比例挑的位置**，不是任何事件 ——
+ * 模型分不出「前挥刚开始那一刻」与「前挥中段」，也不知道这张图属于哪一板
+ * （一组最多 4 板、二十几张图，只能靠时间戳猜）。
+ *
+ * 现在每张图都锚在**检出的阶段转变**上，偏移就是它与那一刻的差：
+ * - `恰在转变时刻` = 就取在事件上；
+ * - `距事件 +220ms` = 同一相位内靠后（典型是腕速峰值帧）。
+ *
+ * 锚点是腕部速度峰值而**不是击球**（红线 2），所以文案里一律说「事件」，
+ * 不说「击球」。
+ */
+function renderKeyframeLine(k: EvidencePacket["keyframes"][number]): string {
+  const offset =
+    k.eventTimeOffsetMs === 0
+      ? "恰在转变时刻"
+      : `距事件 ${k.eventTimeOffsetMs > 0 ? "+" : ""}${k.eventTimeOffsetMs}ms`;
+  return `- ${k.id} @${k.sourceTimeMs}ms，板=${k.strokeId}，角色=${k.role}，${offset}，${k.width}x${k.height}`;
+}
+
 export function buildPrompt(
   packet: EvidencePacket,
   entries: KnowledgeEntry[],
   allowed: AllowedOutputs,
 ): PromptPayload {
-  const keyframeList = packet.keyframes
-    .map((k) => `- ${k.id} @${k.sourceTimeMs}ms，角色=${k.role}，${k.width}x${k.height}`)
-    .join("\n");
+  const keyframeList = packet.keyframes.map(renderKeyframeLine).join("\n");
 
   const user = `# 本次训练任务
 动作类型：${packet.strokeType}
@@ -200,6 +221,9 @@ ${renderFeatures(packet)}
 ${renderFocusCriterion(packet)}
 
 # 可用原始关键帧
+每张图都锚在**检出的阶段转变**上：「板=」是它属于哪一板（就是上面挥拍列表每行的 strokeId），
+「恰在转变时刻」表示这一张就取在那个事件上，「距事件 +Nms」表示同一相位内偏后 N 毫秒。
+本组**没有触球与随挥事件**，所以任何一张图都**不是**击球瞬间的照片。
 ${keyframeList || "（无关键帧）"}
 
 # 适用知识

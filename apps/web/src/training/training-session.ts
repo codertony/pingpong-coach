@@ -15,6 +15,7 @@ import type {
   FeatureValue,
   Keypoint2D,
   PerStrokeFeatures,
+  PhaseEvent,
   PoseFrame,
   RuleCriterion,
   SegmentationConfig,
@@ -51,9 +52,11 @@ import {
   selectRepresentativeFrames,
   buildKeyframes,
   type KeyframeCandidate,
+  type KeyframeEventMiss,
 } from "../evidence/evidence-builder.js";
 import {
   describeKeyframeTrim,
+  keyframeDropRank,
   trimKeyframesToBudget,
   utf8ByteLength,
 } from "../evidence/evidence-budget.js";
@@ -161,6 +164,20 @@ const READY_CALIBRATION_STABLE_BODY_SCALE = 0.1;
 
 /** 还没测到体尺度时，用这个像素值充当尺度基准（仅用于上面的稳定性判断）。 */
 const READY_CALIBRATION_FALLBACK_BODY_SCALE_PX = 200;
+
+/**
+ * 阶段转变的中文说法，只用于**给人读的文案**（状态栏、`limitations`）。
+ *
+ * 键与契约的 `PhaseEvent.eventType` 一一对应。这里是**状态机口径**的说法，
+ * 不是解剖学结论：`forward_start` 是「确认回身并加速向回」那一刻，
+ * 不是「击球」。措辞上刻意避开「击球」二字（红线 2）。
+ */
+const PHASE_EVENT_LABEL: Record<PhaseEvent["eventType"], string> = {
+  backswing_start: "引拍开始",
+  forward_start: "前挥开始",
+  return_start: "还原开始",
+  stroke_closed: "本板闭合",
+};
 
 /** 把姿态结果转成 PoseFrame，并做质量评估。 */
 function toPoseFrame(
@@ -863,6 +880,7 @@ export class TrainingSession {
      * 它是下面区分两种失败模式的唯一依据。
      */
     let availablePixels = 0;
+    const eventMisses: KeyframeEventMiss[] = [];
     const candidates = this.validStrokes.flatMap((s) => {
       const withPixels = poses
         .filter(
@@ -872,20 +890,27 @@ export class TrainingSession {
         .filter((c): c is KeyframeCandidate => c != null);
       availablePixels += withPixels.length;
 
-      return selectRepresentativeFrames(
+      const { picks, eventMisses: misses } = selectRepresentativeFrames(
         // 必须把 evidenceFrameIds 传进去：它决定"哪些帧有资格当关键帧"，
-        // 契约要求关键帧与这一板的证据帧对齐（见 F-029）
+        // 契约要求关键帧与这一板的证据帧对齐（见 F-029）。
+        // strokeId / phaseEvents 是 R4 加的：图要锚在**检出的阶段转变**上，
+        // 并声明自己属于哪一板（契约里两条 refine 都强制）。
         {
+          strokeId: s.strokeId,
           startMs: s.startMs,
           endMs: s.endMs,
           anchor: s.anchor,
           evidenceFrameIds: s.evidenceFrameIds,
+          phaseEvents: s.phaseEvents,
         },
         withPixels,
       );
+      eventMisses.push(...misses);
+      return picks;
     });
 
-    // 关键帧必须与姿态帧通过 frameId 对齐；**阶段角色一并带上**（R2）
+    // 关键帧必须与姿态帧通过 frameId 对齐；**阶段角色一并带上**（R2），
+    // 以及**属于哪一板、锚在哪个事件上偏了多少**（R4）
     const { keyframes, missing } = buildKeyframes(
       candidates,
       this.keyframeCache,
@@ -926,6 +951,45 @@ export class TrainingSession {
       );
     }
 
+    /*
+     * ── 阶段转变没配上图（R4）──
+     *
+     * 与上面那个 `missing` 是**两类事**，所以分开报：
+     * - `missing`：挑中了却取不到像素 —— **链路缺陷**，正常应为 0；
+     * - 这里：该事件的窗口里**根本没有采到图** —— **数据缺失**。
+     *   图片是每 3 帧一张（约 100ms），而前挥那样的窗口可能只有几十毫秒，
+     *   整段落空是正常的，但它必须被说出来：
+     *   「这一板没有图」和「这一板没采到图」读起来一样，含义完全不同。
+     */
+    /*
+     * 挑图结果分成**互斥**的三类（下面要写进 limitations，三类的和必须正好等于张数）：
+     * - 恰在转变时刻（支撑帧，偏移 0）
+     * - 相位内的腕速峰值帧（偏移 > 0，是**故意**取在相位中段的）
+     * - 退让：转变那一刻没采到图，退到该事件窗内最近一张（偏移 > 0，但是**缺图**导致的）
+     *
+     * 峰值帧与退让帧在偏移上看不出区别，所以按 `fromAnchor` 分 —— 不能按偏移猜，
+     * 实测里 12 张偏移 > 0 的图中大多数是退让而不是峰值。
+     */
+    const pickByFrameId = new Map(candidates.map((p) => [p.frameId, p]));
+    const isAnchor = (k: (typeof keyframes)[number]): boolean =>
+      pickByFrameId.get(k.frameId)?.fromAnchor === true;
+    const atEventPicks = keyframes.filter((k) => !isAnchor(k) && k.eventTimeOffsetMs === 0).length;
+    const anchorPicks = keyframes.filter(isAnchor).length;
+    const fallbackPicks = keyframes.length - atEventPicks - anchorPicks;
+    const maxOffsetMs = keyframes.reduce((m, k) => Math.max(m, k.eventTimeOffsetMs), 0);
+    const missLabelOf = (m: KeyframeEventMiss): string => {
+      const idx = this.validStrokes.findIndex((s) => s.strokeId === m.strokeId);
+      const which = idx >= 0 ? `第${idx + 1}板的 ` : "";
+      return `${which}${PHASE_EVENT_LABEL[m.eventType]}`;
+    };
+    if (eventMisses.length > 0) {
+      this.callbacks.onStatus(
+        `本组有 ${eventMisses.length} 个阶段转变没配上画面（${eventMisses
+          .map(missLabelOf)
+          .join("、")}）—— 图片每 3 帧才采一张，短窗口可能整段落空；相关结论只能靠数值`,
+      );
+    }
+
     this.lastRequestId = `${this.groupId}_${Date.now()}`;
     // 与画面上的绿圈、遥测的 wristToZoneRatio 分母**同一处计算**（F-032）。
     // 未测到体尺度时给 null → 包里不带准备区，而不是塞一个编出来的半径。
@@ -950,15 +1014,35 @@ export class TrainingSession {
         "单目二维骨架，无法判断肌肉紧张、发力大小、足底承重或力量传递效率",
         "事件锚点为腕部速度峰值，不是已确认的击球时刻",
         /*
-         * R4：关键帧的 `role`（backswing / forward / return）是**按区间时间比例
-         * 挑的那一帧**，不是检出的事件时刻 —— 引拍那张取的是"起点到锚点的中点"，
-         * 还原那张取的是"锚点到终点的中点"。名字很像事件，容易被读成后者。
+         * R4：关键帧**怎么挑的**必须说清楚。
          *
-         * 现在没有事件检测（那是 P1 的事），所以**如实写进 limitations**：
-         * 与其让模型把"名为 forward 的图"当成击球瞬间，不如先说明它是怎么挑的。
+         * 此前的做法（按区间时间比例挑）已经整条拆掉：分段器从 F-054 起就把
+         * 真实的阶段转变送出来了，继续按比例猜没有理由。所以那句恒发的
+         * 「按区间时间比例挑选」不再成立。
+         *
+         * ⚠️ 这里**必须说"挑的结果"而不是"整组一个模式"**，而且不能把
+         * 「偏移 > 0」一律说成峰值帧 —— 偏移 > 0 有两种来路（见 `KeyframePick`）：
+         * 相位内的腕速峰值帧，或"转变那一刻恰好没采到图、退到窗内最近一张"。
+         * 实测（8.15s / 30fps 素材）：18 张里只有 6 张偏移正好是 0 ——
+         * 把其余 12 张都说成峰值帧就是**假话**，而这正是本仓库最在意的那类缺陷。
          */
         ...(keyframes.length > 0
-          ? ["关键帧按挥拍区间的时间比例挑选，不是检出的事件时刻 —— 不能当作「击球瞬间」的直接证据"]
+          ? [
+              `关键帧锚在**检出的阶段转变**上（引拍／前挥／还原开始、本板闭合）：` +
+                `共 ${keyframes.length} 张，其中 ${atEventPicks} 张就在转变时刻（偏移 0ms）、` +
+                `${anchorPicks} 张是该相位内的**腕速峰值帧**、` +
+                `${fallbackPicks} 张是「转变那一刻没采到图，退到该事件窗内最近一张」` +
+                `（偏移最大 ${maxOffsetMs}ms）。` +
+                `本组**没有**触球与随挥事件（单目二维无可靠接触证据，不假装有）——` +
+                `不要把「前挥开始」读成「击球瞬间」`,
+            ]
+          : []),
+        ...(eventMisses.length > 0
+          ? [
+              `本组有 ${eventMisses.length} 个阶段转变在时间窗内没有可用画面` +
+                `（${eventMisses.map(missLabelOf).join("、")}）——` +
+                `这些时刻只有数值证据，涉及它们的画面结论应当保守`,
+            ]
           : []),
         ...(quality.judgeable ? [] : ["本组画质未达到可判门槛"]),
         // 不足额就说不足额。少了这句，模型会把 1 次挥拍当成本组全部表现来点评
@@ -982,25 +1066,31 @@ export class TrainingSession {
     //
     // 契约写的是"超限**先减少冗余图片并记录降采样**"，而在此之前代码里没有这回事：
     // 服务端只会直接 413 —— 超一点预算，用户**什么都拿不到**。
-    // 客户端手里才有图片，所以这件事在客户端做：从最不关键的那张开始丢，并写进 limitations。
+    // 客户端手里才有图片，所以这件事在客户端做：按**角色优先级**从最不关键的那张开始丢
+    // （`keyframeDropRank`；不是"从数组末尾丢" —— 选帧器现在返回时间序，
+    // 末尾是最后一板的闭合帧，那恰恰不能先丢），并写进 limitations。
     //
     // 用**真实序列化结果**量体积，不做估算（与服务端 `Buffer.byteLength(json,'utf8')` 同口径）：
     // 估偏了会算出"压过了"其实没压过。
-    const trimmed = trimKeyframesToBudget(packet.keyframes, (kept) => {
-      const dropped = packet.keyframes.length - kept.length;
-      return utf8ByteLength(
-        JSON.stringify({
-          ...packet,
-          keyframes: kept,
-          // 丢过图就一定会附上那条说明，所以把它算进体积里 ——
-          // 宁可多压几十字节，也不要"压完还超"
-          limitations:
-            dropped > 0
-              ? [...packet.limitations, describeKeyframeTrim(dropped, 0)]
-              : packet.limitations,
-        }),
-      );
-    });
+    const trimmed = trimKeyframesToBudget(
+      packet.keyframes,
+      (kept) => {
+        const dropped = packet.keyframes.length - kept.length;
+        return utf8ByteLength(
+          JSON.stringify({
+            ...packet,
+            keyframes: kept,
+            // 丢过图就一定会附上那条说明，所以把它算进体积里 ——
+            // 宁可多压几十字节，也不要"压完还超"
+            limitations:
+              dropped > 0
+                ? [...packet.limitations, describeKeyframeTrim(dropped, 0)]
+                : packet.limitations,
+          }),
+        );
+      },
+      keyframeDropRank,
+    );
     if (trimmed.dropped > 0) {
       packet.keyframes = trimmed.kept;
       packet.limitations = [

@@ -190,9 +190,11 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
         sourceTimeMs: 50,
         jpegBase64: "x",
         frameId: "f-1",
+        strokeId: "st-1",
         width: 100,
         height: 100,
         role: "forward" as const,
+        eventTimeOffsetMs: 0,
       },
     ],
     ruleVersion: RULE_VERSION,
@@ -206,9 +208,9 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
     const parsed = evidencePacketSchema.safeParse(alignedPacket());
     expect(parsed.success).toBe(true);
     if (parsed.success) {
-      const strokeFrameIds = new Set(parsed.data.strokes.flatMap((s) => s.evidenceFrameIds));
+      const byId = new Map(parsed.data.strokes.map((s) => [s.strokeId, s.evidenceFrameIds]));
       for (const kf of parsed.data.keyframes) {
-        expect(strokeFrameIds.has(kf.frameId)).toBe(true);
+        expect(byId.get(kf.strokeId)).toContain(kf.frameId);
       }
     }
   });
@@ -234,5 +236,72 @@ describe("证据包关键帧与挥拍引用必须能对齐", () => {
     const noKeyframes = alignedPacket();
     noKeyframes.keyframes = [];
     expect(evidencePacketSchema.safeParse(noKeyframes).success).toBe(true);
+  });
+
+  /**
+   * 「属于任意一板」是个**太弱**的条件。
+   *
+   * 第一版就是这么写的：只要 `frameId` 落在**这一组任何一板**的 `evidenceFrameIds` 里
+   * 就通过。一组 4 板时，「拿第 1 板的图配第 3 板的话」照样合法 ——
+   * 而评审 §6.2 第 2 条要的正是「先限同一板」。
+   */
+  it("**借另一板的图被拒绝**（属于别的板 ≠ 属于这一板）", () => {
+    const twoStrokes = alignedPacket();
+    twoStrokes.strokes = [
+      ...twoStrokes.strokes,
+      {
+        strokeId: "st-2",
+        startMs: 500,
+        endMs: 600,
+        anchor: { type: "wrist_speed_peak" as const, timeMs: 550 },
+        impactTimeMs: null,
+        complete: true,
+        phaseEvents: [],
+        evidenceFrameIds: ["f-2"],
+        reasons: [],
+      },
+    ];
+    twoStrokes.perStrokeFeatures = [
+      { strokeId: "st-1", features: [] },
+      { strokeId: "st-2", features: [] },
+    ];
+    // 图取的是**第 2 板**的证据帧，却声明自己属于**第 1 板**
+    twoStrokes.keyframes[0]!.frameId = "f-2";
+
+    const parsed = evidencePacketSchema.safeParse(twoStrokes);
+    expect(parsed.success, "关键帧借了另一板的证据帧，却通过了校验 —— 「先限同一板」没有落实").toBe(
+      false,
+    );
+  });
+
+  it("`strokeId` 指向不存在的板时被拒绝（找不到不能放行）", () => {
+    const ghost = alignedPacket();
+    ghost.keyframes[0]!.strokeId = "st-不存在";
+
+    const parsed = evidencePacketSchema.safeParse(ghost);
+    expect(
+      parsed.success,
+      "关键帧声明了一个不存在的 strokeId，却通过了校验 —— " +
+        "`find(...) ?? true` 那种「找不到就放行」的写法会漏掉这条",
+    ).toBe(false);
+  });
+
+  it("**距事件偏移是带符号的** —— 负数必须合法（回归：抄成 .nonnegative() 立刻红）", () => {
+    // 这条挡的是一个具体的抄写风险：上一行 `sourceTimeMs` 是 `.nonnegative()`，
+    // 顺手把偏移也写成那样，会让**整个包静默不合法** —— 客户端什么都拿不到，
+    // 而报错只会说"关键帧字段不合法"。
+    // 偏移天然带符号：负数表示那张图取在锚定事件**之前**。
+    const negative = alignedPacket();
+    negative.keyframes[0]!.eventTimeOffsetMs = -120;
+
+    expect(evidencePacketSchema.safeParse(negative).success).toBe(true);
+  });
+
+  it("偏移缺失时被拒绝（这一格永远是真实的数，没有 null 这一说）", () => {
+    const missing = alignedPacket();
+    // @ts-expect-error 故意去掉必填字段
+    delete missing.keyframes[0]!.eventTimeOffsetMs;
+
+    expect(evidencePacketSchema.safeParse(missing).success).toBe(false);
   });
 });

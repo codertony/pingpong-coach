@@ -67,33 +67,47 @@ export function makePacket(overrides: Partial<EvidencePacket> = {}): EvidencePac
       },
     ],
     features: [makeFeature()],
+    /*
+     * 三张图分别锚在上面三个事件上（R4）：
+     * - kf-1 就在 `backswing_start`（1100ms，偏移 0）；
+     * - kf-2 是**相位内的腕速峰值帧**（1520ms = `anchor.timeMs`），
+     *   `forward_start` 在 1400ms ⇒ 偏移 +120ms。留着它，提示词里
+     *   两种说法（「恰在转变时刻」与「距事件 +Nms」）才都被覆盖到；
+     * - kf-3 就在 `return_start`（1700ms，偏移 0）。
+     */
     keyframes: [
       {
         id: "kf-1",
-        sourceTimeMs: 1320,
+        sourceTimeMs: 1100,
         jpegBase64: TINY_JPEG_BASE64,
         frameId: "f-1",
+        strokeId: "stroke-1",
         width: 960,
         height: 540,
         role: "backswing",
+        eventTimeOffsetMs: 0,
       },
       {
         id: "kf-2",
         sourceTimeMs: 1520,
         jpegBase64: TINY_JPEG_BASE64,
         frameId: "f-2",
+        strokeId: "stroke-1",
         width: 960,
         height: 540,
         role: "forward",
+        eventTimeOffsetMs: 120,
       },
       {
         id: "kf-3",
-        sourceTimeMs: 1780,
+        sourceTimeMs: 1700,
         jpegBase64: TINY_JPEG_BASE64,
         frameId: "f-3",
+        strokeId: "stroke-1",
         width: 960,
         height: 540,
         role: "return",
+        eventTimeOffsetMs: 0,
       },
     ],
     ruleVersion: "1.0.0",
