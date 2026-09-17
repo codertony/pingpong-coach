@@ -19,9 +19,36 @@
  * 用法：node scripts/check-docs.mjs
  */
 
+import { execFileSync } from "node:child_process";
 import { readFile, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+/**
+ * 这个路径是不是**被 git 忽略的**（构建产物 / 下载的资产 / 临时目录）。
+ *
+ * 为什么必须区分：文档里会提到 `apps/web/dist`、`apps/web/public/models/`、
+ * 临时导出目录这些**由某个步骤生成、仓库刻意不跟踪**的路径。要求它们此刻存在，
+ * 等于要求"先跑一遍全部步骤，再来跑这个检查" —— 而 `check:docs` 恰好排在
+ * `pnpm verify` 的**中段**（构建之前）。
+ *
+ * 实测的后果：**一份全新的 git clone 上 `pnpm verify` 永远过不了**
+ * （`dist` 还没构建、模型还没下载、临时目录还没生成），而清单里"阶段 1
+ * 一把梭验收"正是让用户在一份新克隆上跑它。
+ *
+ * 判据用 git 自己的话：**仓库不跟踪的东西，文档不欠它存在性**。
+ * 仓库内必须存在的路径（源码、文档、配置）照旧逐个查。
+ */
+function isIgnoredByGit(p) {
+  try {
+    execFileSync("git", ["check-ignore", "-q", p], { cwd: repoRoot, stdio: "ignore" });
+    return true; // 退出码 0 = 被忽略
+  } catch {
+    // 退出码 1 = 没被忽略；git 不可用等其它情况也走这里 ——
+    // 宁可多报（要求它存在），不要静默放宽。
+    return false;
+  }
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, "..");
@@ -71,6 +98,8 @@ async function main() {
   const scripts = new Set(Object.keys(pkg.scripts ?? {}));
 
   const problems = [];
+  /** 有多少条路径因为"仓库刻意不跟踪"而跳过存在性检查（末尾要报出来） */
+  let ignoredSkipped = 0;
   /** doc -> 该文档里出现的"合计 N 项测试"数字，用于跨文档一致性 */
   const totalClaims = new Map();
 
@@ -145,6 +174,11 @@ async function main() {
       const lineEnd = text.indexOf("\n", m.index);
       const line = text.slice(lineStart, lineEnd === -1 ? undefined : lineEnd);
       if (NON_ASSERTION.test(line)) continue;
+      // 被忽略的路径（构建产物 / 下载的资产 / 临时目录）不查存在性 —— 见 isIgnoredByGit
+      if (isIgnoredByGit(p)) {
+        ignoredSkipped++;
+        continue;
+      }
       if (!(await exists(resolve(repoRoot, p)))) {
         problems.push(`${rel}: 引用了 \`${p}\`，但该路径不存在`);
       }
@@ -182,7 +216,13 @@ async function main() {
     totalClaims.size === 1
       ? `（各文档一致声明 ${[...totalClaims.keys()][0]} 项）`
       : "（文档未声明总数）";
-  console.log(`✓ 文档一致性通过：命令、路径、测试总数声明都对得上 ${totalNote}`);
+  console.log(
+    `✓ 文档一致性通过：命令、路径、测试总数声明都对得上 ${totalNote}` +
+      (ignoredSkipped > 0
+        ? `（另有 ${ignoredSkipped} 条路径因为**仓库刻意不跟踪**而跳过存在性检查 —— ` +
+          `构建产物、下载的资产、临时目录；它们只有在跑过对应步骤之后才存在）`
+        : ""),
+  );
 }
 
 main().catch((err) => {
