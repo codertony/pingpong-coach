@@ -15,6 +15,7 @@ import type {
   FeatureValue,
   Keypoint2D,
   PerStrokeFeatures,
+  PhaseEvent,
   PoseFrame,
   RuleCriterion,
   SegmentationConfig,
@@ -78,6 +79,23 @@ export interface TrainingCallbacks {
   onStatus: (text: string) => void;
   /** 本组新增一次有效挥拍 */
   onStroke: (stroke: StrokeEvent) => void;
+}
+
+/**
+ * 本组的逐帧肘角 + 事件 + 各板区间（复查页画曲线用，见 `groupElbowTrace`）。
+ *
+ * 这不是契约里的东西：它的读者是**复查页上那张图**，不进证据包、不发往模型。
+ * 哪一天 P3 的对照层要拿它做机器比较，再按 `MetricTrace` 的形状进契约。
+ */
+export interface ElbowTrace {
+  /** 组区间（第一次挥拍起点 → 最后一次挥拍终点），横轴范围 */
+  intervalMs: [number, number];
+  /** 逐帧样本。`elbowAngleDeg` 为 `null` 表示那一帧测不到（遮挡/出画）—— **不是 0** */
+  samples: Array<{ tMs: number; elbowAngleDeg: number | null }>;
+  /** 阶段转变：曲线上的竖线，用来把形状与"过程"对上 */
+  events: Array<{ strokeId: string; eventType: PhaseEvent["eventType"]; timeMs: number }>;
+  /** 每一板的区间：曲线上标出"这一板从哪到哪" */
+  strokeSpans: Array<{ strokeId: string; startMs: number; endMs: number | null }>;
 }
 
 export interface TrainingTelemetry {
@@ -610,6 +628,56 @@ export class TrainingSession {
     if (verdict.kind === "target_met" || verdict.kind === "suggest_adjustment") {
       this.callbacks.onFeedback(null, verdict);
     }
+  }
+
+  /**
+   * 本组区间内的**逐帧肘角**，供复查页画曲线。
+   *
+   * ## 为什么要有曲线
+   *
+   * 逐板与组级的数都是**标量**（"本组肘角范围 62°"），而"什么时候屈、什么时候伸"
+   * 是**时间形状** —— 标量说不出来。评审 §1.6 的第一行（"小臂有没有明显屈伸"）
+   * 要的正是这条曲线，而且它用的数据**本来就在手里**（`currentGroupWindow` 已经在
+   * 给组级特征供数）。
+   *
+   * ## 为什么不进证据包
+   *
+   * 1. 它的读者是**复查页上的图**，不是模型 —— 往包里塞几十个数只会让提示词更吵、
+   *    请求更大，而"模型真的会用逐帧形状"这件事从未被验证过；
+   * 2. 缺测要**画成断口**，那是渲染层的事。
+   * 将来 P3 的对照层真要拿它做机器比较时，再按 `MetricTrace` 的形状进契约 ——
+   * 那时它才有第二个读者（F-053 的教训：没有读者的字段就是死字段）。
+   *
+   * ## 缺失一律给 `null`
+   *
+   * 红线 1 的同一条精神：**不许用 0 或插值把断口填平**。填平之后曲线看起来"很完整"，
+   * 而它恰好掩盖了最该被看见的东西（摇臂遮挡、身体出画）。
+   * 姿态都没检出的帧**根本不在样本里** —— 那种断口由渲染层按时间间隔判出来，
+   * 也不许连成一条直线。
+   *
+   * 还没有任何一板时返回 `null`（而不是空曲线）：空曲线看起来像"这一组没问题"，
+   * 而事实是"还没有东西可画"。
+   */
+  groupElbowTrace(): ElbowTrace | null {
+    if (this.validStrokes.length === 0) return null;
+    const { interval, geometries } = this.currentGroupWindow();
+    return {
+      intervalMs: interval,
+      samples: geometries.map((g) => ({ tMs: g.sourceTimeMs, elbowAngleDeg: g.elbowAngleDeg })),
+      // 阶段转变也一起给出去：曲线要能与事件对上（评审 §1.2 的分层就是为这个）
+      events: this.validStrokes.flatMap((s) =>
+        s.phaseEvents.map((e) => ({
+          strokeId: s.strokeId,
+          eventType: e.eventType,
+          timeMs: e.timeMs,
+        })),
+      ),
+      strokeSpans: this.validStrokes.map((s) => ({
+        strokeId: s.strokeId,
+        startMs: s.startMs,
+        endMs: s.endMs,
+      })),
+    };
   }
 
   /**

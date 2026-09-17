@@ -17,6 +17,7 @@ import {
 import {
   TrainingSession,
   verdictToSpeech,
+  type ElbowTrace,
   type TrainingTelemetry,
 } from "../training/training-session.js";
 import { drawSkeleton, drawReadyZone } from "../training/skeleton-overlay.js";
@@ -296,7 +297,15 @@ export function App() {
           }
         },
         onGroupComplete: (packet) => {
-          void handleGroup(packet);
+          /*
+           * 逐帧肘角曲线**必须在这里取**，不能等 `handleGroup` 里再取：
+           * `handleGroup` 会先 await 一次模型调用（几秒），期间会话可能已经开了下一组、
+           * 或者被 reset —— 那时 `groupElbowTrace()` 拿到的是**另一组**的区间
+           * （它以 `validStrokes` 为界），画出来的曲线与这一组的数值对不上，
+           * 而且两边都看不出来。
+           */
+          const trace = sessionRef.current?.groupElbowTrace() ?? null;
+          void handleGroup(packet, trace);
         },
       },
     );
@@ -499,9 +508,15 @@ export function App() {
     });
   }, [tab, running, sourceKind, mirrored]);
 
-  /** 一组完成后：发起一次模型分析，并把结果并入复查。 */
+  /**
+   * 一组完成后：发起一次模型分析，并把结果并入复查。
+   *
+   * @param trace 本组的逐帧肘角曲线。由调用方在**回调那一刻**取好传进来 ——
+   *   这里 await 过一次模型调用，之后再取就会拿到下一组的区间
+   *   （见 `onGroupComplete` 处的说明）。
+   */
   const handleGroup = useCallback(
-    async (packet: EvidencePacket) => {
+    async (packet: EvidencePacket, trace: ElbowTrace | null) => {
       const groupAtStart = packet.groupId;
       setStatusText(`本组证据已就绪（${packet.strokes.length} 次挥拍），正在请求分析…`);
       const outcome = await analyzeGroup(packet);
@@ -522,6 +537,7 @@ export function App() {
         // 不记的话，切一次来源就会给一组没有录像的数据配一个回放按钮（或反过来）。
         sourceKind,
         videoFileName: sourceKind === "video" && videoFile ? videoFile.name : null,
+        elbowTrace: trace,
       };
       setReviews((prev) => [item, ...prev].slice(0, 30));
 

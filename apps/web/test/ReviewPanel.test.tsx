@@ -142,6 +142,17 @@ function makeReviewItem(overrides: Partial<ReviewItem> = {}): ReviewItem {
     // 摄像头那条（没有录像）另有专门用例。
     sourceKind: "video",
     videoFileName: "forehand-1.mp4",
+    // 一条能画出线的曲线（两个点就够）；曲线本身的画法在 elbow-curve.test.tsx 里守
+    elbowTrace: {
+      intervalMs: [0, 1000],
+      samples: [
+        { tMs: 0, elbowAngleDeg: 150 },
+        { tMs: 100, elbowAngleDeg: 120 },
+        { tMs: 200, elbowAngleDeg: 90 },
+      ],
+      events: [{ strokeId: "st-1", eventType: "forward_start", timeMs: 100 }],
+      strokeSpans: [{ strokeId: "st-1", startMs: 0, endMs: 1000 }],
+    },
     ...overrides,
   };
 }
@@ -251,8 +262,10 @@ describe("ReviewPanel · 逐板数值与过程", () => {
     expect(text[3]).toContain("本板闭合");
     // 时刻要写出来，用户才能与关键帧的时间戳对上
     expect(text[3]).toContain("1000ms");
-    // 红线 2：不能让用户把这些时刻读成击球
-    expect(screen.getByText(/不是击球时刻/)).toBeInTheDocument();
+    // 红线 2：不能让用户把这些时刻读成击球。
+    // 用**精确匹配**：这半句在页面里是独立的 <strong>，而曲线那一栏写的是
+    // "都不是击球时刻"（多一个字），所以精确匹配不会撞上它。
+    expect(screen.getByText("不是击球时刻")).toBeInTheDocument();
   });
 
   it("**某板自己的值缺失**时显示缺失 + 原因，不填 0", () => {
@@ -319,6 +332,18 @@ describe("ReviewPanel · 逐板数值与过程", () => {
     expect(document.querySelectorAll(".phase-step")).toHaveLength(6);
     // 第二板没有可用测量 —— 逐板表要说出来
     expect(screen.getByText("本板没有可用测量值。")).toBeInTheDocument();
+  });
+
+  it("肘角曲线进来时画出来，没取到时明说而不是画一条空的", () => {
+    renderPanel([makeReviewItem()]);
+    expect(screen.getByText("肘角曲线（逐帧）")).toBeInTheDocument();
+    expect(document.querySelectorAll(".elbow-segment").length).toBeGreaterThan(0);
+  });
+
+  it("没有逐帧几何时**明说**，不画一条空白曲线", () => {
+    renderPanel([makeReviewItem({ elbowTrace: null })]);
+    expect(document.querySelectorAll(".elbow-segment")).toHaveLength(0);
+    expect(screen.getByText(/没有逐帧几何可画/)).toBeInTheDocument();
   });
 
   it("证据包的局限**原样**显示 —— 用户要能看到模型只知道这些", () => {

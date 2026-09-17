@@ -169,5 +169,21 @@ test.describe("导入视频 · 播完必须出结论", () => {
       )
       // 播放会往前走，所以给一个宽松的上界：只要从该板起点开始放即可
       .toBeGreaterThanOrEqual(startMs - 50);
+
+    /*
+     * ⑥ 逐帧肘角曲线：真实素材上要**真的画出线来**（评审 §1.6 第一行）。
+     *
+     * 断言"有折线"而不是"有那个面板"：面板在、线没画出来是最容易发生的失败
+     * （比如所有样本都被判成缺失，或者区间算错导致点全落在框外）。
+     */
+    await expect(page.getByText("肘角曲线（逐帧）")).toBeVisible();
+    await expect
+      .poll(async () => page.locator(".elbow-segment").count(), {
+        timeout: 30_000,
+        message: "曲线那一栏在，但一段线都没画出来",
+      })
+      .toBeGreaterThan(0);
+    // 说明里必须给出覆盖率 —— 缺了多少要看得见，不能只有一条好看的线
+    await expect(page.getByText(/共 \d+\/\d+ 帧测到肘角/)).toBeVisible();
   });
 });

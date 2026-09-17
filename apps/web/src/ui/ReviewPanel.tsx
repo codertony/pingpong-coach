@@ -2,6 +2,8 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import type { CoachFeedback, EvidencePacket, FeatureValue, StrokeEvent } from "@pingpong/contracts";
 import { PHASE_EVENT_LABEL } from "@pingpong/contracts";
 import type { ThresholdConfig } from "@pingpong/motion-core";
+import type { ElbowTrace } from "../training/training-session.js";
+import { ElbowCurve } from "./ElbowCurve.js";
 
 export type UserRating = "helpful" | "inaccurate" | "unclear";
 
@@ -26,6 +28,13 @@ export interface ReviewItem {
   sourceKind: "camera" | "video";
   /** 来源是视频时的文件名，用于确认"要回放的就是这一支" */
   videoFileName: string | null;
+  /**
+   * 本组的逐帧肘角曲线（`null` = 没取到，比如这一组没有任何一板）。
+   *
+   * 为什么挂在复查记录上而不是进证据包：它的读者是**这张图**，不是模型
+   * （见 `TrainingSession.groupElbowTrace` 的说明）。
+   */
+  elbowTrace: ElbowTrace | null;
 }
 
 /** 可回放的那支视频（由上层交出；没有就是没有，不给替代品）。 */
@@ -345,6 +354,21 @@ export function ReviewPanel({ reviews, onRate, onExport, thresholds, replay }: P
               ) : (
                 <div className="small muted">
                   本组没有可展示的关键帧（可能编码失败或缓存已淘汰）。数值测量仍然有效。
+                </div>
+              )}
+            </div>
+
+            <div className="panel">
+              <h2>肘角曲线（逐帧）</h2>
+              <div className="small muted" style={{ marginBottom: 8 }}>
+                标量答不了"什么时候屈、什么时候伸"，这条线答得了。数据是<strong>同一份</strong>
+                逐帧几何 —— 与上面那些从它算出来的数同源，不是重新算一遍。
+              </div>
+              {selected.elbowTrace ? (
+                <ElbowCurve trace={selected.elbowTrace} />
+              ) : (
+                <div className="small muted">
+                  本组没有逐帧几何可画（这一组没有任何一板，或姿态一帧都没跟上）。
                 </div>
               )}
             </div>
