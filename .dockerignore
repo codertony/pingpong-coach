@@ -10,10 +10,13 @@ dist
 **/dist
 .vite
 
-# 模型权重与 wasm 运行时：由 `pnpm models:fetch` 在构建阶段下载并校验 sha256。
+# 模型权重与 wasm 运行时：镜像里由构建自己产出，不从构建上下文带进来。
 # 不排除的话会把本机那份（可能来源不明）直接塞进镜像，绕过了校验。
-# wasm 来自 node_modules，装依赖时就有。
 apps/web/public/models
+# 权重：构建阶段跑 `pnpm models:fetch` 下载并校验 sha256。
+# wasm：来自 node_modules，由 vite.config.ts 的 stage-mediapipe-wasm 插件在
+#       dev/build 启动时铺进 public/wasm（此前谁都不负责这一步 —— 镜像里因此
+#       从来没有 WASM，而 vite build 不会为此报错，见 F-007）。
 apps/web/public/wasm
 
 # Git 与 CI

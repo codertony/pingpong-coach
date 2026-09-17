@@ -2,7 +2,7 @@
  * 仓库自带门禁的**自身**回归。
  *
  * 门禁坏掉是最难发现的一类问题：它照样打印"通过"，只是**扫的东西变少了**。
- * 这与"没有门禁"在结果上完全一样，而看起来更让人放心。这里钉住两条已经出过事的：
+ * 这与"没有门禁"在结果上完全一样，而看起来更让人放心。下面每条都写明它挡的是哪一种静默失败：
  *
  * 1. **接线审计的递归**（F-023）：脚本曾经只扫一层目录，而 `apps/web/src` 与
  *    `apps/api/src` 下面**全是子目录** —— 于是那两个包**一个文件都没扫到**，
@@ -159,5 +159,37 @@ describe("CI 必须逐条覆盖本地 pnpm verify（顺序也一样）", () => {
       positions,
       `CI 里的门禁顺序与本地 verify 不一致：本地 ${JSON.stringify(verifyChain)}，CI ${JSON.stringify(ciSteps)}`,
     ).toEqual([...positions].sort((a, b) => a - b));
+  });
+});
+
+describe("CI 的 e2e 必须自带模型资产", () => {
+  it("e2e job 里下载权重，且在构建之前 —— 否则那 6 条整页链路用例一直 skip", () => {
+    /*
+     * 6 条用例（`app.e2e.ts` 4 条 + `camera-fault.e2e.ts` 2 条）需要真实模型资产，
+     * 缺资产时**整组 skip**（这是对的：不伪装成通过）。但"skip"与"通过"在 CI 上
+     * 长得一模一样 —— 于是这两类只在这条路径上才暴露的缺陷
+     * （F-007 模块 Worker 里能否真正加载 WASM/权重、F-008 采集流有没有接到界面上那个 video）
+     * 在 CI 上长期无人守，而 CI 一直是绿的。
+     *
+     * 顺序也是断言的一部分：`public/models` 要先有，`pnpm build` 才会把它复制进 dist
+     * （集成测试起第二个 API 实例托管 dist），也才会被 dev server 提供。
+     */
+    const ci = readFileSync(resolve(repoRoot, ".github/workflows/ci.yml"), "utf8");
+    const start = ci.indexOf("\n  e2e:");
+    const end = ci.indexOf("\n  docker:");
+    expect(start, "找不到 e2e job").toBeGreaterThan(-1);
+    expect(end, "找不到 docker job（用于界定 e2e job 的边界）").toBeGreaterThan(start);
+
+    const e2eSteps = [...ci.slice(start, end).matchAll(/run:\s*pnpm\s+([^\s&|]+)/g)].map(
+      (m) => m[1]!,
+    );
+    expect(
+      e2eSteps,
+      "CI 的 e2e job 没有 `pnpm models:fetch` —— 那 6 条整页链路用例会在 CI 上静默 skip",
+    ).toContain("models:fetch");
+    expect(
+      e2eSteps.indexOf("models:fetch"),
+      "`pnpm models:fetch` 必须在 `pnpm build` 之前：否则 dist 里没有模型权重",
+    ).toBeLessThan(e2eSteps.indexOf("build"));
   });
 });

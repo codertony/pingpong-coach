@@ -232,22 +232,28 @@ ls -lh apps/web/public/models/pose_landmarker_full.task
 
 - [ ] 文件存在且大小在 8–10 MB 之间（太小说明下到的是错误页）
 
-### 3.2 复制 WASM 运行时
+### 3.2 WASM 运行时：**不用手动复制**（构建会自己铺）
+
+这里原先是一条 `cp` 命令，现在不需要了：起 `vite`（dev 或 build）时，
+`apps/web/vite.config.ts` 的 `stage-mediapipe-wasm` 插件会把
+`apps/web/node_modules/@mediapipe/tasks-vision/wasm/` 下的文件铺进 `apps/web/public/wasm/`。
+所以跑过一次 `pnpm dev` 或 `pnpm build` 之后：
 
 ```bash
-mkdir -p apps/web/public/wasm
-# ⚠️ 路径是 apps/web/node_modules/…，**不是**根目录的 node_modules/…
-#    pnpm 把依赖装在**声明它的那个包**下面，仓库根目录没有 @mediapipe ——
-#    照旧写法会 "No such file or directory"，而后果是 **WASM 一个都没复制进去、
-#    模型加载失败**，也就是 F-007 的症状（"模块 Worker 里加载不了 WASM"）。
-cp apps/web/node_modules/@mediapipe/tasks-vision/wasm/* apps/web/public/wasm/
 ls apps/web/public/wasm/
 ```
 
 **预期**：看到 `vision_wasm_internal.js`、`vision_wasm_internal.wasm` 等文件。
-`ls` 若为空，就是复制没成功 —— **别继续往下走**，后面每一步都会因此失败。
 
-- [ ] WASM 文件已复制
+- [ ] `apps/web/public/wasm/` 里有文件（跑过 dev 或 build 之后）
+
+> **为什么改成自动**：这条路径以前写在文档里 —— 而且**写错过一级**
+> （少了 `apps/web/`，pnpm 把依赖装在**声明它的那个包**下面），照抄的结果是
+> **一个文件都没复制进去、模型加载失败**，也就是 F-007 的症状（"模块 Worker 里加载不了 WASM"）。
+> 更严重的是**生产镜像里根本没有这一步**（`.dockerignore` 排除了 `public/wasm`），
+> 而 `vite build` 对空的 public 目录不报任何错 —— 镜像能构建成功，只是骨架永远出不来。
+> 所以现在由**构建自己做**，并有测试守着（缺包会直接让构建失败）。
+> 详见 `docs/roadmap.md` 的 F-065。
 
 ---
 

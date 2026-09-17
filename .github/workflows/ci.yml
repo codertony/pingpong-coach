@@ -114,6 +114,18 @@ jobs:
       - name: 安装依赖
         run: pnpm install --frozen-lockfile
 
+      - name: 下载模型权重（约 22 MB，校验 sha256）
+        # 为什么 CI 要下模型：`app.e2e.ts`（4 条）与 `camera-fault.e2e.ts`（2 条）
+        # 需要真实模型资产，缺了就整组 skip。而这 6 条覆盖的是 **整页真链路**
+        # —— F-007（Worker 里能否真正加载 WASM/权重）与 F-008（采集流有没有接到
+        # 界面上那个 <video>）都只在这条路径上才暴露。不下模型的话，
+        # CI 的 e2e 一直在"绿"，而这两类缺陷在 CI 上无人守。
+        #
+        # WASM 运行时不必在这里复制：vite.config.ts 的插件在 dev/build 启动时
+        # 自己从 node_modules 铺进 public/wasm（见该插件注释）。
+        # 真实动作识别质量仍然无法在 CI 验证 —— 那需要人工标注，见 docs/acceptance.md。
+        run: pnpm models:fetch
+
       - name: 构建前端产物
         # 集成测试会起第二个 API 实例（live 模式），它要托管 `apps/web/dist`
         # 并提供 SPA 回退。不先构建的话那条链路在 CI 上没有产物可用。
