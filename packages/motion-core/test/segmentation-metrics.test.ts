@@ -14,6 +14,7 @@ import {
   boundaryToleranceMs,
   contactSheetStepMs,
   eventTimeErrors,
+  validateStrokeWindows,
   matchSegments,
   temporalIoU,
   type TimeWindow,
@@ -368,5 +369,71 @@ describe("contactSheetStepMs —— 格子宽度必须由判据推出来", () =>
     expect(contactSheetStepMs(Number.NaN)).toBe(50);
     expect(contactSheetStepMs(0)).toBe(50);
     expect(contactSheetStepMs(-800)).toBe(50);
+  });
+});
+
+/**
+ * 人工标注的机械合法性（标注协议 §10 第 3 条）。
+ *
+ * 这些规则此前只写在协议里**给人看**，没有任何东西执行 —— 而违反它们的后果是
+ * **静默产出无意义的数字**：标反 → IoU 恒为 0（报告读起来像"算法全错"）；
+ * 重叠 → 匹配阶段一次命中被两板抢走；越界 → 永远配不上，同样读成"漏检"。
+ * 也就是说，**标注者的一处笔误会被记到算法头上**，而协议第 4 条明确要求
+ * "记作标注错误，不是记作算法漏检"。
+ */
+describe("validateStrokeWindows —— 标注的机械合法性", () => {
+  it("合法的标注没有问题", () => {
+    expect(
+      validateStrokeWindows(
+        [
+          { startMs: 1000, endMs: 1800 },
+          { startMs: 2000, endMs: 2900 },
+        ],
+        8,
+      ),
+    ).toEqual([]);
+  });
+
+  it("**标反了**要报（否则 IoU 恒为 0，看起来像算法全错）", () => {
+    const p = validateStrokeWindows([{ startMs: 2000, endMs: 1200 }], 8);
+    expect(p).toHaveLength(1);
+    expect(p[0]).toContain("起点 2000 ≥ 终点 1200");
+  });
+
+  it("**两板重叠**要报（否则一次命中会被两板抢）", () => {
+    const p = validateStrokeWindows(
+      [
+        { startMs: 1000, endMs: 2000 },
+        { startMs: 1900, endMs: 2600 },
+      ],
+      8,
+    );
+    expect(p.some((x) => x.includes("重叠"))).toBe(true);
+  });
+
+  it("**超出素材时长**要报（越界的真值永远配不上，会被读成漏检）", () => {
+    const p = validateStrokeWindows([{ startMs: 7000, endMs: 9000 }], 8);
+    expect(p.some((x) => x.includes("超出素材时长"))).toBe(true);
+  });
+
+  it("起点为负要报", () => {
+    const p = validateStrokeWindows([{ startMs: -100, endMs: 500 }], 8);
+    expect(p.some((x) => x.includes("为负"))).toBe(true);
+  });
+
+  it("**拿不到素材时长时不查越界**（不因为不知道就报错）", () => {
+    expect(validateStrokeWindows([{ startMs: 7000, endMs: 9000 }], null)).toEqual([]);
+  });
+
+  it("相邻不重叠的板不算重叠（首尾相接是合法的）", () => {
+    expect(
+      validateStrokeWindows(
+        [
+          { startMs: 1000, endMs: 2000 },
+          { startMs: 2000, endMs: 2600 },
+        ],
+        8,
+      ),
+    ).toEqual([]);
   });
 });

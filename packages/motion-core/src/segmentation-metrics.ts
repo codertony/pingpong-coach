@@ -320,3 +320,52 @@ function percentileOfSorted(sorted: readonly number[], p: number): number | null
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
   return sorted[idx]!;
 }
+
+/**
+ * 人工标注的**机械合法性**（标注协议 §10 第 3 条）。
+ *
+ * ## 为什么必须有
+ *
+ * 在此之前这些规则只写在协议里**给人看**，没有任何东西执行。而违反它们的后果是
+ * **静默产出无意义的数字**，不是报错：
+ * - `startMs >= endMs`（标反了）→ IoU 恒为 0，报告读起来就是"算法全错"；
+ * - 两板重叠 → 匹配阶段按 IoU 贪心配对，一板可能把另一板的命中抢走；
+ * - 越界（超出素材时长）→ 永远配不上，同样读成"漏检"。
+ *
+ * 也就是说：**标注者的一处笔误会被记到算法头上**。协议 §10 第 4 条明确要求
+ * "记作**标注错误**，不是记作算法漏检" —— 这里就是那条要求落地的地方。
+ *
+ * ## 处置：这一样本**不计入指标**，并大声说明
+ *
+ * 不是"修复后再算"（脚本无从知道应该改成什么），也不是"照样算"（那正是要避免的）。
+ * 与"缺真值就不给数字"同一条纪律：**宁可不给，不给一个假的**。
+ */
+export function validateStrokeWindows(
+  windows: readonly TimeWindow[],
+  durationSec: number | null,
+): string[] {
+  const problems: string[] = [];
+  for (const [i, w] of windows.entries()) {
+    if (w.startMs >= w.endMs) {
+      problems.push(`第 ${i + 1} 板起点 ${w.startMs} ≥ 终点 ${w.endMs}（标反了？IoU 会恒为 0）`);
+    }
+    if (w.startMs < 0) problems.push(`第 ${i + 1} 板起点为负（${w.startMs}）`);
+    if (durationSec != null && w.endMs > durationSec * 1000 + 1) {
+      problems.push(
+        `第 ${i + 1} 板终点 ${w.endMs}ms 超出素材时长 ${Math.round(durationSec * 1000)}ms`,
+      );
+    }
+  }
+  // 重叠：按起点排序后，前一板的终点不该越过下一板的起点
+  const sorted = [...windows].sort((a, b) => a.startMs - b.startMs);
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = sorted[i - 1]!;
+    const cur = sorted[i]!;
+    if (cur.startMs < prev.endMs) {
+      problems.push(
+        `第 ${i} 板（${prev.startMs}–${prev.endMs}）与第 ${i + 1} 板（${cur.startMs}–${cur.endMs}）重叠`,
+      );
+    }
+  }
+  return problems;
+}

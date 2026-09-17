@@ -26,6 +26,7 @@ import {
   eventPercentileOfSorted,
   eventTimeErrors,
   matchSegments,
+  validateStrokeWindows,
   type EventTimeErrorRow,
   type TimedEvent,
   type TimeWindow,
@@ -62,8 +63,8 @@ interface Sample {
 }
 interface ObservedFile {
   detectedStrokes?: RawStroke[];
-  /** 源视频信息，用来**推导**事件容差（见下） */
-  video?: { fps?: unknown };
+  /** 源视频信息：帧率用来**推导**事件容差，时长用来查**越界**的标注 */
+  video?: { fps?: unknown; durationSec?: unknown };
 }
 interface Manifest {
   samples?: Sample[];
@@ -323,6 +324,7 @@ async function main(): Promise<void> {
     let detected: TimeWindow[] = [];
     let detectedEvents: TimedEvent[] = [];
     let sourceFps: unknown = null;
+    let sourceDurationSec: number | null = null;
     let observedLoaded = false;
     if (typeof s.observedFile === "string") {
       try {
@@ -335,6 +337,10 @@ async function main(): Promise<void> {
           (st) => toEvents(st.phaseEvents).events,
         );
         sourceFps = obs.video?.fps ?? null;
+        sourceDurationSec =
+          typeof obs.video?.durationSec === "number" && Number.isFinite(obs.video.durationSec)
+            ? obs.video.durationSec
+            : null;
         observedLoaded = true;
       } catch (err) {
         console.warn(
@@ -348,6 +354,23 @@ async function main(): Promise<void> {
       const why = truth.length === 0 ? "缺人工标注" : "缺回放观测";
       skipped.push(`${id}（${why}）`);
       perSample.push({ id, skipped: why });
+      continue;
+    }
+
+    /*
+     * 标注的**机械合法性**（标注协议 §10 第 3 条）—— 违反就**不计算**，
+     * 并明确记成「标注错误」。理由见 `validateAnnotation` 的说明：
+     * 标反、重叠、越界都会让结果读起来像"算法全错"，而那其实是标注笔误。
+     */
+    const annotationProblems = validateStrokeWindows(truth, sourceDurationSec);
+    if (annotationProblems.length > 0) {
+      console.warn(
+        `! ${id}: 标注有 ${annotationProblems.length} 处问题 —— 本样本**不计入指标**` +
+          `（记作**标注错误**，不是算法漏检）：\n` +
+          annotationProblems.map((p) => `    · ${p}`).join("\n"),
+      );
+      skipped.push(`${id}（标注错误）`);
+      perSample.push({ id, skipped: "标注错误", problems: annotationProblems });
       continue;
     }
 
