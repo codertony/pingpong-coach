@@ -10,6 +10,7 @@
  */
 
 import { FilesetResolver, HandLandmarker, PoseLandmarker } from "@mediapipe/tasks-vision";
+import { createMonotonicTimestamp } from "./monotonic-timestamp.js";
 import {
   HAND_LANDMARK_NAMES,
   KEYPOINT_NAMES,
@@ -161,7 +162,7 @@ async function loadWasmFactory(loaderUrl: string): Promise<void> {
 async function initLandmarker(msg: WorkerInitMessage): Promise<WorkerReadyMessage> {
   const started = Date.now();
   // 每次重新初始化都从"无历史"开始，避免沿用上一个实例的时间戳基线
-  lastDetectTimestampMs = Number.NEGATIVE_INFINITY;
+  detectClock.reset();
   handErrorReported = false;
   const vision = await FilesetResolver.forVisionTasks(msg.wasmBasePath);
 
@@ -340,39 +341,18 @@ function pixelToKeypoint(name: string, p: { x: number; y: number }): Keypoint2D 
   };
 }
 
-/** 上一次交给 MediaPipe 的时间戳，用于保证严格递增。 */
-let lastDetectTimestampMs = Number.NEGATIVE_INFINITY;
+/** 交给 MediaPipe 的时间戳时钟（F-011：必须严格递增，否则推理静默死掉）。 */
+const detectClock = createMonotonicTimestamp();
 
 /** 手部检测错误只报一次，避免逐帧刷屏掩盖真正的问题。 */
 let handErrorReported = false;
-
-/**
- * 把媒体时间单调化后再交给 MediaPipe。
- *
- * 为什么必须做：`detectForVideo` 的 timestamp 必须**严格递增**，否则
- * 计算图直接报 `Packet timestamp mismatch`，且**之后每一帧都会继续失败**
- * —— 整条推理静默死掉，界面只是不再更新骨架。
- *
- * 触发场景很常见：导入视频循环播放时媒体时间会从结尾跳回 0；
- * seek 重播同理。用户看到的现象就是"视频里明明有挥拍，却一直等待有效挥拍"。
- *
- * 只改传给引擎的时间戳，**不改**投影到 PoseFrame 的 sourceTimeMs ——
- * 那是源视频的真实媒体时间，改了就破坏了它作为速度基准的含义。
- */
-function monotonicDetectTimestamp(mediaTimeMs: number): number {
-  const candidate = Math.max(0, mediaTimeMs);
-  // 回绕或 seek 会让时间倒退，这里抬到"上一个 + 1ms"，
-  // 保证严格递增且不产生过大的跳跃。
-  lastDetectTimestampMs = candidate > lastDetectTimestampMs ? candidate : lastDetectTimestampMs + 1;
-  return lastDetectTimestampMs;
-}
 
 function detect(msg: WorkerDetectMessage): WorkerResultMessage {
   if (!landmarker) {
     throw new Error("模型尚未初始化");
   }
   const started = performance.now();
-  const timestamp = monotonicDetectTimestamp(msg.sourceTimeMs);
+  const timestamp = detectClock.next(msg.sourceTimeMs);
   const result = landmarker.detectForVideo(msg.bitmap, timestamp);
 
   const landmarks = result.landmarks?.[0];

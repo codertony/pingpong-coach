@@ -38,7 +38,7 @@
 | 数据契约（zod） | `[x]` | contracts 44 项测试 |
 | 纯计算核心 | `[x]` | motion-core 244 项测试（含准备区标定、手部几何、肘角伸展、分段评估匹配、合并机制量化、分布谷底判据） |
 | 后端 + Mock 适配器 | `[x]` | api 214 项测试（含 1 项按需跳过）|
-| 前端采集链路 | `[x]` | web 188 项 vitest + 74 项浏览器测试 |
+| 前端采集链路 | `[x]` | web 195 项 vitest + 74 项浏览器测试 |
 | 依赖方向护栏 | `[x]` | ESLint boundaries + no-restricted-imports，四条违规路径逐一验证会报错 |
 | 提交前门禁 | `[x]` | husky + lint-staged（eslint --max-warnings=0 + prettier） |
 | CI 流水线 | `[x]` | `.github/workflows/ci.yml`：**verify + e2e + docker 三个 job**。docker job 只验证镜像能构建（拦住 Dockerfile 被改坏），不起容器 |
@@ -119,10 +119,10 @@
 contracts      44
 motion-core   244
 api           214
-web (vitest)  188
+web (vitest)  195
 web (Playwright/真 Chrome) 74
 ─────────────────────────────
-合计          764
+合计          771
 ```
 
 ---
