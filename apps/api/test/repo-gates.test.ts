@@ -193,3 +193,73 @@ describe("CI 的 e2e 必须自带模型资产", () => {
     ).toBeLessThan(e2eSteps.indexOf("build"));
   });
 });
+
+describe("生产镜像的内容（本机没有 docker，只能在这里钉）", () => {
+  /*
+   * F-065 就是这么发生的：`.dockerignore` 排除了 `apps/web/public/wasm`（并注明
+   * "wasm 来自 node_modules，装依赖时就有"），而构建里**没有任何一步**把它复制过去 ——
+   * `vite build` 对空的 public 目录不报错，于是镜像能构建成功、健康检查也过，
+   * 只是骨架永远出不来。而这条链路**本机无法验证**（没有 docker，见 A7），
+   * 所以它能悄悄回来：改一行 `.dockerignore` 或删掉铺文件那一步，没有任何东西会红。
+   *
+   * 这里钉住的是一条**不变量**，不是某几行字：
+   * **凡是被 `.dockerignore` 挡在构建上下文之外的东西，构建里都必须有一步把它产出来。**
+   * 挡在门外 + 没人产出 = 镜像缺件，而这是**静默**的。
+   */
+  const dockerfile = readFileSync(resolve(repoRoot, "Dockerfile"), "utf8");
+  const dockerignore = readFileSync(resolve(repoRoot, ".dockerignore"), "utf8");
+  const viteConfig = readFileSync(resolve(repoRoot, "apps/web/vite.config.ts"), "utf8");
+
+  it("被排除的 public 资产，构建里都有一步把它产出来", () => {
+    const excluded = (p: string) => new RegExp(`^${p}\\s*$`, "m").test(dockerignore);
+
+    if (excluded("apps/web/public/models")) {
+      expect(
+        dockerfile,
+        "`.dockerignore` 排除了 `apps/web/public/models`，而 Dockerfile 里没有一步" +
+          "`pnpm models:fetch` —— 镜像里会没有模型权重，而构建照样成功",
+      ).toContain("pnpm models:fetch");
+    }
+    if (excluded("apps/web/public/wasm")) {
+      // ⚠️ 断言的是"**接上了**"，不是"文件里出现过这几个字"。
+      // 第一版写成 `toContain("stageMediapipeWasm")` —— 于是把插件从 `plugins` 数组里
+      // 拿掉、只留函数定义，它照样绿（我实测过）。这正是 F-065 的形态：
+      // 代码写着、但**没有一步真的会跑它**。
+      const pluginsArray = /plugins:\s*\[([^\]]*)\]/.exec(viteConfig)?.[1] ?? "";
+      expect(
+        pluginsArray,
+        "`.dockerignore` 排除了 `apps/web/public/wasm`，而 `plugins` 数组里没有" +
+          "`stageMediapipeWasm()`（定义了却没接上，等于没有）—— " +
+          "镜像里会没有 WASM 运行时（F-065：界面正常、就是没有骨架）",
+      ).toContain("stageMediapipeWasm()");
+    }
+  });
+
+  it("资产必须赶在构建之前产出，dist 才带得上", () => {
+    // 只在 `RUN` 行里找：Dockerfile 的**注释**里也写着 `pnpm build`（第 58 行那句说明），
+    // 用 indexOf 找子串会被注释满足 —— 那样"构建提到下载之前"也照样绿。
+    const runLineIndex = (needle: string): number => {
+      const m = new RegExp(`^RUN .*${needle}.*$`, "m").exec(dockerfile);
+      return m ? m.index : -1;
+    };
+    const iFetch = runLineIndex("models:fetch");
+    const iBuild = runLineIndex("pnpm build");
+    expect(iFetch, "Dockerfile 里没有 `RUN ... models:fetch`").toBeGreaterThan(-1);
+    expect(iBuild, "Dockerfile 里没有 `RUN pnpm build`").toBeGreaterThan(-1);
+    expect(
+      iBuild,
+      "`pnpm build` 在 `pnpm models:fetch` 之前 —— 那时 public/models 还是空的，" +
+        "vite 会把一个没有权重的 dist 打进镜像",
+    ).toBeGreaterThan(iFetch);
+  });
+
+  it("运行阶段带着 dist、knowledge 与 tsx 入口", () => {
+    // API 自己托管 dist（含 WASM 与权重）；缺 knowledge 时 analyze 会直接失败；
+    // tsx 的路径必须是 apps/api 下的（装在声明它的那个包里）—— 三处都踩过。
+    expect(dockerfile, "运行阶段没复制 dist 或 knowledge").toMatch(
+      /COPY --from=builder \/app\/apps\/web\/dist\s+\.\/apps\/web\/dist/,
+    );
+    expect(dockerfile).toMatch(/COPY --from=builder \/app\/knowledge\s+\.\/knowledge/);
+    expect(dockerfile).toMatch(/apps\/api\/node_modules\/tsx/);
+  });
+});
