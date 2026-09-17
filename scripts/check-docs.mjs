@@ -40,14 +40,25 @@ import { fileURLToPath } from "node:url";
  * 仓库内必须存在的路径（源码、文档、配置）照旧逐个查。
  */
 function isIgnoredByGit(p) {
-  try {
-    execFileSync("git", ["check-ignore", "-q", p], { cwd: repoRoot, stdio: "ignore" });
-    return true; // 退出码 0 = 被忽略
-  } catch {
-    // 退出码 1 = 没被忽略；git 不可用等其它情况也走这里 ——
-    // 宁可多报（要求它存在），不要静默放宽。
-    return false;
+  /*
+   * 问两个路径：它自己，以及**一个假想的子路径**。
+   *
+   * 为什么必须问子路径：`dist/` 这类**以斜杠结尾**的规则只匹配"目录"，
+   * 而 git 判断一个路径是不是目录**要看它在磁盘上存不存在**。全新克隆里构建产物
+   * 还没生成，于是 `git check-ignore apps/web/dist` 会回答"没被忽略"
+   * —— 实测：同一份 `.gitignore`，我的树 exit 0，全新克隆 exit 1。
+   * 问它的子路径（`apps/web/dist/x`）就绕开了"必须先存在"这个前提。
+   */
+  for (const probe of [p, `${p}/.check-docs-probe`]) {
+    try {
+      execFileSync("git", ["check-ignore", "-q", probe], { cwd: repoRoot, stdio: "ignore" });
+      return true; // 退出码 0 = 被忽略
+    } catch {
+      // 退出码 1 = 这一条没被忽略，继续试下一条
+    }
   }
+  // 两条都没被忽略（或 git 不可用）→ 如实要求它存在：宁可多报，不要静默放宽
+  return false;
 }
 
 const here = dirname(fileURLToPath(import.meta.url));
