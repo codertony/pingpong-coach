@@ -129,9 +129,10 @@ mkdir -p apps/web/public/models
 curl -L -o apps/web/public/models/pose_landmarker_full.task \
   https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/latest/pose_landmarker_full.task
 
-# 2. 复制 WASM 运行时
+# 2. 复制 WASM 运行时（路径在 apps/web/node_modules 下 —— pnpm 把依赖装在声明它的包里，
+#    根目录的 node_modules/@mediapipe 不存在；写错了会一个文件都复制不进去）
 mkdir -p apps/web/public/wasm
-cp node_modules/@mediapipe/tasks-vision/wasm/* apps/web/public/wasm/
+cp apps/web/node_modules/@mediapipe/tasks-vision/wasm/* apps/web/public/wasm/
 
 # 3. 启动并肉眼确认骨架贴合
 pnpm --filter @pingpong/web dev

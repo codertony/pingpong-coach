@@ -236,11 +236,16 @@ ls -lh apps/web/public/models/pose_landmarker_full.task
 
 ```bash
 mkdir -p apps/web/public/wasm
-cp node_modules/@mediapipe/tasks-vision/wasm/* apps/web/public/wasm/
+# ⚠️ 路径是 apps/web/node_modules/…，**不是**根目录的 node_modules/…
+#    pnpm 把依赖装在**声明它的那个包**下面，仓库根目录没有 @mediapipe ——
+#    照旧写法会 "No such file or directory"，而后果是 **WASM 一个都没复制进去、
+#    模型加载失败**，也就是 F-007 的症状（"模块 Worker 里加载不了 WASM"）。
+cp apps/web/node_modules/@mediapipe/tasks-vision/wasm/* apps/web/public/wasm/
 ls apps/web/public/wasm/
 ```
 
 **预期**：看到 `vision_wasm_internal.js`、`vision_wasm_internal.wasm` 等文件。
+`ls` 若为空，就是复制没成功 —— **别继续往下走**，后面每一步都会因此失败。
 
 - [ ] WASM 文件已复制
 

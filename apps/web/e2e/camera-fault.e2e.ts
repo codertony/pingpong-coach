@@ -12,7 +12,27 @@
  * 用例抓住（真实拔设备时浏览器是否派发事件取决于实现，不能只依赖事件）。
  */
 
+import { existsSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
+
+const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * 模型资产在不在。**不在时必须跳过，而不是失败。**
+ *
+ * 这条纪律本仓库到处都在用（`app.e2e.ts` 的同一句、以及所有 `PPC_VERIFY_VIDEO` 探针），
+ * 而这两个用例此前**漏了**它，后果实测过：一份全新克隆（或 CI）上，它们会在
+ * "等练习页出现"那里**超时 90 秒**，报错是 `expected 练习, got 拍摄检查` ——
+ * 读起来像界面坏了，其实只是**没下模型**（`pnpm models:fetch` 与复制 WASM 是
+ * 清单的**阶段 3**，而 `pnpm test:e2e` 在**阶段 2**：照清单顺序做，必然先撞上这个）。
+ *
+ * 一个"看起来像真缺陷"的假失败，会把真信号淹掉 —— 这比测试少跑两条更糟。
+ */
+const assetsPresent =
+  existsSync(resolve(webRoot, "public/models/pose_landmarker_full.task")) &&
+  existsSync(resolve(webRoot, "public/wasm/vision_wasm_internal.js"));
 
 /** 结束页面上那个 <video> 持有的所有轨道，模拟摄像头消失。 */
 async function killCameraTracks(page: import("@playwright/test").Page): Promise<void> {
@@ -23,6 +43,13 @@ async function killCameraTracks(page: import("@playwright/test").Page): Promise<
 }
 
 test.describe("摄像头中途不可用", () => {
+  /** 要走到"开始训练 → 练习页"，必须先有模型资产（同 `app.e2e.ts` 的那句）。 */
+  test.skip(
+    !assetsPresent,
+    "缺少模型资产（apps/web/public/models、apps/web/public/wasm）——" +
+      " 先跑 pnpm models:fetch 与复制 WASM，见 docs/local-verification.md 阶段 3",
+  );
+
   test("轨道消失后界面如实报错并停止，不再假装在采集", async ({ page }) => {
     test.setTimeout(120_000);
 
